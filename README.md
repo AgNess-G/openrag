@@ -1,2 +1,0 @@
-# openrag
-OpenRAG repository
