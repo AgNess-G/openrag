@@ -164,10 +164,12 @@ function ModelsApp() {
         <>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Language model</CardTitle>
-              <CardDescription>Model used for chat. Apply to save.</CardDescription>
+              <CardTitle className="text-lg">Language model</CardTitle>
+              <CardDescription>
+                Model used for chat. Apply to save.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-6">
               <Label htmlFor="llm-select" className="sr-only">
                 Select language model
               </Label>
@@ -193,12 +195,12 @@ function ModelsApp() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Embedding model</CardTitle>
+              <CardTitle className="text-lg">Embedding model</CardTitle>
               <CardDescription>
-                Model used for knowledge ingest. Apply to save.
+                Model used for knowledge ingest and retrieval. Apply to save.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-6">
               <Label htmlFor="emb-select" className="sr-only">
                 Select embedding model
               </Label>

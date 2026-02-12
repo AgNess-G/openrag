@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build:settings && npm run build:models",
+    "build": "npm run build:settings && npm run build:models && npm run build:model-providers && npm run build:agent-settings && npm run build:knowledge-settings",
     "build:settings": "INPUT=settings-app.html vite build",
-    "build:models": "INPUT=models-app.html vite build"
+    "build:models": "INPUT=models-app.html vite build",
+    "build:model-providers": "INPUT=model-providers-app.html vite build",
+    "build:agent-settings": "INPUT=agent-settings-app.html vite build",
+    "build:knowledge-settings": "INPUT=knowledge-settings-app.html vite build"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.0.0",
+    "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-select": "^2.2.5",
     "@radix-ui/react-slot": "^1.2.4",

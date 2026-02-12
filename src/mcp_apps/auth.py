@@ -3,6 +3,7 @@ ASGI middleware for MCP HTTP endpoint authentication using ORAG API keys.
 """
 from starlette.responses import JSONResponse
 
+from config.settings import is_no_auth_mode
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -48,6 +49,12 @@ class McpAuthMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Skip authentication if in no-auth mode (OAuth not configured)
+        if is_no_auth_mode():
+            logger.debug("MCP auth bypassed: running in no-auth mode")
             await self.app(scope, receive, send)
             return
 
