@@ -657,3 +657,27 @@ async def test_router_upload_ingest_traditional(tmp_path: Path, disable_langflow
             await clients.close()
         except Exception:
             pass
+
+
+@pytest.mark.asyncio
+async def test_mcp_endpoint_requires_api_key():
+    """MCP Apps HTTP endpoint at /mcp must return 401 without a valid API key."""
+    os.environ["DISABLE_STARTUP_INGEST"] = "true"
+    os.environ["GOOGLE_OAUTH_CLIENT_ID"] = ""
+    os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = ""
+
+    import sys
+    for mod in list(sys.modules.keys()):
+        if mod and (mod.startswith("src.main") or mod.startswith("mcp_apps")):
+            sys.modules.pop(mod, None)
+
+    from src.main import create_app
+
+    app = await create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # POST /mcp/ without X-API-Key or Authorization -> 401 (use /mcp/ so path "/" matches in mounted app)
+        r = await client.post("/mcp/", json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}})
+        assert r.status_code == 401, f"Expected 401 without API key, got {r.status_code}: {r.text}"
+        body = r.json()
+        assert "error" in body or "message" in body
