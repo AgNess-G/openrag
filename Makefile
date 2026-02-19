@@ -457,10 +457,13 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 	echo "  - Delete JWT keys (private_key.pem, public_key.pem)"; \
 	echo "  - Remove local OpenRAG images"; \
 	echo ""; \
-	read -p "Are you sure? Type 'yes' to continue: " confirm; \
-	if [ "$$confirm" != "yes" ]; then \
-		echo "$(CYAN)Factory reset cancelled.$(NC)"; \
-		exit 0; \
+	echo ""; \
+	if [ "$(FORCE)" != "true" ]; then \
+		read -p "Are you sure? Type 'yes' to continue: " confirm; \
+		if [ "$$confirm" != "yes" ]; then \
+			echo "$(CYAN)Factory reset cancelled.$(NC)"; \
+			exit 0; \
+		fi; \
 	fi; \
 	echo ""; \
 	echo "$(YELLOW)Stopping all services and removing volumes...$(NC)"; \
@@ -471,7 +474,6 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 		uv run python scripts/clear_opensearch_data.py 2>/dev/null || \
 		$(CONTAINER_RUNTIME) run --rm -v "$$(pwd)/opensearch-data:/data" alpine sh -c "rm -rf /data/*" 2>/dev/null || \
 		rm -rf opensearch-data/* 2>/dev/null || true; \
-		rm -rf opensearch-data 2>/dev/null || true; \
 		echo "$(PURPLE)opensearch-data removed$(NC)"; \
 	fi; \
 	if [ -d "config" ]; then \
