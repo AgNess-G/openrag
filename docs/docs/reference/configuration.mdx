@@ -108,13 +108,6 @@ For better security, it is recommended to set `LANGFLOW_SUPERUSER_PASSWORD` so t
 | `LANGFUSE_HOST` | Not set | Leave empty for Langfuse Cloud. Required for self-hosted Langfuse deployments if `LANGFUSE_SECRET_KEY` and `LANGFUSE_PUBLIC_KEY` are set. The address must be relative to the OpenRAG container deployment. For example, `http://localhost:3002` or `http://host.docker.internal:3000`. |
 | `LANGFLOW_TIMEOUT` | `2400` | Total Langflow HTTP timeout limit in seconds. Increase this value if you experience timeouts when ingesting very large PDFs. See also [`INGESTION_TIMEOUT`](#document-processing-settings).|
 | `LANGFLOW_CONNECT_TIMEOUT` | `30` | Langflow HTTP connection timeout limit in seconds. Increase this value if you experience timeouts when ingesting very large PDFs. |
-
-<!-- Author's Note: Don't delete the commented-out variables. I am in the process of determining which ones can be set in the .env and which cannot. See issue #568 -->
-
-<!-- | `LANGFLOW_KEY` | Automatically generated | A Langflow API key to run flows with Langflow API calls. Because Langflow API keys are server-specific, allow OpenRAG to generate this key initially. You can create additional Langflow API keys after deploying OpenRAG. | -->
-<!-- | `LANGFLOW_KEY_RETRIES` | `15` | Number of retries for Langflow key generation. | -->
-<!-- | `LANGFLOW_KEY_RETRY_DELAY` | `2.0` | Delay between retries in seconds. | -->
-| `LANGFLOW_CONNECT_TIMEOUT` | `30` | Langflow HTTP connection timeout limit in seconds. Increase this value if you experience timeouts when ingesting very large PDFs. |
 | `LANGFLOW_KEY` | Automatically generated | A Langflow API key to run flows with Langflow API calls. Because Langflow API keys are server-specific, allow OpenRAG to generate this key initially. You can create additional Langflow API keys after deploying OpenRAG. |
 | `LANGFLOW_KEY_RETRIES` | `15` | Number of retries for Langflow key generation. |
 | `LANGFLOW_KEY_RETRY_DELAY` | `2.0` | Delay between retries in seconds. |
@@ -145,11 +138,7 @@ Configure OpenSearch database authentication.
 | `OPENSEARCH_DATA_PATH` | `./opensearch-data` | The path where OpenRAG creates your OpenSearch index data. This persists through updates. |
 | `OPENSEARCH_PASSWORD` | Not set | Required. OpenSearch administrator password. Must adhere to the [OpenSearch password complexity requirements](https://docs.opensearch.org/latest/security/configuration/demo-configuration/#setting-up-a-custom-admin-password). You must set this directly in the `.env` or in the TUI's [**Basic/Advanced Setup**](/install-uvx#setup). |
 | `OPENSEARCH_INDEX_NAME` | `documents` | The name of the [OpenSearch index](/knowledge#index). |
-
-<!-- | `OPENSEARCH_HOST` | `localhost` | OpenSearch service host. | -->
-<!-- | `OPENSEARCH_PORT` | `9200` | OpenSearch service port. | [if not configurable, edit other instances of OPENSEARCH_PORT in the docs] -->
-| `OPENSEARCH_INDEX_NAME` | `documents` | The name of the [OpenSearch index](/knowledge#index). |
- | `OPENSEARCH_HOST` | `localhost` | OpenSearch service host. |
+| `OPENSEARCH_HOST` | `localhost` | OpenSearch service host. |
 | `OPENSEARCH_PORT` | `9200` | OpenSearch service port. |
 | `OPENSEARCH_USERNAME` | `admin` | OpenSearch administrator username. |
 
