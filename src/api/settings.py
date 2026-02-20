@@ -23,7 +23,15 @@ from typing import List, Optional
 
 from api.provider_validation import validate_provider_setup
 from utils.langflow_utils import LangflowNotReadyError, wait_for_langflow
-from dependencies import get_session_manager, get_flows_service, get_task_service, get_current_user
+from dependencies import (
+    get_session_manager,
+    get_flows_service,
+    get_task_service,
+    get_current_user,
+    get_document_service,
+    get_langflow_file_service,
+    get_knowledge_filter_service,
+)
 from session_manager import User
 
 logger = get_logger(__name__)
@@ -726,6 +734,10 @@ async def onboarding(
     body: OnboardingBody,
     flows_service=Depends(get_flows_service),
     session_manager=Depends(get_session_manager),
+    document_service=Depends(get_document_service),
+    task_service=Depends(get_task_service),
+    langflow_file_service=Depends(get_langflow_file_service),
+    knowledge_filter_service=Depends(get_knowledge_filter_service),
     user: User = Depends(get_current_user),
 ) -> OnboardingResponse:
     """Handle onboarding configuration setup"""
@@ -986,13 +998,12 @@ async def onboarding(
                     # Import the function here to avoid circular imports
                     from main import ingest_default_documents_when_ready
 
-                    # Get services from the default loaded services in dependencies
-                    from dependencies import default_services
-                    services = default_services
-                    logger.info(
-                        "Starting sample data ingestion as requested in onboarding"
+                    await ingest_default_documents_when_ready(
+                        document_service,
+                        task_service,
+                        langflow_file_service,
+                        session_manager,
                     )
-                    await ingest_default_documents_when_ready(services)
                     logger.info("Sample data ingestion completed successfully")
 
                 except Exception as e:
@@ -1055,7 +1066,7 @@ async def onboarding(
         if should_ingest_sample_data and (body.embedding_provider or body.embedding_model):
             try:
                 openrag_docs_filter_id = await _create_openrag_docs_filter(
-                    session_manager, user
+                    knowledge_filter_service, session_manager, user
                 )
                 if openrag_docs_filter_id:
                     logger.info(
@@ -1091,14 +1102,14 @@ async def onboarding(
         )
 
 
-async def _create_openrag_docs_filter(session_manager, user):
+async def _create_openrag_docs_filter(
+    knowledge_filter_service, session_manager, user
+):
     """Create the OpenRAG Docs knowledge filter for onboarding"""
     import uuid
     import json
     from datetime import datetime
-    from dependencies import default_services
 
-    knowledge_filter_service = default_services.get("knowledge_filter_service")
     if not knowledge_filter_service:
         logger.error("Knowledge filter service not available")
         return None

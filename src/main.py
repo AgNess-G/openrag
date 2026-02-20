@@ -352,7 +352,9 @@ def _get_documents_dir():
         return path
 
 
-async def ingest_default_documents_when_ready(services):
+async def ingest_default_documents_when_ready(
+    document_service, task_service, langflow_file_service, session_manager
+):
     """Scan the local documents folder and ingest files like a non-auth upload."""
     try:
         logger.info(
@@ -376,9 +378,13 @@ async def ingest_default_documents_when_ready(services):
             raise FileNotFoundError(f"No default documents found in {base_dir}")
 
         if DISABLE_INGEST_WITH_LANGFLOW:
-            await _ingest_default_documents_openrag(services, file_paths)
+            await _ingest_default_documents_openrag(
+                document_service, task_service, file_paths
+            )
         else:
-            await _ingest_default_documents_langflow(services, file_paths)
+            await _ingest_default_documents_langflow(
+                langflow_file_service, session_manager, task_service, file_paths
+            )
 
         await TelemetryClient.send_event(Category.DOCUMENT_INGESTION, MessageId.ORB_DOC_DEFAULT_COMPLETE)
 
@@ -388,11 +394,10 @@ async def ingest_default_documents_when_ready(services):
         raise
 
 
-async def _ingest_default_documents_langflow(services, file_paths):
+async def _ingest_default_documents_langflow(
+    langflow_file_service, session_manager, task_service, file_paths
+):
     """Ingest default documents using Langflow upload-ingest-delete pipeline."""
-    langflow_file_service = services["langflow_file_service"]
-    session_manager = services["session_manager"]
-    task_service = services["task_service"]
 
     logger.info(
         "Using Langflow ingestion pipeline for default documents",
@@ -477,7 +482,9 @@ async def opensearch_health_ready(request):
             status_code=503,
         )
 
-async def _ingest_default_documents_openrag(services, file_paths):
+async def _ingest_default_documents_openrag(
+    document_service, task_service, file_paths
+):
     """Ingest default documents using traditional OpenRAG processor."""
     logger.info(
         "Using traditional OpenRAG ingestion for default documents",
@@ -488,7 +495,7 @@ async def _ingest_default_documents_openrag(services, file_paths):
     from models.processors import DocumentFileProcessor
 
     processor = DocumentFileProcessor(
-        services["document_service"],
+        document_service,
         owner_user_id=None,
         jwt_token=None,
         owner_name=None,
@@ -496,7 +503,7 @@ async def _ingest_default_documents_openrag(services, file_paths):
         is_sample_data=True,  # Mark as sample data
     )
 
-    task_id = await services["task_service"].create_custom_task(
+    task_id = await task_service.create_custom_task(
         "anonymous", file_paths, processor
     )
     logger.info(
