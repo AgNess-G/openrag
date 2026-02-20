@@ -35,7 +35,7 @@ export default defineConfig({
   webServer: [
     {
       command: "../scripts/start-backend-e2e.sh",
-      port: 8000, 
+      url: "http://127.0.0.1:8000/health", 
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       stderr: "pipe",
