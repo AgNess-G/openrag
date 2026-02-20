@@ -11,7 +11,6 @@ from opensearchpy import AsyncOpenSearch
 from opensearchpy._async.http_aiohttp import AIOHttpConnection
 
 from utils.container_utils import get_container_host
-from utils.document_processing import create_document_converter
 from utils.logging_config import get_logger
 
 load_dotenv(override=False)
@@ -308,7 +307,7 @@ class AppClients:
         self.langflow_http_client = None
         self._patched_async_client = None  # Private attribute - single client for all providers
         self._client_init_lock = __import__('threading').Lock()  # Lock for thread-safe initialization
-        self.converter = None
+        self.docling_http_client = None
 
     async def initialize(self):
         # Initialize OpenSearch client
@@ -333,8 +332,20 @@ class AppClients:
         else:
             logger.info("OpenAI API key not found in environment - will be initialized on first use if needed")
 
-        # Initialize document converter
-        self.converter = create_document_converter(ocr_engine=DOCLING_OCR_ENGINE)
+        # Initialize docling-serve HTTP client for document conversion
+        self.docling_http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                timeout=float(INGESTION_TIMEOUT),
+                connect=10.0,
+                read=float(INGESTION_TIMEOUT),
+                write=60.0,
+                pool=10.0,
+            )
+        )
+        logger.info(
+            "Initialized docling-serve HTTP client",
+            timeout_seconds=INGESTION_TIMEOUT,
+        )
 
         # Initialize Langflow HTTP client with extended timeouts for large documents
         # Must be created before wait_for_langflow / get_langflow_api_key
@@ -554,6 +565,16 @@ class AppClients:
                 logger.error("Failed to close AsyncOpenAI client", error=str(e))
             finally:
                 self._patched_async_client = None
+
+        # Close docling-serve HTTP client if it exists
+        if self.docling_http_client is not None:
+            try:
+                await self.docling_http_client.aclose()
+                logger.info("Closed docling-serve HTTP client")
+            except Exception as e:
+                logger.error("Failed to close docling-serve HTTP client", error=str(e))
+            finally:
+                self.docling_http_client = None
 
         # Close Langflow HTTP client if it exists
         if self.langflow_http_client is not None:

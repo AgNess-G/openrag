@@ -260,16 +260,17 @@ class DoclingManager:
         try:
             # Build command to run docling-serve via uvx (avoids bundling the massive dependency)
             import shutil
+            ocr_pkg = "ocrmac" if sys.platform == "darwin" else "easyocr"
             if shutil.which("uvx"):
                 cmd = [
-                    "uvx", "docling-serve==1.5.0", "run",
+                    "uvx", "--with", ocr_pkg, "docling-serve==1.5.0", "run",
                     "--host", self._host,
                     "--port", str(self._port),
                     "--workers", str(self._workers),
                 ]
             elif shutil.which("uv"):
                 cmd = [
-                    "uv", "tool", "run", "docling-serve==1.5.0", "run",
+                    "uv", "tool", "run", "--with", ocr_pkg, "docling-serve==1.5.0", "run",
                     "--host", self._host,
                     "--port", str(self._port),
                     "--workers", str(self._workers),
