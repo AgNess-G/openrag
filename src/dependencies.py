@@ -1,0 +1,226 @@
+"""
+FastAPI dependency injection module.
+
+All service dependencies and authentication dependencies live here.
+Import and use these in route handlers via FastAPI's Depends() mechanism.
+
+Usage:
+    from dependencies import get_current_user, get_session_manager
+    from fastapi import Depends
+
+    async def my_endpoint(
+        user = Depends(get_current_user),
+        session_manager = Depends(get_session_manager),
+    ):
+        ...
+"""
+from typing import Optional
+
+from fastapi import Depends, HTTPException, Request
+
+from session_manager import User
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
+# ─────────────────────────────────────────────
+# Service dependencies
+# ─────────────────────────────────────────────
+
+def get_services(request: Request) -> dict:
+    return request.app.state.services
+
+
+def get_session_manager(services: dict = Depends(get_services)):
+    return services["session_manager"]
+
+
+def get_auth_service(services: dict = Depends(get_services)):
+    return services["auth_service"]
+
+
+def get_chat_service(services: dict = Depends(get_services)):
+    return services["chat_service"]
+
+
+def get_search_service(services: dict = Depends(get_services)):
+    return services["search_service"]
+
+
+def get_document_service(services: dict = Depends(get_services)):
+    return services["document_service"]
+
+
+def get_task_service(services: dict = Depends(get_services)):
+    return services["task_service"]
+
+
+def get_knowledge_filter_service(services: dict = Depends(get_services)):
+    return services["knowledge_filter_service"]
+
+
+def get_monitor_service(services: dict = Depends(get_services)):
+    return services["monitor_service"]
+
+
+def get_connector_service(services: dict = Depends(get_services)):
+    return services["connector_service"]
+
+
+def get_langflow_file_service(services: dict = Depends(get_services)):
+    return services["langflow_file_service"]
+
+
+def get_models_service(services: dict = Depends(get_services)):
+    return services["models_service"]
+
+
+def get_api_key_service(services: dict = Depends(get_services)):
+    return services["api_key_service"]
+
+
+def get_flows_service(services: dict = Depends(get_services)):
+    return services["flows_service"]
+
+
+# ─────────────────────────────────────────────
+# Authentication dependencies
+# ─────────────────────────────────────────────
+
+def get_current_user(
+    request: Request,
+    session_manager=Depends(get_session_manager),
+) -> User:
+    """
+    Require JWT cookie authentication.
+
+    Sets request.state.user and request.state.jwt_token.
+    Raises HTTP 401 if the user is not authenticated.
+    """
+    from config.settings import is_no_auth_mode
+    from session_manager import AnonymousUser
+
+    if is_no_auth_mode():
+        user = AnonymousUser()
+        request.state.user = user
+        request.state.jwt_token = None
+        return user
+
+    auth_token = request.cookies.get("auth_token")
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    user = session_manager.get_user_from_token(auth_token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    request.state.user = user
+    request.state.jwt_token = auth_token
+    return user
+
+
+def get_optional_user(
+    request: Request,
+    session_manager=Depends(get_session_manager),
+) -> Optional[User]:
+    """
+    Optionally extract JWT cookie user.
+
+    Sets request.state.user (may be None) and request.state.jwt_token.
+    Never raises — returns None if unauthenticated.
+    """
+    from config.settings import is_no_auth_mode
+    from session_manager import AnonymousUser
+
+    if is_no_auth_mode():
+        user = AnonymousUser()
+        request.state.user = user
+        request.state.jwt_token = None
+        return user
+
+    auth_token = request.cookies.get("auth_token")
+    if not auth_token:
+        request.state.user = None
+        request.state.jwt_token = None
+        return None
+
+    user = session_manager.get_user_from_token(auth_token)
+    request.state.user = user
+    request.state.jwt_token = auth_token if user else None
+    return user
+
+
+def get_api_key_user(
+    request: Request,
+    api_key_service=Depends(get_api_key_service),
+) -> User:
+    """
+    Require API key authentication (Bearer token or X-API-Key header).
+
+    Sets request.state.user and request.state.api_key_id.
+    Raises HTTP 401 if no valid key is provided.
+
+    This is a sync wrapper; the actual validation is async, so it's
+    used as a regular dependency (FastAPI calls it as a coroutine at startup).
+    """
+    # Note: FastAPI supports async dependencies natively.
+    # We return a semi-lazy object here and do actual validation in
+    # get_api_key_user_async below (used in routes).
+    raise NotImplementedError("Use get_api_key_user_async for API key auth")
+
+
+async def get_api_key_user_async(
+    request: Request,
+    api_key_service=Depends(get_api_key_service),
+) -> User:
+    """
+    Async dependency: require API key authentication.
+
+    Accepts:
+      - X-API-Key: orag_... header
+      - Authorization: Bearer orag_... header
+
+    Raises HTTP 401 if no valid key is provided.
+    """
+    # Extract key from headers
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or not api_key.startswith("orag_"):
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            if token.startswith("orag_"):
+                api_key = token
+
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "API key required",
+                "message": "Provide API key via X-API-Key header or Authorization: Bearer header",
+            },
+        )
+
+    user_info = await api_key_service.validate_key(api_key)
+    if not user_info:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "Invalid API key",
+                "message": "The provided API key is invalid or has been revoked",
+            },
+        )
+
+    user = User(
+        user_id=user_info["user_id"],
+        email=user_info["user_email"],
+        name=user_info.get("name", "API User"),
+        picture=None,
+        provider="api_key",
+    )
+
+    request.state.user = user
+    request.state.api_key_id = user_info["key_id"]
+    request.state.jwt_token = None
+
+    return user
