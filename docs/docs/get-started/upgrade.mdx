@@ -145,10 +145,7 @@ The commands to upgrade the package depend on how you installed OpenRAG.
 
    By default, OpenRAG's `docker-compose` files pull the latest container images.
    However, you can pin the `OPENRAG_VERSION` in your `.env` file to a specific version tag.
-   
-   If you run OpenRAG via the **TUI**, the `OPENRAG_VERSION` variable is automatically overwritten at runtime to match the installed Python package version.
-   Therefore, the TUI always runs the container version that corresponds to the installed TUI version.
-   
+      
    If you run OpenRAG using `make` commands or manual `docker compose` commands, the `OPENRAG_VERSION` variable is used exactly as defined in the `.env` file.
    This allows you to pin the deployment to a specific version when managing the services manually.
 
