@@ -30,18 +30,15 @@ class User:
         if self.last_login is None:
             self.last_login = datetime.now()
 
+@dataclass
 class AnonymousUser(User):
     """Anonymous user"""
 
-    def __init__(self):
-        super().__init__(
-            user_id="anonymous",
-            email="anonymous@localhost",
-            name="Anonymous User",
-            picture=None,
-            provider="none",
-            jwt_token=None,
-        )
+    user_id: str = "anonymous"
+    email: str = "anonymous@localhost"
+    name: str = "Anonymous User"
+    picture: str = None
+    provider: str = "none"
 
 
 

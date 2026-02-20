@@ -19,7 +19,7 @@ from config.settings import (
     config_manager,
     is_no_auth_mode,
 )
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 
 from api.provider_validation import validate_provider_setup
 from utils.langflow_utils import LangflowNotReadyError, wait_for_langflow
@@ -70,12 +70,18 @@ class OnboardingBody(BaseModel):
     ollama_endpoint: Optional[str] = Field(None, min_length=1)
 
 
+class AssistantMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: str
+
+
 class OnboardingStateBody(BaseModel):
     current_step: Optional[int] = None
-    assistant_message: Optional[str] = None
+    assistant_message: Optional[AssistantMessage] = None
     selected_nudge: Optional[str] = None
-    card_steps: Optional[List[int]] = None
-    upload_steps: Optional[List[int]] = None
+    card_steps: Optional[Dict[str, Any]] = None
+    upload_steps: Optional[Dict[str, Any]] = None
     openrag_docs_filter_id: Optional[str] = None
     user_doc_filter_id: Optional[str] = None
 
@@ -89,10 +95,10 @@ class DoclingPresetBody(BaseModel):
 
 class OnboardingStateConfig(BaseModel):
     current_step: Optional[int]
-    assistant_message: Optional[str]
+    assistant_message: Optional[AssistantMessage]
     selected_nudge: Optional[str]
-    card_steps: Optional[List[int]]
-    upload_steps: Optional[List[int]]
+    card_steps: Optional[Dict[str, Any]]
+    upload_steps: Optional[Dict[str, Any]]
     openrag_docs_filter_id: Optional[str]
     user_doc_filter_id: Optional[str]
 

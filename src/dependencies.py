@@ -96,7 +96,7 @@ def get_current_user(
     """
     Require JWT cookie authentication.
 
-    Sets request.state.user and request.state.jwt_token.
+    Sets request.state.user.
     Raises HTTP 401 if the user is not authenticated.
     """
     from config.settings import is_no_auth_mode
@@ -105,8 +105,9 @@ def get_current_user(
     if is_no_auth_mode():
         user = AnonymousUser()
         request.state.user = user
-        request.state.jwt_token = None
-        return user
+        effective_token = session_manager.get_effective_jwt_token(None, None)
+        user_with_token = dataclasses.replace(user, jwt_token=effective_token)
+        return user_with_token
 
     auth_token = request.cookies.get("auth_token")
     if not auth_token:
@@ -121,7 +122,6 @@ def get_current_user(
     user_with_token = dataclasses.replace(user, jwt_token=effective_token)
 
     request.state.user = user_with_token
-    request.state.jwt_token = effective_token
     return user_with_token
 
 
@@ -132,7 +132,7 @@ def get_optional_user(
     """
     Optionally extract JWT cookie user.
 
-    Sets request.state.user (may be None) and request.state.jwt_token.
+    Sets request.state.user (may be None).
     Never raises — returns None if unauthenticated.
     """
     from config.settings import is_no_auth_mode
@@ -141,13 +141,13 @@ def get_optional_user(
     if is_no_auth_mode():
         user = AnonymousUser()
         request.state.user = user
-        request.state.jwt_token = None
-        return user
+        effective_token = session_manager.get_effective_jwt_token(None, None)
+        user_with_token = dataclasses.replace(user, jwt_token=effective_token)
+        return user_with_token
 
     auth_token = request.cookies.get("auth_token")
     if not auth_token:
         request.state.user = None
-        request.state.jwt_token = None
         return None
 
     user = session_manager.get_user_from_token(auth_token)
@@ -156,7 +156,6 @@ def get_optional_user(
     user_with_token = dataclasses.replace(user, jwt_token=effective_token) if user else None
 
     request.state.user = user_with_token
-    request.state.jwt_token = effective_token
     return user_with_token
 
 
@@ -234,6 +233,5 @@ async def get_api_key_user_async(
 
     request.state.user = user_with_token
     request.state.api_key_id = user_info["key_id"]
-    request.state.jwt_token = None
 
     return user_with_token
