@@ -4,15 +4,8 @@ set -e
 # Go to project root
 cd "$(dirname "$0")/.."
 
-# Backup .env if it exists and is not a symlink to .env.test
-if [ -f .env ] && [ ! -f .env.bak ]; then
-    echo "Backing up .env to .env.bak"
-    cp .env .env.bak
-fi
-
-# Overwrite .env with .env.test
-echo "Overwriting .env with frontend/.env.test"
-cp frontend/.env.test .env
+# Environment file for E2E tests
+E2E_ENV="frontend/.env.test"
 
 # Detect container runtime
 if command -v docker >/dev/null 2>&1; then
@@ -22,15 +15,15 @@ else
 fi
 
 echo "Using container runtime: $CONTAINER_RUNTIME"
-echo "Starting E2E Setup..."
+echo "Starting E2E Setup using $E2E_ENV..."
 
 # Clean up using make
 echo "Cleaning up..."
-make factory-reset FORCE=true
+make factory-reset FORCE=true ENV_FILE=$E2E_ENV
 
 # Start infrastructure using make (this will use the new .env)
 echo "Starting infrastructure..."
-make dev-local-cpu
+make dev-local-cpu ENV_FILE=$E2E_ENV
 
 echo "Waiting for OpenSearch..."
 until curl -s -k https://localhost:9200 >/dev/null; do

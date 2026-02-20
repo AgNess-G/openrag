@@ -1,13 +1,13 @@
-# OpenRAG Development Makefile
-# Provides easy commands for development workflow
+# Environment file location (can be overridden via command line)
+ENV_FILE ?= .env
 
-# Load variables from .env if present so `make` commands pick them up
+# Load variables from $(ENV_FILE) if present so `make` commands pick them up
 # Strip quotes from values to avoid issues with tools that don't handle them like python-dotenv does
-ifneq (,$(wildcard .env))
-  include .env
-  export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env)
+ifneq (,$(wildcard $(ENV_FILE)))
+  include $(ENV_FILE)
+  export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' $(ENV_FILE))
   # Strip single quotes from all exported variables
-  $(foreach var,$(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env),$(eval $(var):=$(shell echo $($(var)) | sed "s/^'//;s/'$$//")))
+  $(foreach var,$(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' $(ENV_FILE)),$(eval $(var):=$(shell echo $($(var)) | sed "s/^'//;s/'$$//")))
 endif
 
 hostname ?= 0.0.0.0
@@ -19,7 +19,7 @@ REPO ?= https://github.com/langflow-ai/langflow.git
 
 # Auto-detect container runtime: prefer docker, fall back to podman
 CONTAINER_RUNTIME := $(shell command -v docker >/dev/null 2>&1 && echo "docker" || echo "podman")
-COMPOSE_CMD := $(CONTAINER_RUNTIME) compose
+COMPOSE_CMD := $(CONTAINER_RUNTIME) compose --env-file $(ENV_FILE)
 
 ######################
 # COLOR DEFINITIONS
