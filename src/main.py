@@ -98,28 +98,14 @@ EXCLUDED_INGESTION_FILES = {"warmup_ocr.pdf"}
 
 
 async def wait_for_opensearch():
-    """Wait for OpenSearch to be ready with retries"""
-    max_retries = 30
-    retry_delay = 2
-
-    for attempt in range(max_retries):
-        try:
-            await clients.opensearch.ping()
-            logger.info("OpenSearch is ready")
-            await TelemetryClient.send_event(Category.OPENSEARCH_SETUP, MessageId.ORB_OS_CONN_ESTABLISHED)
-            return
-        except Exception as e:
-            logger.warning(
-                "OpenSearch not ready yet",
-                attempt=attempt + 1,
-                max_retries=max_retries,
-                error=str(e),
-            )
-            if attempt < max_retries - 1:
-                await asyncio.sleep(retry_delay)
-            else:
-                await TelemetryClient.send_event(Category.OPENSEARCH_SETUP, MessageId.ORB_OS_TIMEOUT)
-                raise Exception("OpenSearch failed to become ready")
+    """Wait for OpenSearch to be ready, delegating to the shared utility."""
+    from utils.opensearch_utils import wait_for_opensearch as _wait_for_opensearch, OpenSearchNotReadyError
+    try:
+        await _wait_for_opensearch(clients.opensearch)
+        await TelemetryClient.send_event(Category.OPENSEARCH_SETUP, MessageId.ORB_OS_CONN_ESTABLISHED)
+    except OpenSearchNotReadyError:
+        await TelemetryClient.send_event(Category.OPENSEARCH_SETUP, MessageId.ORB_OS_TIMEOUT)
+        raise
 
 
 async def configure_alerting_security():
