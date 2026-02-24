@@ -499,7 +499,7 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 
 backend: ## Run backend locally
 	@echo "$(YELLOW)Starting backend locally...$(NC)"
-	@if [ ! -f .env ]; then echo "$(RED).env file not found. Copy .env.example to .env first$(NC)"; exit 1; fi
+	@if [ ! -f $(ENV_FILE) ]; then echo "$(RED)$(ENV_FILE) file not found. Copy .env.example to it first$(NC)"; exit 1; fi
 	uv run python src/main.py
 
 frontend: ## Run frontend locally
