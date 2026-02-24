@@ -32,15 +32,6 @@ const nextConfig: NextConfig = {
   },
   // Allow cross-origin requests in development
   allowedDevOrigins: getAllowedDevOrigins(),
-  // Increase chunk load timeout for large bundles in dev mode
-  // The layout.js chunk (~22MB in dev) can timeout on first compile
-  webpack: (config) => {
-    config.output = {
-      ...config.output,
-      chunkLoadTimeout: 300000, // 5 minutes (default is 120s)
-    };
-    return config;
-  },
 };
 
 export default nextConfig;
