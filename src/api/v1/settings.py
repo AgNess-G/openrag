@@ -4,6 +4,7 @@ Public API v1 Settings endpoint.
 Provides access to configuration settings.
 Uses API key authentication.
 """
+from api.settings import SettingsUpdateBody
 from typing import Optional
 
 from fastapi import Depends
@@ -15,12 +16,6 @@ from dependencies import get_api_key_user_async, get_session_manager
 from session_manager import User
 
 logger = get_logger(__name__)
-
-
-class SettingsUpdateBody(BaseModel):
-    chunk_size: Optional[int] = None
-    chunk_overlap: Optional[int] = None
-
 
 class AgentSettings(BaseModel):
     llm_provider: Optional[str] = None
