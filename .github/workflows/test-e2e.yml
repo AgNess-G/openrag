@@ -69,6 +69,17 @@ jobs:
           chmod +x scripts/setup-e2e.sh
           ./scripts/setup-e2e.sh
 
+      - name: Ensure JWT keys for local backend
+        run: |
+          if [ ! -f keys/private_key.pem ]; then
+            echo "Generating RSA keys for JWT signing..."
+            uv run python -c "from src.main import generate_jwt_keys; generate_jwt_keys()"
+          else
+            echo "RSA keys already exist, ensuring correct permissions..."
+            chmod 600 keys/private_key.pem 2>/dev/null || true
+            chmod 644 keys/public_key.pem 2>/dev/null || true
+          fi
+
       - name: Run Playwright tests
         working-directory: frontend
         env:
