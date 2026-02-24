@@ -31,21 +31,52 @@ export default defineConfig({
     },
   ],
 
+  /* Infrastructure (OpenSearch, Langflow, etc.) is expected to be running already.
+   * Only start the backend and frontend servers. */
   webServer: [
     {
-      command: "../scripts/start-backend-e2e.sh",
+      command: "make backend ENV_FILE=frontend/.env.test",
+      cwd: path.resolve(__dirname, ".."),
       url: "http://127.0.0.1:8000/health", 
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       stderr: "pipe",
       timeout: 300 * 1000,
       env: {
-        // Pass env vars from .env.test
-        ...process.env,
-        // Ensure we use the test values
+        // Inherit PATH so make/uv/python are found
+        PATH: process.env.PATH || "",
+        HOME: process.env.HOME || "",
+
+        // OpenSearch connection
+        OPENSEARCH_HOST: process.env.OPENSEARCH_HOST || "localhost",
+        OPENSEARCH_PORT: process.env.OPENSEARCH_PORT || "9200",
+        OPENSEARCH_USERNAME: process.env.OPENSEARCH_USERNAME || "admin",
+        OPENSEARCH_PASSWORD: process.env.OPENSEARCH_PASSWORD || "",
         OPENSEARCH_INDEX_NAME: process.env.OPENSEARCH_INDEX_NAME || "documents",
+
+        // Langflow
+        LANGFLOW_URL: process.env.LANGFLOW_URL || "http://localhost:7860",
+        LANGFLOW_AUTO_LOGIN: process.env.LANGFLOW_AUTO_LOGIN || "True",
+        LANGFLOW_SUPERUSER: process.env.LANGFLOW_SUPERUSER || "",
+        LANGFLOW_SUPERUSER_PASSWORD: process.env.LANGFLOW_SUPERUSER_PASSWORD || "",
+        LANGFLOW_CHAT_FLOW_ID: process.env.LANGFLOW_CHAT_FLOW_ID || "",
+        LANGFLOW_INGEST_FLOW_ID: process.env.LANGFLOW_INGEST_FLOW_ID || "",
+
+        // Auth — disable OAuth for E2E
         GOOGLE_OAUTH_CLIENT_ID: "",
         GOOGLE_OAUTH_CLIENT_SECRET: "",
+
+        // Provider API keys
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
+        WATSONX_API_KEY: process.env.WATSONX_API_KEY || "",
+        WATSONX_ENDPOINT: process.env.WATSONX_ENDPOINT || "",
+        WATSONX_PROJECT_ID: process.env.WATSONX_PROJECT_ID || "",
+        OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || "",
+
+        // Ingestion
+        DISABLE_INGEST_WITH_LANGFLOW: process.env.DISABLE_INGEST_WITH_LANGFLOW || "false",
+        INGEST_SAMPLE_DATA: process.env.INGEST_SAMPLE_DATA || "true",
       }
     },
     {
@@ -59,3 +90,4 @@ export default defineConfig({
     }
   ],
 });
+
