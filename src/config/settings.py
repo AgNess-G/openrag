@@ -1,9 +1,8 @@
 import asyncio
 import os
-import time
+from utils.env_utils import get_env_int, get_env_float
 
 import httpx
-import requests
 from agentd.patch import patch_openai_with_mcp
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -12,18 +11,17 @@ from opensearchpy._async.http_aiohttp import AIOHttpConnection
 
 from utils.container_utils import get_container_host
 from utils.logging_config import get_logger
+# Import configuration manager
+from .config_manager import config_manager
 
 load_dotenv(override=False)
 load_dotenv("../", override=False)
 
 logger = get_logger(__name__)
 
-# Import configuration manager
-from .config_manager import config_manager
-
 # Environment variables
 OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST", "localhost")
-OPENSEARCH_PORT = int(os.getenv("OPENSEARCH_PORT", "9200"))
+OPENSEARCH_PORT = get_env_int("OPENSEARCH_PORT", 9200)
 OPENSEARCH_USERNAME = os.getenv("OPENSEARCH_USERNAME", "admin")
 OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD")
 LANGFLOW_URL = os.getenv("LANGFLOW_URL", "http://localhost:7860")
@@ -64,18 +62,18 @@ INGEST_SAMPLE_DATA = os.getenv(
 ).lower() in ("true", "1", "yes")
 
 # Maximum number of files to upload / ingest (in batch) per task when adding knowledge via folder
-UPLOAD_BATCH_SIZE = int(os.getenv("UPLOAD_BATCH_SIZE", "25"))
+UPLOAD_BATCH_SIZE = get_env_int("UPLOAD_BATCH_SIZE", 25)
 
 # Langflow HTTP timeout configuration (in seconds)
 # For large documents (300+ pages), ingestion can take 30+ minutes
 # Default: 40 minutes total, 40 minutes read timeout
-LANGFLOW_TIMEOUT = float(os.getenv("LANGFLOW_TIMEOUT", "2400"))  # 40 minutes
-LANGFLOW_CONNECT_TIMEOUT = float(os.getenv("LANGFLOW_CONNECT_TIMEOUT", "30"))  # 30 seconds
+LANGFLOW_TIMEOUT = get_env_float("LANGFLOW_TIMEOUT", 2400.0)  # 40 minutes
+LANGFLOW_CONNECT_TIMEOUT = get_env_float("LANGFLOW_CONNECT_TIMEOUT", 30.0)  # 30 seconds
 
 # Per-file processing timeout for document ingestion tasks (in seconds)
 # Should be >= LANGFLOW_TIMEOUT to allow long-running ingestion to complete
 # Default: 3600 seconds (60 minutes)
-INGESTION_TIMEOUT = int(os.getenv("INGESTION_TIMEOUT", "3600"))
+INGESTION_TIMEOUT = get_env_int("INGESTION_TIMEOUT", 3600)
 
 
 def is_no_auth_mode():
@@ -223,8 +221,8 @@ async def get_langflow_api_key(force_regenerate: bool = False):
 
     try:
         logger.info("Generating Langflow API key using superuser credentials")
-        max_attempts = int(os.getenv("LANGFLOW_KEY_RETRIES", "15"))
-        delay_seconds = float(os.getenv("LANGFLOW_KEY_RETRY_DELAY", "2.0"))
+        max_attempts = get_env_int("LANGFLOW_KEY_RETRIES", 15)
+        delay_seconds = get_env_float("LANGFLOW_KEY_RETRY_DELAY", 2.0)
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             for attempt in range(1, max_attempts + 1):

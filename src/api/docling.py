@@ -6,8 +6,8 @@ import struct
 from pathlib import Path
 
 import httpx
-from starlette.requests import Request
-from starlette.responses import JSONResponse
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 from utils.container_utils import (
     detect_container_environment,
