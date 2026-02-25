@@ -76,8 +76,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Create .env from example
-        run: cp .env.example .env
+      - name: Configure .env file for tests
+        run: |
+          cp .env.example .env
+          # OpenSearch requires a strong password (uppercase, lowercase, number, special char)
+          sed -i "s|^OPENSEARCH_PASSWORD=.*|OPENSEARCH_PASSWORD=IntegrationTest#123!|" .env
 
       - name: Run integration tests
         env:
