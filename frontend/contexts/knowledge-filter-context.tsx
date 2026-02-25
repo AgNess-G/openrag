@@ -4,6 +4,7 @@ import { FilterColor, IconKey } from "@/components/filter-icon-popover";
 import React, {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -84,7 +85,22 @@ export function KnowledgeFilterProvider({
     if (filter) {
       setCreateMode(false);
       try {
-        const parsed = JSON.parse(filter.query_data) as ParsedQueryData;
+        const raw = JSON.parse(filter.query_data);
+        // Normalize parsed data with defaults for missing fields
+        // This handles filters created via API with incomplete queryData
+        const parsed: ParsedQueryData = {
+          query: raw.query ?? "",
+          filters: {
+            data_sources: raw.filters?.data_sources ?? ["*"],
+            document_types: raw.filters?.document_types ?? ["*"],
+            owners: raw.filters?.owners ?? ["*"],
+            connector_types: raw.filters?.connector_types ?? ["*"],
+          },
+          limit: raw.limit ?? 10,
+          scoreThreshold: raw.scoreThreshold ?? 0,
+          color: raw.color ?? "zinc",
+          icon: raw.icon ?? "filter",
+        };
         setParsedFilterData(parsed);
 
         // Auto-open panel when filter is selected
@@ -112,9 +128,9 @@ export function KnowledgeFilterProvider({
     setSelectedFilter(null); // This will also close the panel
   };
 
-  const closePanelOnly = () => {
+  const closePanelOnly = useCallback(() => {
     setIsPanelOpen(false); // Close panel but keep filter selected
-  };
+  }, []);
 
   const startCreateMode = () => {
     // Initialize defaults

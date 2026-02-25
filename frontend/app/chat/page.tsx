@@ -12,6 +12,7 @@ import { FILE_CONFIRMATION, FILES_REGEX } from "@/lib/constants";
 import { useLoadingStore } from "@/stores/loadingStore";
 import { useGetConversationsQuery } from "../api/queries/useGetConversationsQuery";
 import { useGetNudgesQuery } from "../api/queries/useGetNudgesQuery";
+import { useGetSettingsQuery } from "../api/queries/useGetSettingsQuery";
 import { AssistantMessage } from "./_components/assistant-message";
 import { ChatInput, type ChatInputHandle } from "./_components/chat-input";
 import Nudges from "./_components/nudges";
@@ -501,6 +502,17 @@ function ChatPage() {
 						} else {
 							console.log("No function calls found in message");
 						}
+
+						// Extract usage data from response_data
+						if (msg.response_data && typeof msg.response_data === "object") {
+							const responseData =
+								typeof msg.response_data === "string"
+									? JSON.parse(msg.response_data)
+									: msg.response_data;
+							if (responseData.usage) {
+								message.usage = responseData.usage;
+							}
+						}
 					}
 
 					return message;
@@ -638,27 +650,14 @@ function ChatPage() {
 		};
 	}, [endpoint, setPreviousResponseIds, setLoading]);
 
-	// Check if onboarding is complete by looking at local storage
-	const [isOnboardingComplete, setIsOnboardingComplete] = useState(() => {
-		if (typeof window === "undefined") return false;
-		return localStorage.getItem("onboarding-step") === null;
-	});
-
-	// Listen for storage changes to detect when onboarding completes
-	useEffect(() => {
-		const checkOnboarding = () => {
-			if (typeof window !== "undefined") {
-				setIsOnboardingComplete(
-					localStorage.getItem("onboarding-step") === null,
-				);
-			}
-		};
-
-		// Check periodically since storage events don't fire in the same tab
-		const interval = setInterval(checkOnboarding, 500);
-
-		return () => clearInterval(interval);
-	}, []);
+	// Get settings to check onboarding completion
+	const { data: settings } = useGetSettingsQuery();
+	
+	// Check if onboarding is complete (current_step >= 4 means complete)
+	const TOTAL_ONBOARDING_STEPS = 4;
+	const isOnboardingComplete =
+		settings?.onboarding?.current_step !== undefined &&
+		settings.onboarding.current_step >= TOTAL_ONBOARDING_STEPS;
 
 	// Prepare filters for nudges (same as chat)
 	const processedFiltersForNudges = parsedFilterData?.filters
@@ -849,6 +848,7 @@ function ChatPage() {
 						role: "assistant",
 						content: result.response,
 						timestamp: new Date(),
+						usage: result.usage,
 					};
 					setMessages((prev) => [...prev, assistantMessage]);
 					if (result.response_id) {
@@ -1164,6 +1164,7 @@ function ChatPage() {
 														messages.length === 1 &&
 														message.content === "How can I assist?"
 													}
+													usage={message.usage}
 												/>
 											</div>
 										),

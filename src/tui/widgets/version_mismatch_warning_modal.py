@@ -92,8 +92,9 @@ class VersionMismatchWarningModal(ModalScreen[bool]):
                 f"Current TUI version is {self.tui_version}\n\n"
                 f"Starting services will update containers to version {self.tui_version}.\n"
                 f"This may cause compatibility issues with your flows.\n\n"
-                f"⚠️  Please backup your flows before continuing:\n"
-                f"   Your flows are in ./flows/ directory\n\n"
+                f"⚠️  Please backup your flows before continuing.\n"
+                f"   Customizations to OpenRAG built-in flows are backed up in ~/.openrag/flows/backup/\n"
+                f"   Other user created flows are not backed up automatically.\n\n"
                 f"Do you want to continue?",
                 id="message"
             )
