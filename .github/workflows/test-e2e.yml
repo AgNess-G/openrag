@@ -14,6 +14,14 @@ on:
       - '.github/workflows/test-e2e.yml'
   workflow_dispatch:
 
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.13"
+  # Define the directory where Playwright browsers will be installed.
+  # This path is used for caching across workflows
+  PLAYWRIGHT_BROWSERS_PATH: "ms-playwright"
+  PLAYWRIGHT_VERSION: "1.58.2"
+
 jobs:
   e2e:
     runs-on: [self-hosted, linux, ARM64, langflow-ai-arm64-40gb]
