@@ -112,5 +112,7 @@ jobs:
         if: always()
         run: |
           make docling-stop || true
-          docker compose --env-file frontend/.env.test down -v --remove-orphans || true
+          ENV_FILE="frontend/.env.test"
+          if [ ! -f "$ENV_FILE" ]; then ENV_FILE="frontend/.env.test.example"; fi
+          docker compose --env-file "$ENV_FILE" down -v --remove-orphans || true
           docker system prune -f || true
