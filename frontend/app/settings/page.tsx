@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUpRight, Loader2, Minus, PlugZap, Plus } from "lucide-react";
+import { ArrowUpRight, Copy, Key, Loader2, Minus, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
 	useGetAnthropicModelsQuery,
@@ -11,8 +11,19 @@ import {
 	useGetOllamaModelsQuery,
 	useGetOpenAIModelsQuery,
 } from "@/app/api/queries/useGetModelsQuery";
+import { useGetApiKeysQuery } from "@/app/api/queries/useGetApiKeysQuery";
+import { useCreateApiKeyMutation } from "@/app/api/mutations/useCreateApiKeyMutation";
+import { useRevokeApiKeyMutation } from "@/app/api/mutations/useRevokeApiKeyMutation";
 import { useGetSettingsQuery } from "@/app/api/queries/useGetSettingsQuery";
 import { ConfirmationDialog } from "@/components/confirmation-dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { LabelWrapper } from "@/components/label-wrapper";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
@@ -36,62 +47,15 @@ import {
 } from "@/lib/constants";
 import { useDebounce } from "@/lib/debounce";
 import { cn } from "@/lib/utils";
-import GoogleDriveIcon from "../../components/icons/google-drive-logo";
-import OneDriveIcon from "../../components/icons/one-drive-logo";
-import SharePointIcon from "../../components/icons/share-point-logo";
 import { useUpdateSettingsMutation } from "../api/mutations/useUpdateSettingsMutation";
 import { ModelSelector } from "../onboarding/_components/model-selector";
 import ModelProviders from "./_components/model-providers";
+import ConnectorCards from "./_components/connector-cards";
 import { getModelLogo, type ModelProvider } from "./_helpers/model-helpers";
 
 const { MAX_SYSTEM_PROMPT_CHARS } = UI_CONSTANTS;
 
-interface GoogleDriveFile {
-	id: string;
-	name: string;
-	mimeType: string;
-	webViewLink?: string;
-	iconLink?: string;
-}
 
-interface OneDriveFile {
-	id: string;
-	name: string;
-	mimeType?: string;
-	webUrl?: string;
-	driveItem?: {
-		file?: { mimeType: string };
-		folder?: unknown;
-	};
-}
-
-interface Connector {
-	id: string;
-	name: string;
-	description: string;
-	icon: React.ReactNode;
-	status: "not_connected" | "connecting" | "connected" | "error";
-	type: string;
-	connectionId?: string;
-	access_token?: string;
-	selectedFiles?: GoogleDriveFile[] | OneDriveFile[];
-	available?: boolean;
-}
-
-interface SyncResult {
-	processed?: number;
-	added?: number;
-	errors?: number;
-	skipped?: number;
-	total?: number;
-}
-
-interface Connection {
-	connection_id: string;
-	is_active: boolean;
-	created_at: string;
-	last_sync?: string;
-}
 function KnowledgeSourcesPage() {
 	const { isAuthenticated, isNoAuthMode } = useAuth();
 	const { addTask, tasks } = useTask();
@@ -103,15 +67,12 @@ function KnowledgeSourcesPage() {
 	// Use a trigger state that changes each time we detect the query param
 	const [openLlmSelector, setOpenLlmSelector] = useState(false);
 
-	// Connectors state
-	const [connectors, setConnectors] = useState<Connector[]>([]);
-	const [isConnecting, setIsConnecting] = useState<string | null>(null);
-	const [isSyncing, setIsSyncing] = useState<string | null>(null);
-	const [syncResults, setSyncResults] = useState<{
-		[key: string]: SyncResult | null;
-	}>({});
-	const [maxFiles, setMaxFiles] = useState<number>(10);
-	const [syncAllFiles, setSyncAllFiles] = useState<boolean>(false);
+	// API Keys state
+	const [createKeyDialogOpen, setCreateKeyDialogOpen] = useState(false);
+	const [newKeyName, setNewKeyName] = useState("");
+	const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+	const [showKeyDialogOpen, setShowKeyDialogOpen] = useState(false);
+
 
 	// Only keep systemPrompt state since it needs manual save button
 	const [systemPrompt, setSystemPrompt] = useState<string>("");
@@ -125,6 +86,34 @@ function KnowledgeSourcesPage() {
 	// Fetch settings using React Query
 	const { data: settings = {} } = useGetSettingsQuery({
 		enabled: isAuthenticated || isNoAuthMode,
+	});
+
+	// Fetch API keys
+	const { data: apiKeysData, isLoading: apiKeysLoading } = useGetApiKeysQuery({
+		enabled: isAuthenticated || isNoAuthMode,
+	});
+
+	// API key mutations
+	const createApiKeyMutation = useCreateApiKeyMutation({
+		onSuccess: (data) => {
+			setNewlyCreatedKey(data.api_key);
+			setCreateKeyDialogOpen(false);
+			setShowKeyDialogOpen(true);
+			setNewKeyName("");
+			toast.success("API key created");
+		},
+		onError: (error) => {
+			toast.error("Failed to create API key", { description: error.message });
+		},
+	});
+
+	const revokeApiKeyMutation = useRevokeApiKeyMutation({
+		onSuccess: () => {
+			toast.success("API key revoked");
+		},
+		onError: (error) => {
+			toast.error("Failed to revoke API key", { description: error.message });
+		},
 	});
 
 	// Fetch models for each provider
@@ -387,201 +376,49 @@ function KnowledgeSourcesPage() {
 		updateSettingsMutation.mutate({ picture_descriptions: checked });
 	};
 
-	// Helper function to get connector icon
-	const getConnectorIcon = useCallback((iconName: string) => {
-		const iconMap: { [key: string]: React.ReactElement } = {
-			"google-drive": <GoogleDriveIcon />,
-			sharepoint: <SharePointIcon />,
-			onedrive: <OneDriveIcon />,
-		};
-		return (
-			iconMap[iconName] || (
-				<div className="w-8 h-8 bg-gray-500 rounded flex items-center justify-center text-white font-bold leading-none shrink-0">
-					?
-				</div>
-			)
-		);
-	}, []);
-
-	// Connector functions
-	const checkConnectorStatuses = useCallback(async () => {
-		try {
-			// Fetch available connectors from backend
-			const connectorsResponse = await fetch("/api/connectors");
-			if (!connectorsResponse.ok) {
-				throw new Error("Failed to load connectors");
-			}
-
-			const connectorsResult = await connectorsResponse.json();
-			const connectorTypes = Object.keys(connectorsResult.connectors);
-
-			// Initialize connectors list with metadata from backend
-			const initialConnectors = connectorTypes
-				// .filter((type) => connectorsResult.connectors[type].available) // Only show available connectors
-				.map((type) => ({
-					id: type,
-					name: connectorsResult.connectors[type].name,
-					description: connectorsResult.connectors[type].description,
-					icon: getConnectorIcon(connectorsResult.connectors[type].icon),
-					status: "not_connected" as const,
-					type: type,
-					available: connectorsResult.connectors[type].available,
-				}));
-
-			setConnectors(initialConnectors);
-
-			// Check status for each connector type
-
-			for (const connectorType of connectorTypes) {
-				const response = await fetch(`/api/connectors/${connectorType}/status`);
-				if (response.ok) {
-					const data = await response.json();
-					const connections = data.connections || [];
-					const activeConnection = connections.find(
-						(conn: Connection) => conn.is_active,
-					);
-					const isConnected = activeConnection !== undefined;
-
-					setConnectors((prev) =>
-						prev.map((c) =>
-							c.type === connectorType
-								? {
-										...c,
-										status: isConnected ? "connected" : "not_connected",
-										connectionId: activeConnection?.connection_id,
-									}
-								: c,
-						),
-					);
-				}
-			}
-		} catch (error) {
-			console.error("Failed to check connector statuses:", error);
+	// API Keys handlers
+	const handleCreateApiKey = () => {
+		if (!newKeyName.trim()) {
+			toast.error("Please enter a name for the API key");
+			return;
 		}
-	}, [getConnectorIcon]);
+		createApiKeyMutation.mutate({ name: newKeyName.trim() });
+	};
 
-	const handleConnect = async (connector: Connector) => {
-		setIsConnecting(connector.id);
-		setSyncResults((prev) => ({ ...prev, [connector.id]: null }));
+	const handleRevokeApiKey = (keyId: string) => {
+		revokeApiKeyMutation.mutate({ key_id: keyId });
+	};
 
-		try {
-			// Use the shared auth callback URL, same as connectors page
-			const redirectUri = `${window.location.origin}/auth/callback`;
-
-			const response = await fetch("/api/auth/init", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					connector_type: connector.type,
-					purpose: "data_source",
-					name: `${connector.name} Connection`,
-					redirect_uri: redirectUri,
-				}),
-			});
-
-			if (response.ok) {
-				const result = await response.json();
-
-				if (result.oauth_config) {
-					localStorage.setItem("connecting_connector_id", result.connection_id);
-					localStorage.setItem("connecting_connector_type", connector.type);
-
-					const authUrl =
-						`${result.oauth_config.authorization_endpoint}?` +
-						`client_id=${result.oauth_config.client_id}&` +
-						`response_type=code&` +
-						`scope=${result.oauth_config.scopes.join(" ")}&` +
-						`redirect_uri=${encodeURIComponent(
-							result.oauth_config.redirect_uri,
-						)}&` +
-						`access_type=offline&` +
-						`prompt=consent&` +
-						`state=${result.connection_id}`;
-
-					window.location.href = authUrl;
-				}
-			} else {
-				console.error("Failed to initiate connection");
-				setIsConnecting(null);
-			}
-		} catch (error) {
-			console.error("Connection error:", error);
-			setIsConnecting(null);
+	const handleCopyApiKey = async () => {
+		if (newlyCreatedKey) {
+			await navigator.clipboard.writeText(newlyCreatedKey);
+			toast.success("API key copied to clipboard");
 		}
 	};
 
-	// const handleSync = async (connector: Connector) => {
-	//   if (!connector.connectionId) return;
-
-	//   setIsSyncing(connector.id);
-	//   setSyncResults(prev => ({ ...prev, [connector.id]: null }));
-
-	//   try {
-	//     const syncBody: {
-	//       connection_id: string;
-	//       max_files?: number;
-	//       selected_files?: string[];
-	//     } = {
-	//       connection_id: connector.connectionId,
-	//       max_files: syncAllFiles ? 0 : maxFiles || undefined,
-	//     };
-
-	//     // Note: File selection is now handled via the cloud connectors dialog
-
-	//     const response = await fetch(`/api/connectors/${connector.type}/sync`, {
-	//       method: "POST",
-	//       headers: {
-	//         "Content-Type": "application/json",
-	//       },
-	//       body: JSON.stringify(syncBody),
-	//     });
-
-	//     const result = await response.json();
-
-	//     if (response.status === 201) {
-	//       const taskId = result.task_id;
-	//       if (taskId) {
-	//         addTask(taskId);
-	//         setSyncResults(prev => ({
-	//           ...prev,
-	//           [connector.id]: {
-	//             processed: 0,
-	//             total: result.total_files || 0,
-	//           },
-	//         }));
-	//       }
-	//     } else if (response.ok) {
-	//       setSyncResults(prev => ({ ...prev, [connector.id]: result }));
-	//       // Note: Stats will auto-refresh via task completion watcher for async syncs
-	//     } else {
-	//       console.error("Sync failed:", result.error);
-	//     }
-	//   } catch (error) {
-	//     console.error("Sync error:", error);
-	//   } finally {
-	//     setIsSyncing(null);
-	//   }
-	// };
-
-	const navigateToKnowledgePage = (connector: Connector) => {
-		const provider = connector.type.replace(/-/g, "_");
-		router.push(`/upload/${provider}`);
+	const formatDate = (dateString: string | null) => {
+		if (!dateString) return "Never";
+		const date = new Date(dateString);
+		return date.toLocaleDateString(undefined, {
+			year: "numeric",
+			month: "short",
+			day: "numeric",
+		});
 	};
+
+
+
+
+
 
 	// Check connector status on mount and when returning from OAuth
 	useEffect(() => {
-		if (isAuthenticated) {
-			checkConnectorStatuses();
-		}
-
 		if (searchParams.get("oauth_success") === "true") {
 			const url = new URL(window.location.href);
 			url.searchParams.delete("oauth_success");
 			window.history.replaceState({}, "", url.toString());
 		}
-	}, [searchParams, isAuthenticated, checkConnectorStatuses]);
+	}, [searchParams]);
 
 	// Track previous tasks to detect new completions
 	const [prevTasks, setPrevTasks] = useState<typeof tasks>([]);
@@ -802,110 +639,7 @@ function KnowledgeSourcesPage() {
 					// </div>
 				}
 				{/* Connectors Grid */}
-				<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-					{connectors.map((connector) => {
-						return (
-							<Card key={connector.id} className="relative flex flex-col">
-								<CardHeader className="pb-2">
-									<div className="flex flex-col items-start justify-between">
-										<div className="flex flex-col gap-3">
-											<div className="mb-1">
-												<div
-													className={cn(
-														"w-8 h-8 rounded flex items-center justify-center border",
-														connector?.available
-															? "bg-white"
-															: "bg-muted grayscale",
-													)}
-												>
-													{connector.icon}
-												</div>
-											</div>
-											<CardTitle className="flex flex-row items-center gap-2">
-												{connector.name}
-											</CardTitle>
-											<CardDescription className="text-sm">
-												{connector?.available
-													? `${connector.name} is configured.`
-													: "Not configured."}
-											</CardDescription>
-										</div>
-									</div>
-								</CardHeader>
-								<CardContent className="flex-1 flex flex-col justify-end space-y-4">
-									{connector?.available ? (
-										<div className="space-y-3">
-											{connector?.status === "connected" ? (
-												<>
-													<Button
-														variant="outline"
-														onClick={() => navigateToKnowledgePage(connector)}
-														disabled={isSyncing === connector.id}
-														className="w-full cursor-pointer"
-														size="sm"
-													>
-														<Plus className="h-4 w-4" />
-														Add Knowledge
-													</Button>
-													{syncResults[connector.id] && (
-														<div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-															<div>
-																Processed:{" "}
-																{syncResults[connector.id]?.processed || 0}
-															</div>
-															<div>
-																Added: {syncResults[connector.id]?.added || 0}
-															</div>
-															{syncResults[connector.id]?.errors && (
-																<div>
-																	Errors: {syncResults[connector.id]?.errors}
-																</div>
-															)}
-														</div>
-													)}
-												</>
-											) : (
-												<Button
-													onClick={() => handleConnect(connector)}
-													disabled={isConnecting === connector.id}
-													className="w-full cursor-pointer"
-													size="sm"
-												>
-													{isConnecting === connector.id ? (
-														<>
-															<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-															Connecting...
-														</>
-													) : (
-														<>
-															<PlugZap className="mr-2 h-4 w-4" />
-															Connect
-														</>
-													)}
-												</Button>
-											)}
-										</div>
-									) : (
-										<div className="text-sm text-muted-foreground">
-											<p>
-												See our{" "}
-												<Link
-													className="text-accent-pink-foreground"
-													href="https://docs.openr.ag/knowledge#oauth-ingestion"
-													target="_blank"
-													rel="noopener noreferrer"
-												>
-													Cloud Connectors installation guide
-												</Link>{" "}
-												for more detail.
-											</p>
-										</div>
-									)}
-								</CardContent>
-							</Card>
-						);
-					})}
-				</div>
+				<ConnectorCards />
 			</div>
 
 			{/* Model Providers Section */}
@@ -1024,19 +758,17 @@ function KnowledgeSourcesPage() {
 									value={systemPrompt}
 									onChange={(e) => setSystemPrompt(e.target.value)}
 									rows={6}
-									className={`resize-none ${
-										systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS
-											? "!border-destructive focus:border-destructive"
-											: ""
-									}`}
+									className={`resize-none ${systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS
+										? "!border-destructive focus:border-destructive"
+										: ""
+										}`}
 								/>
 							</LabelWrapper>
 							<span
-								className={`text-xs ${
-									systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS
-										? "text-destructive"
-										: "text-muted-foreground"
-								}`}
+								className={`text-xs ${systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS
+									? "text-destructive"
+									: "text-muted-foreground"
+									}`}
 							>
 								{systemPrompt.length}/{MAX_SYSTEM_PROMPT_CHARS} characters
 							</span>
@@ -1315,6 +1047,209 @@ function KnowledgeSourcesPage() {
 					</div>
 				</CardContent>
 			</Card>
+
+			{/* API Keys Section */}
+			{(isAuthenticated || isNoAuthMode) && (
+				<Card>
+					<CardHeader>
+						<div className="flex items-center justify-between mb-3">
+							<CardTitle className="text-lg">API Keys</CardTitle>
+							<Button
+								onClick={() => setCreateKeyDialogOpen(true)}
+								size="sm"
+							>
+								<Plus className="h-4 w-4 mr-2" />
+								Create Key
+							</Button>
+						</div>
+						<CardDescription>
+							API keys allow programmatic access to OpenRAG via the public API.
+							Keep your keys secure and never share them publicly.
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						{apiKeysLoading ? (
+							<div className="flex items-center justify-center py-8">
+								<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+							</div>
+						) : apiKeysData?.keys && apiKeysData.keys.length > 0 ? (
+							<div className="border rounded-lg overflow-hidden">
+								<table className="w-full">
+									<thead className="bg-muted/50">
+										<tr>
+											<th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">
+												Name
+											</th>
+											<th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">
+												Key
+											</th>
+											<th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">
+												Created
+											</th>
+											<th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">
+												Last Used
+											</th>
+											<th className="text-right text-sm font-medium text-muted-foreground px-4 py-3">
+												Actions
+											</th>
+										</tr>
+									</thead>
+									<tbody>
+										{apiKeysData.keys.map((key) => (
+											<tr key={key.key_id} className="border-t">
+												<td className="px-4 py-3 text-sm font-medium">
+													{key.name}
+												</td>
+												<td className="px-4 py-3">
+													<code className="text-sm bg-muted px-2 py-1 rounded">
+														{key.key_prefix}...
+													</code>
+												</td>
+												<td className="px-4 py-3 text-sm text-muted-foreground">
+													{formatDate(key.created_at)}
+												</td>
+												<td className="px-4 py-3 text-sm text-muted-foreground">
+													{formatDate(key.last_used_at)}
+												</td>
+												<td className="px-4 py-3 text-right">
+													<ConfirmationDialog
+														trigger={
+															<Button
+																variant="ghost"
+																size="sm"
+																className="text-destructive hover:text-destructive hover:bg-destructive/10"
+															>
+																<Trash2 className="h-4 w-4" />
+															</Button>
+														}
+														title="Revoke API Key"
+														description={
+															<>
+																Are you sure you want to revoke the API key{" "}
+																<strong>{key.name}</strong>? This action cannot
+																be undone and any applications using this key
+																will stop working.
+															</>
+														}
+														confirmText="Revoke"
+														variant="destructive"
+														onConfirm={(closeDialog) => {
+															handleRevokeApiKey(key.key_id);
+															closeDialog();
+														}}
+													/>
+												</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							</div>
+						) : (
+							<div className="text-center py-8">
+								<Key className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+								<p className="text-muted-foreground mb-4">
+									No API keys yet. Create one to get started.
+								</p>
+								<Button
+									variant="outline"
+									onClick={() => setCreateKeyDialogOpen(true)}
+									size="sm"
+								>
+									<Plus className="h-4 w-4 mr-2" />
+									Create your first API key
+								</Button>
+							</div>
+						)}
+					</CardContent>
+				</Card>
+			)}
+
+			{/* Create API Key Dialog */}
+			<Dialog open={createKeyDialogOpen} onOpenChange={setCreateKeyDialogOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Create API Key</DialogTitle>
+						<DialogDescription>
+							Give your API key a name to help you identify it later.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="py-4">
+						<LabelWrapper label="Name" id="api-key-name">
+							<Input
+								id="api-key-name"
+								placeholder="e.g., Production App, Development"
+								value={newKeyName}
+								onChange={(e) => setNewKeyName(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										handleCreateApiKey();
+									}
+								}}
+							/>
+						</LabelWrapper>
+					</div>
+					<DialogFooter>
+						<Button
+							variant="ghost"
+							onClick={() => {
+								setCreateKeyDialogOpen(false);
+								setNewKeyName("");
+							}}
+							size="sm"
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={handleCreateApiKey}
+							disabled={createApiKeyMutation.isPending || !newKeyName.trim()}
+							size="sm"
+						>
+							{createApiKeyMutation.isPending ? (
+								<>
+									<Loader2 className="h-4 w-4 mr-2 animate-spin" />
+									Creating...
+								</>
+							) : (
+								"Create Key"
+							)}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			{/* Show Created API Key Dialog */}
+			<Dialog
+				open={showKeyDialogOpen}
+				onOpenChange={(open) => {
+					setShowKeyDialogOpen(open);
+					if (!open) {
+						setNewlyCreatedKey(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>API Key Created</DialogTitle>
+						<DialogDescription>
+							Copy your API key now. You won&apos;t be able to see it again.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="py-4">
+						<div className="bg-muted rounded-lg p-4 font-mono text-sm break-all">
+							{newlyCreatedKey}
+						</div>
+					</div>
+					<DialogFooter>
+						<Button variant="ghost" onClick={() => setShowKeyDialogOpen(false)} size="sm">
+							Close
+						</Button>
+						<Button onClick={handleCopyApiKey} size="sm">
+							<Copy className="h-4 w-4 mr-2" />
+							Copy Key
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

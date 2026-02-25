@@ -17,15 +17,32 @@ wheels/
 
 1001*.pdf
 *.json
+!**/package.json
+!**/package-lock.json
+!**/tsconfig.json
 !flows/*.json
 !src/tui/_assets/flows/*.json
 !src/tui/_assets/flows/components/*.json
 !frontend/*.json
 .DS_Store
 
-config/
+/config/
 
 .docling.pid
 
 # OpenSearch data directory
 opensearch-data/
+
+node_modules
+
+# AI Tools
+/.claude
+/CLAUDE.md
+/.gemini
+/GEMINI.md
+/.bob
+/AGENTS.md
+documents/warmup_ocr.pdf
+documents/openrag-documentation.pdf
+documents/ibm_anthropic.pdf
+documents/docling.pdf
