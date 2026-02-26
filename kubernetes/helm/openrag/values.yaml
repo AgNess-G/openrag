@@ -27,6 +27,7 @@ global:
     password: ""                          # OpenSearch password (stored in secret)
     indexName: "documents"                # OpenSearch index name
 
+  # External Docling Serve connection (only used when docling.enabled is false)
   docling:
     host: docling-serve.docling.svc.cluster.local
     port: 5001
@@ -113,7 +114,6 @@ langflow:
   # Runtime settings
   deactivateTracing: true
   logLevel: "INFO"                        # DEBUG, INFO, WARNING, ERROR
-  doclingServeUrl: "http://host.docker.internal:5001"
   openragQueryFilter: "{}"
 
   # Langfuse Tracking
@@ -310,6 +310,53 @@ frontend:
   service:
     type: ClusterIP
     port: 3000
+
+# ============================================================================
+# Docling Serve Configuration (Document Processing)
+# ============================================================================
+docling:
+  enabled: true
+
+  image:
+    repository: quay.io/docling-project/docling-serve-cpu
+    tag: "v1.5.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # OCR engine: easyocr (Linux container default), ocrmac (macOS only)
+  ocrEngine: "easyocr"
+
+  # Enable the Docling Serve web UI
+  enableUI: true
+
+  # Resource requests/limits
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+
+  # Probes
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 5001
 
 # ============================================================================
 # OpenSearch Dashboards Configuration (Optional)

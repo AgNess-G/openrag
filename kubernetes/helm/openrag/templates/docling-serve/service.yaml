@@ -1,0 +1,18 @@
+{{- if .Values.docling.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openrag.fullname" . }}-docling-serve
+  namespace: {{ include "openrag.namespace" . }}
+  labels:
+    {{- include "openrag.docling.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.docling.service.type }}
+  ports:
+    - port: {{ .Values.docling.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "openrag.docling.selectorLabels" . | nindent 4 }}
+{{- end }}

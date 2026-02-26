@@ -218,7 +218,7 @@ spec:
               value: {{ .Values.global.opensearch.indexName | quote }}
             # Docling service URL (for document processing in flows)
             - name: DOCLING_SERVE_URL
-              value: {{ .Values.langflow.doclingServeUrl | quote }}
+              value: {{ include "openrag.docling.url" . | quote }}
             {{- if .Values.global.opensearch.password }}
             - name: OPENSEARCH_PASSWORD
               valueFrom:

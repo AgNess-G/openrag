@@ -269,6 +269,8 @@ spec:
             # Docling service URL (for document processing in flows)
             - name: DOCLING_SERVE_URL
               value: {{ include "openrag.docling.url" . | quote }}
+            - name: DOCLING_OCR_ENGINE
+              value: {{ .Values.docling.ocrEngine | default "easyocr" | quote }}
             {{- if .Values.llmProviders.ollama.enabled }}
             - name: OLLAMA_ENDPOINT
               value: {{ .Values.llmProviders.ollama.endpoint | quote }}

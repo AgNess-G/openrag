@@ -1,0 +1,79 @@
+{{- if .Values.docling.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openrag.fullname" . }}-docling-serve
+  namespace: {{ include "openrag.namespace" . }}
+  labels:
+    {{- include "openrag.docling.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.docling.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "openrag.docling.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openrag.docling.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "openrag.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: docling-serve
+          image: "{{ .Values.docling.image.repository }}:{{ .Values.docling.image.tag }}"
+          imagePullPolicy: {{ .Values.docling.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 5001
+              protocol: TCP
+          env:
+            - name: DOCLING_SERVE_ENABLE_UI
+              value: {{ .Values.docling.enableUI | quote }}
+            - name: DOCLING_OCR_ENGINE
+              value: {{ .Values.docling.ocrEngine | quote }}
+          resources:
+            {{- toYaml .Values.docling.resources | nindent 12 }}
+          {{- if .Values.docling.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.docling.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.docling.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.docling.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.docling.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.docling.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.docling.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.docling.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.docling.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.docling.readinessProbe.failureThreshold }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

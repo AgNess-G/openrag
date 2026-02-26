@@ -163,8 +163,28 @@ Generate the OpenSearch URL
 {{- end }}
 
 {{/*
+Docling Serve component labels
+*/}}
+{{- define "openrag.docling.labels" -}}
+{{ include "openrag.labels" . }}
+app.kubernetes.io/component: docling-serve
+{{- end }}
+
+{{/*
+Docling Serve selector labels
+*/}}
+{{- define "openrag.docling.selectorLabels" -}}
+{{ include "openrag.selectorLabels" . }}
+app.kubernetes.io/component: docling-serve
+{{- end }}
+
+{{/*
 Generate the Docling URL
 */}}
 {{- define "openrag.docling.url" -}}
+{{- if .Values.docling.enabled -}}
+http://{{ include "openrag.fullname" . }}-docling-serve:{{ .Values.docling.service.port }}
+{{- else -}}
 {{ .Values.global.docling.scheme }}://{{ .Values.global.docling.host }}:{{ .Values.global.docling.port }}
+{{- end -}}
 {{- end }}
