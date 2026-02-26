@@ -5,6 +5,10 @@ from pathlib import Path
 import httpx
 import pytest
 
+from config.model_constants import (
+    OPENAI_DEFAULT_EMBEDDING_MODEL,
+    OPENAI_DEFAULT_LANGUAGE_MODEL,
+)
 from tests.integration.helpers import (
     wait_for_service_ready,
     wait_for_task_completion as _wait_for_task_completion,
@@ -20,7 +24,7 @@ async def test_upload_and_search_endpoint(tmp_path: Path, disable_langflow_inges
     # Ensure we route uploads to traditional processor and disable startup ingest
     os.environ["DISABLE_INGEST_WITH_LANGFLOW"] = "true" if disable_langflow_ingest else "false"
     os.environ["DISABLE_STARTUP_INGEST"] = "true"
-    os.environ["EMBEDDING_MODEL"] = "text-embedding-3-small"
+    os.environ["EMBEDDING_MODEL"] = OPENAI_DEFAULT_EMBEDDING_MODEL
     os.environ["EMBEDDING_PROVIDER"] = "openai"
     # Force no-auth mode so endpoints bypass authentication
     os.environ["GOOGLE_OAUTH_CLIENT_ID"] = ""
@@ -206,8 +210,8 @@ async def test_langflow_chat_and_nudges_endpoints():
             resp = await client.post(
                 "/settings",
                 json={
-                    "embedding_model": "text-embedding-3-small",
-                    "llm_model": "gpt-4o-mini",
+                    "embedding_model": OPENAI_DEFAULT_EMBEDDING_MODEL,
+                    "llm_model": OPENAI_DEFAULT_LANGUAGE_MODEL,
                 },
             )
             assert resp.status_code == 200, resp.text

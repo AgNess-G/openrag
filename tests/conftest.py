@@ -15,6 +15,12 @@ load_dotenv()
 os.environ['GOOGLE_OAUTH_CLIENT_ID'] = ''
 os.environ['GOOGLE_OAUTH_CLIENT_SECRET'] = ''
 
+from config.model_constants import (
+    ANTHROPIC_DEFAULT_LANGUAGE_MODEL,
+    ANTHROPIC_VALIDATION_MODELS,
+    OPENAI_DEFAULT_EMBEDDING_MODEL,
+    OPENAI_DEFAULT_LANGUAGE_MODEL,
+)
 from config.settings import clients
 from session_manager import SessionManager
 from main import generate_jwt_keys
@@ -59,8 +65,8 @@ async def onboard_system():
         onboarding_payload = {
             "llm_provider": "openai",
             "embedding_provider": "openai",
-            "embedding_model": "text-embedding-3-small",
-            "llm_model": "gpt-4o-mini",
+            "embedding_model": OPENAI_DEFAULT_EMBEDDING_MODEL,
+            "llm_model": OPENAI_DEFAULT_LANGUAGE_MODEL,
         }
         resp = await client.post("/onboarding", json=onboarding_payload)
         if resp.status_code not in (200, 204):
@@ -127,9 +133,6 @@ def test_documents_dir():
         yield test_dir
 
 
-ANTHROPIC_LLM_MODEL = "claude-3-5-haiku-latest"
-
-
 @pytest.fixture
 def anthropic_api_key():
     """Return the ANTHROPIC_API_KEY from env, or skip the test if unset."""
@@ -142,7 +145,7 @@ def anthropic_api_key():
 @pytest.fixture
 def anthropic_llm_model():
     """Default Anthropic LLM model used in integration tests."""
-    return ANTHROPIC_LLM_MODEL
+    return ANTHROPIC_DEFAULT_LANGUAGE_MODEL
 
 
 @pytest.fixture

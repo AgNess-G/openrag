@@ -16,6 +16,11 @@ from pathlib import Path
 import httpx
 import pytest
 
+from config.model_constants import (
+    ANTHROPIC_DEFAULT_LANGUAGE_MODEL,
+    ANTHROPIC_VALIDATION_MODELS,
+    OPENAI_DEFAULT_EMBEDDING_MODEL,
+)
 from tests.integration.helpers import (
     clear_cached_modules,
     create_app_with_clean_index,
@@ -26,8 +31,11 @@ from tests.integration.helpers import (
     wait_for_nudges,
 )
 
-ANTHROPIC_LLM_MODEL = "claude-3-5-haiku-latest"
-ANTHROPIC_LLM_MODEL_ALT = "claude-3-haiku-20240307"
+ANTHROPIC_LLM_MODEL = ANTHROPIC_DEFAULT_LANGUAGE_MODEL
+ANTHROPIC_LLM_MODEL_ALT = next(
+    (m for m in ANTHROPIC_VALIDATION_MODELS if m != ANTHROPIC_DEFAULT_LANGUAGE_MODEL),
+    ANTHROPIC_VALIDATION_MODELS[0],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +69,7 @@ async def test_anthropic_onboarding_and_settings(anthropic_api_key):
             onboarding_payload = {
                 "llm_provider": "anthropic",
                 "embedding_provider": "openai",
-                "embedding_model": "text-embedding-3-small",
+                "embedding_model": OPENAI_DEFAULT_EMBEDDING_MODEL,
                 "llm_model": ANTHROPIC_LLM_MODEL,
                 "anthropic_api_key": anthropic_api_key,
             }
@@ -124,7 +132,7 @@ async def test_anthropic_upload_and_search(
             onboarding_payload = {
                 "llm_provider": "anthropic",
                 "embedding_provider": "openai",
-                "embedding_model": "text-embedding-3-small",
+                "embedding_model": OPENAI_DEFAULT_EMBEDDING_MODEL,
                 "llm_model": ANTHROPIC_LLM_MODEL,
                 "anthropic_api_key": anthropic_api_key,
             }
@@ -244,7 +252,7 @@ async def test_anthropic_chat_endpoint(anthropic_api_key):
             resp = await client.post(
                 "/settings",
                 json={
-                    "embedding_model": "text-embedding-3-small",
+                    "embedding_model": OPENAI_DEFAULT_EMBEDDING_MODEL,
                     "llm_model": ANTHROPIC_LLM_MODEL,
                     "llm_provider": "anthropic",
                     "anthropic_api_key": anthropic_api_key,
@@ -329,7 +337,7 @@ async def test_anthropic_provider_validation(anthropic_api_key):
             onboarding_payload = {
                 "llm_provider": "anthropic",
                 "embedding_provider": "openai",
-                "embedding_model": "text-embedding-3-small",
+                "embedding_model": OPENAI_DEFAULT_EMBEDDING_MODEL,
                 "llm_model": ANTHROPIC_LLM_MODEL,
                 "anthropic_api_key": anthropic_api_key,
             }
