@@ -90,6 +90,7 @@ class ContainerManager:
 
         # Expected services based on compose files
         self.expected_services = [
+            "docling-serve",
             "openrag-backend",
             "openrag-frontend",
             "opensearch",
@@ -99,6 +100,7 @@ class ContainerManager:
 
         # Map container names to service names
         self.container_name_map = {
+            "docling-serve": "docling-serve",
             "openrag-backend": "openrag-backend",
             "openrag-frontend": "openrag-frontend",
             "os": "opensearch",

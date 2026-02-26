@@ -471,6 +471,13 @@ class EnvManager:
                         f.write(f"{var_name}={self._quote_env_value(var_value)}\n")
                     f.write("\n")
 
+                # Docling settings
+                f.write("# Docling settings\n")
+                docling_ocr_engine = os.environ.get("DOCLING_OCR_ENGINE", "")
+                if docling_ocr_engine:
+                    f.write(f"DOCLING_OCR_ENGINE={self._quote_env_value(docling_ocr_engine)}\n")
+                f.write("\n")
+
                 # Ingestion settings
                 f.write("# Ingestion settings\n")
                 f.write(f"DISABLE_INGEST_WITH_LANGFLOW={self._quote_env_value(self.config.disable_ingest_with_langflow)}\n")

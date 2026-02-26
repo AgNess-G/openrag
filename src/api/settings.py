@@ -1,5 +1,5 @@
 import json
-import platform
+import os
 from fastapi import Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -206,11 +206,11 @@ def get_docling_preset_configs(
         ocr: Enable OCR for text extraction from images (default: False)
         picture_descriptions: Enable picture descriptions/captions (default: False)
     """
-    is_macos = platform.system() == "Darwin"
+    ocr_engine = os.environ.get("DOCLING_OCR_ENGINE", "easyocr")
 
     config = {
         "do_ocr": ocr,
-        "ocr_engine": "ocrmac" if is_macos else "easyocr",
+        "ocr_engine": ocr_engine,
         "do_table_structure": table_structure,
         "do_picture_classification": picture_descriptions,
         "do_picture_description": picture_descriptions,
