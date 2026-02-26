@@ -1,4 +1,4 @@
-"""Version checking utilities for OpenRAG TUI."""
+    """Version checking utilities for OpenRAG TUI."""
 
 from typing import Optional, Tuple
 from utils.logging_config import get_logger
@@ -81,22 +81,64 @@ async def get_latest_docker_version(image_name: str = "langflowai/openrag-backen
         return None
 
 
+def _read_pyproject_version() -> Optional[str]:
+    """Read version directly from pyproject.toml (for dev/source installs)."""
+    from pathlib import Path
+
+    # Walk up from this file to find pyproject.toml
+    for anchor in (Path(__file__), Path.cwd()):
+        d = anchor if anchor.is_dir() else anchor.parent
+        for _ in range(6):
+            candidate = d / "pyproject.toml"
+            if candidate.is_file():
+                try:
+                    for line in candidate.read_text().splitlines():
+                        line = line.strip()
+                        if line.startswith("version") and "=" in line:
+                            return line.split("=", 1)[1].strip().strip('"').strip("'")
+                except Exception:
+                    pass
+            d = d.parent
+    return None
+
+
 def get_current_version() -> str:
     """
-    Get the current installed version of OpenRAG.
+    Get the current version of OpenRAG.
+
+    Checks installed package metadata first, then falls back to reading
+    pyproject.toml directly so that running from source always reflects
+    the version in the repo.
     
     Returns:
         Version string or "unknown" if not available
     """
+    # 1. Installed package metadata (works for pip/uv installs)
     try:
         from importlib.metadata import version
-        return version("openrag")
+        v = version("openrag")
+        if v:
+            # Cross-check with pyproject.toml: if pyproject has a newer
+            # version we're probably running from source with a stale install.
+            pyproject_v = _read_pyproject_version()
+            if pyproject_v and pyproject_v != v:
+                if compare_versions(pyproject_v, v) > 0:
+                    return pyproject_v
+            return v
     except Exception:
-        try:
-            from tui import __version__
-            return __version__
-        except Exception:
-            return "unknown"
+        pass
+
+    # 2. Read pyproject.toml directly (editable / source checkout)
+    pyproject_v = _read_pyproject_version()
+    if pyproject_v:
+        return pyproject_v
+
+    # 3. Legacy module-level __version__
+    try:
+        from tui import __version__
+        return __version__
+    except Exception:
+        return "unknown"
 
 
 def compare_versions(version1: str, version2: str) -> int:
