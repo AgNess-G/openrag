@@ -73,6 +73,19 @@ class ModelsService:
                     key=lambda x: (not x.get("default", False), x["value"])
                 )
 
+                if not language_models:
+                    logger.warning(
+                        "OpenAI API key is valid but no language models matched the validation list. "
+                        "The API returned %d models, none matched OPENAI_VALIDATION_MODELS. "
+                        "This may indicate a model naming scheme change.",
+                        len(models),
+                    )
+                if not embedding_models:
+                    logger.warning(
+                        "OpenAI API key is valid but no embedding models were found matching prefix '%s'.",
+                        OPENAI_EMBEDDING_MODEL_PREFIX,
+                    )
+
                 logger.info("OpenAI API key validated successfully without consuming credits")
                 return {
                     "language_models": language_models,
@@ -128,6 +141,14 @@ class ModelsService:
                 language_models.sort(
                     key=lambda x: (not x.get("default", False), x["value"])
                 )
+
+                if not language_models:
+                    logger.warning(
+                        "Anthropic API key is valid but no models matched the validation list. "
+                        "The API returned %d models, none matched ANTHROPIC_VALIDATION_MODELS. "
+                        "This may indicate a model naming scheme change.",
+                        len(models),
+                    )
 
                 return {
                     "language_models": language_models,
