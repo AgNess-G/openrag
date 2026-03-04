@@ -24,3 +24,29 @@ docker:
           - 'Dockerfile*'
           - 'docker-compose*.yml'
 
+enhancement:
+  - title: '^feat(\([\w-]+\))?!?:'
+
+bug:
+  - title: '^fix(\([\w-]+\))?!?:'
+
+refactor:
+  - title: '^refactor(\([\w-]+\))?!?:'
+
+style:
+  - title: '^style(\([\w-]+\))?!?:'
+
+performance:
+  - title: '^perf(\([\w-]+\))?!?:'
+
+test:
+  - title: '^test(\([\w-]+\))?!?:'
+
+chore:
+  - title: '^chore(\([\w-]+\))?!?:'
+
+build:
+  - title: '^build(\([\w-]+\))?!?:'
+
+breaking:
+  - title: '^(\w+)(\([\w-]+\))?!:'
