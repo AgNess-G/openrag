@@ -534,6 +534,17 @@ def fix_storage_corruption(runtime: str, version: str) -> bool:
         say("Removing OpenRAG Docker images...")
         removed, total = remove_openrag_images("docker")
         say(f"Removed {removed}/{total} OpenRAG image(s).")
+        # Treat outcomes based on how many images were removed vs. found.
+        if total == 0:
+            # No OpenRAG images found; nothing to clean up, but this is not an error.
+            return True
+        if removed < total:
+            # We attempted cleanup but some images could not be removed.
+            say(
+                "Warning: Some OpenRAG Docker images could not be removed. "
+                "Please try removing them manually or check your Docker installation."
+            )
+            return False
         return True
 
 
