@@ -7,15 +7,6 @@ Notes:
 - Includes booleans / numbers from values.yaml because those are explicitly set.
 */ -}}
 {{- if .Values.backend.enabled }}
-{{- $sessionSecret := "" }}
-{{- $secretName := printf "%s-backend" (include "openrag.fullname" .) }}
-{{- $secretNamespace := include "openrag.namespace" . }}
-{{- $existingSecret := lookup "v1" "Secret" $secretNamespace $secretName }}
-{{- if $existingSecret }}
-{{- $sessionSecret = index $existingSecret.data "session-secret" | b64dec }}
-{{- else }}
-{{- $sessionSecret = include "openrag.backend.sessionSecret" . }}
-{{- end }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -28,8 +19,6 @@ stringData:
   .env: |
     # Generated from Helm values.yaml (OpenRAG)
     # Mounted as a file into the pod
-
-    IBM_AUTH_ENABLED={{ .Values.backend.auth.ibmCloud.enabled}}
 
     # Ingestion Configuration
     DISABLE_INGEST_WITH_LANGFLOW={{ ternary "true" "false" .Values.backend.features.disableIngestWithLangflow }}
@@ -100,6 +89,14 @@ stringData:
     MICROSOFT_GRAPH_OAUTH_CLIENT_SECRET={{ .Values.global.oauth.microsoft.clientSecret | quote }}
     {{- end }}
 
+    # AWS S3 credentials
+    {{- if .Values.backend.aws.accessKeyId }}
+    AWS_ACCESS_KEY_ID={{ .Values.backend.aws.accessKeyId | quote }}
+    {{- end }}
+    {{- if .Values.backend.aws.secretAccessKey }}
+    AWS_SECRET_ACCESS_KEY={{ .Values.backend.aws.secretAccessKey | quote }}
+    {{- end }}
+
     # Webhook (continuous ingest)
     {{- if .Values.backend.webhook.baseUrl }}
     WEBHOOK_BASE_URL={{ .Values.backend.webhook.baseUrl | quote }}
@@ -150,6 +147,7 @@ stringData:
     {{- end }}
 
     # Langflow auth
+    LANGFLOW_AUTO_LOGIN={{ ternary "true" "false" .Values.langflow.auth.autoLogin }}
     {{- if .Values.langflow.auth.superuser }}
     LANGFLOW_SUPERUSER={{ .Values.langflow.auth.superuser | quote }}
     {{- end }}
@@ -169,15 +167,6 @@ stringData:
     {{- if .Values.backend.persistence.documents.mountPath }}
     OPENRAG_DOCUMENTS_PATH={{ .Values.backend.persistence.documents.mountPath | quote }}
     {{- end }}
-    {{- if .Values.backend.encryption.key }}
-    OPENRAG_ENCRYPTION_KEY={{ .Values.backend.encryption.key  | quote }}
-    {{- end }}
-    
-    # Langflow auth (OpenRag uses this to determine how to authenticate with Langflow)
-    LANGFLOW_AUTO_LOGIN={{ ternary "true" "false" .Values.langflow.auth.autoLogin }}
-
-    # OpenRag / OAuth return URL (Included in OAuth State)
-    OAUTH_BROKER_URL={{ .Values.backend.oauthBrokerUrl | quote }}
 
     # Langflow API Key / Secret Key
     {{- if .Values.langflow.auth.apiKey }}
@@ -204,5 +193,7 @@ stringData:
     {{- if .Values.backend.serviceName }}
     SERVICE_NAME={{ .Values.backend.serviceName | quote }}
     {{- end }}
-    SESSION_SECRET={{ $sessionSecret | quote }}
+    {{- if .Values.backend.auth.sessionSecret }}
+    SESSION_SECRET={{ .Values.backend.auth.sessionSecret | quote }}
+    {{- end }}
 {{- end }}
