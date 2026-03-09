@@ -160,7 +160,7 @@ class TestSaveEnvFilePermissions:
         assert continued_block in content
         assert content.count("UNMANAGED_LONG_VALUE=") == 1
         # Managed password should be updated, not duplicated.
-        assert 'OPENSEARCH_PASSWORD="AnotherNewPass!789"' in content
+        assert "OPENSEARCH_PASSWORD='AnotherNewPass!789'" in content
         assert 'OPENSEARCH_PASSWORD="old-password"' not in content
 # ---------------------------------------------------------------------------
 # ensure_openrag_version
