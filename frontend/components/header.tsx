@@ -23,7 +23,7 @@ export function Header() {
       <div className="header-start-display px-[16px]">
         {/* Logo/Title */}
         <div className="flex items-center">
-          <Logo className="fill-primary" width={24} height={22} />
+          <Logo className="fill-foreground" width={24} height={22} />
           <span
             className="text-lg font-semibold pl-2.5"
             style={{ fontFamily: '"IBM Plex Mono", monospace' }}
