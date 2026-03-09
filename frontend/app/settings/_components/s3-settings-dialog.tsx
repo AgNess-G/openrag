@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FormProvider, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -48,6 +48,17 @@ export default function S3SettingsDialog({
     const [selectedBuckets, setSelectedBuckets] = useState<string[]>(
         defaults?.bucket_names ?? [],
     );
+
+    // Sync bucket state when defaults load asynchronously after dialog mount
+    useEffect(() => {
+        if (defaults?.bucket_names?.length) {
+            setBuckets(defaults.bucket_names);
+            setSelectedBuckets((prev) =>
+                prev.length ? prev : defaults.bucket_names,
+            );
+        }
+    }, [defaults?.bucket_names?.join(",")]);
+
     const [isFetchingBuckets, setIsFetchingBuckets] = useState(false);
     const [bucketsError, setBucketsError] = useState<string | null>(null);
     const [formError, setFormError] = useState<string | null>(null);

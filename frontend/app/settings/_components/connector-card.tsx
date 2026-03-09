@@ -54,7 +54,7 @@ export default function ConnectorCard({
           <div className="flex flex-col gap-4 mb-2 w-full">
             <div className="flex items-center justify-between mb-1">
               <CardIcon
-                isActive={!!(connector?.available && isConnected)}
+                isActive={!!isConnected}
                 activeBgColor="bg-white"
               >
                 {connector.icon}
@@ -71,7 +71,7 @@ export default function ConnectorCard({
                 {connector.name}
               </CardTitle>
               <CardDescription className="text-sm">
-                {connector?.available
+                {isConnected || connector?.available
                   ? `${connector.name} is configured.`
                   : "Not configured."}
               </CardDescription>
@@ -147,6 +147,11 @@ export default function ConnectorCard({
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Connecting...
+                  </>
+                ) : onConfigure ? (
+                  <>
+                    <Settings2 className="h-4 w-4" />
+                    Configure
                   </>
                 ) : (
                   <>Connect</>
