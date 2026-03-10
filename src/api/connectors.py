@@ -878,7 +878,8 @@ async def ibm_cos_bucket_status(
             all_buckets = [b.name for b in cos.buckets.all()]
         else:
             cos = create_ibm_cos_client(cfg)
-            all_buckets = [b["Name"] for b in cos.list_buckets().get("Buckets", [])]
+        logger.exception("Failed to list IBM COS buckets for connection %s", connection_id)
+        return JSONResponse({"error": "Failed to list buckets"}, status_code=500)
     except Exception as exc:
         return JSONResponse({"error": f"Failed to list buckets: {exc}"}, status_code=500)
 
