@@ -168,6 +168,7 @@ class OnboardingResponse(BaseModel):
     edited: bool
     sample_data_ingested: bool
     openrag_docs_filter_id: Optional[str] = None
+    task_id: Optional[str] = None
 
 class DoclingConfig(BaseModel):
     do_ocr: bool
@@ -975,6 +976,8 @@ async def onboarding(
             )
             raise
 
+        task_id = None
+
         # Initialize the OpenSearch index if embedding model is configured
         if body.embedding_model or body.embedding_provider:
             try:
@@ -1004,7 +1007,7 @@ async def onboarding(
                     # Import the function here to avoid circular imports
                     from main import ingest_default_documents_when_ready
 
-                    await ingest_default_documents_when_ready(
+                    task_id = await ingest_default_documents_when_ready(
                         document_service,
                         task_service,
                         langflow_file_service,
@@ -1094,6 +1097,7 @@ async def onboarding(
             edited=True,  # Confirm that config is now marked as edited
             sample_data_ingested=should_ingest_sample_data,
             openrag_docs_filter_id=openrag_docs_filter_id,
+            task_id=task_id,
         )
 
     except Exception as e:
@@ -1121,7 +1125,7 @@ async def _create_openrag_docs_filter(
         return None
 
     # Get JWT token
-        jwt_token = user.jwt_token
+    jwt_token = user.jwt_token
 
     # In no-auth mode, set owner to None so filter is visible to all users
     # In auth mode, use the actual user as owner
@@ -1192,6 +1196,12 @@ async def _update_langflow_global_variables(config):
             )
             logger.info("Set WATSONX_PROJECT_ID global variable in Langflow")
 
+        if config.providers.watsonx.endpoint:
+            await clients._create_langflow_global_variable(
+                "WATSONX_URL", config.providers.watsonx.endpoint, modify=True
+            )
+            logger.info("Set WATSONX_URL global variable in Langflow")
+
         # OpenAI global variables
         if config.providers.openai.api_key:
             await clients._create_langflow_global_variable(
@@ -1208,11 +1218,19 @@ async def _update_langflow_global_variables(config):
 
         # Ollama global variables
         if config.providers.ollama.endpoint:
-            endpoint = transform_localhost_url(config.providers.ollama.endpoint)
-            await clients._create_langflow_global_variable(
-                "OLLAMA_BASE_URL", endpoint, modify=True
-            )
-            logger.info("Set OLLAMA_BASE_URL global variable in Langflow")
+
+            try:
+                endpoint = transform_localhost_url(config.providers.ollama.endpoint, is_langflow=True, is_podman=True)
+                await clients._create_langflow_global_variable(
+                    "OLLAMA_BASE_URL", endpoint, modify=True
+                )
+                logger.info("Set OLLAMA_BASE_URL global variable in Langflow (Podman)")
+            except Exception:
+                endpoint = transform_localhost_url(config.providers.ollama.endpoint, is_langflow=True, is_podman=False)
+                await clients._create_langflow_global_variable(
+                    "OLLAMA_BASE_URL", endpoint, modify=True
+                )   
+                logger.info("Set OLLAMA_BASE_URL global variable in Langflow (Docker)")
 
         if config.knowledge.embedding_model:
             await clients._create_langflow_global_variable(
@@ -1269,13 +1287,10 @@ async def _update_langflow_model_values(config, flows_service):
     try:
         # Update LLM model values
         llm_provider = config.agent.llm_provider.lower()
-        llm_provider_config = config.get_llm_provider_config()
-        llm_endpoint = getattr(llm_provider_config, "endpoint", None)
 
         await flows_service.change_langflow_model_value(
             llm_provider,
             llm_model=config.agent.llm_model,
-            endpoint=llm_endpoint,
         )
         logger.info(
             f"Successfully updated Langflow flows for LLM provider {llm_provider}"
@@ -1283,13 +1298,10 @@ async def _update_langflow_model_values(config, flows_service):
 
         # Update embedding model values
         embedding_provider = config.knowledge.embedding_provider.lower()
-        embedding_provider_config = config.get_embedding_provider_config()
-        embedding_endpoint = getattr(embedding_provider_config, "endpoint", None)
 
         await flows_service.change_langflow_model_value(
             embedding_provider,
             embedding_model=config.knowledge.embedding_model,
-            endpoint=embedding_endpoint,
         )
         logger.info(
             f"Successfully updated Langflow flows for embedding provider {embedding_provider}"
@@ -1517,6 +1529,7 @@ async def rollback_onboarding(
 
         # Mark config as not edited so user can go through onboarding again
         current_config.edited = False
+        current_config.onboarding.current_step = 0
 
         # Save the rolled back configuration manually to avoid save_config_file setting edited=True
         try:
