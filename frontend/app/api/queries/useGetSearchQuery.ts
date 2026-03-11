@@ -71,6 +71,20 @@ export const useGetSearchQuery = (
 ) => {
   const queryClient = useQueryClient();
 
+  const getFileIdentity = (chunk: ChunkResult): string => {
+    const normalizedFilename = chunk.filename?.trim();
+    if (normalizedFilename) {
+      return normalizedFilename;
+    }
+
+    const normalizedSourceUrl = chunk.source_url?.trim();
+    if (normalizedSourceUrl) {
+      return normalizedSourceUrl;
+    }
+
+    return "Untitled source";
+  };
+
   // Normalize the query to match what will actually be searched
   const effectiveQuery = query || queryData?.query || "*";
 
@@ -134,7 +148,8 @@ export const useGetSearchQuery = (
       >();
 
       (data.results || []).forEach((chunk: ChunkResult) => {
-        const existing = fileMap.get(chunk.filename);
+        const fileIdentity = getFileIdentity(chunk);
+        const existing = fileMap.get(fileIdentity);
         if (existing) {
           existing.chunks.push(chunk);
           existing.totalScore += chunk.score;
@@ -148,8 +163,8 @@ export const useGetSearchQuery = (
             existing.embedding_dimensions = chunk.embedding_dimensions;
           }
         } else {
-          fileMap.set(chunk.filename, {
-            filename: chunk.filename,
+          fileMap.set(fileIdentity, {
+            filename: fileIdentity,
             mimetype: chunk.mimetype,
             chunks: [chunk],
             totalScore: chunk.score,

@@ -264,18 +264,18 @@ class LangflowFileService:
         config = get_openrag_config()
         embedding_model = config.knowledge.embedding_model
         headers = {
-            "X-Langflow-Global-Var-JWT": str(jwt_token) if jwt_token else "",
-            "X-Langflow-Global-Var-OWNER": str(owner) if owner else "",
-            "X-Langflow-Global-Var-OWNER_NAME": str(owner_name) if owner_name else "",
-            "X-Langflow-Global-Var-OWNER_EMAIL": str(owner_email) if owner_email else "",
+            "X-Langflow-Global-Var-JWT": str(jwt_token),
+            "X-Langflow-Global-Var-OWNER": str(owner),
+            "X-Langflow-Global-Var-OWNER_NAME": str(owner_name),
+            "X-Langflow-Global-Var-OWNER_EMAIL": str(owner_email),
             "X-Langflow-Global-Var-CONNECTOR_TYPE": str(connector_type),
             "X-Langflow-Global-Var-SELECTED_EMBEDDING_MODEL": str(embedding_model),
-            #TODO: Uncomment these when the flow is updated to use the new variables
-            # "X-Langflow-Global-Var-DOCS_URL": str(docs_url),
-            # "X-Langflow-Global-Var-DOCS_CRAWL_DEPTH": str(crawl_depth),
-            # "X-Langflow-Global-Var-DOCS_PREVENT_OUTSIDE": "true"
-            # if prevent_outside
-            # else "false",
+
+            "X-Langflow-Global-Var-DOCUMENT_ID":"",
+            "X-Langflow-Global-Var-SOURCE_URL": str(docs_url),
+    
+            "X-Langflow-Global-Var-ALLOWED_USERS": json.dumps( []),
+            "X-Langflow-Global-Var-ALLOWED_GROUPS": json.dumps( []),
         }
         add_provider_credentials_to_headers(headers, config)
 
@@ -295,6 +295,7 @@ class LangflowFileService:
             json=payload,
             headers=headers,
         )
+        logger.info(f"[LF] Response for URL ingestion flow: {resp.json()}")
         if resp.status_code >= 400:
             logger.error(
                 "[LF] URL ingestion flow failed",

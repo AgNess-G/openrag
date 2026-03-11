@@ -60,6 +60,7 @@ function getSourceIcon(connectorType?: string) {
       return (
         <SharePointIcon className="h-4 w-4 text-foreground flex-shrink-0" />
       );
+    case "openrag_docs":
     case "url":
       return <Globe className="h-4 w-4 text-muted-foreground flex-shrink-0" />;
     case "s3":
@@ -104,7 +105,28 @@ function SearchPage() {
   } = useGetSearchQuery(queryOverride, parsedFilterData);
 
   const isOpenragDocsRow = useCallback((file?: File) => {
-    return file?.connector_type === "system_default";
+    return (
+      file?.connector_type === "openrag_docs" ||
+      file?.connector_type === "system_default"
+    );
+  }, []);
+
+  const getFileIdentity = useCallback((file?: File) => {
+    if (!file) {
+      return "";
+    }
+
+    const normalizedFilename = file.filename?.trim();
+    if (normalizedFilename) {
+      return normalizedFilename;
+    }
+
+    const normalizedSourceUrl = file.source_url?.trim();
+    if (normalizedSourceUrl) {
+      return normalizedSourceUrl;
+    }
+
+    return "";
   }, []);
 
   const hasOpenragRefreshCueFromTasks = tasks.some((task) => {
@@ -147,10 +169,13 @@ function SearchPage() {
   }, [isError, error]);
   // Convert TaskFiles to File format and merge with backend results
   const taskFilesAsFiles: File[] = taskFiles.map((taskFile) => {
+    const normalizedFilename =
+      taskFile.filename?.trim() || taskFile.source_url?.trim() || "Untitled source";
+
     return {
-      filename: taskFile.filename,
+      filename: normalizedFilename,
       mimetype: taskFile.mimetype,
-      source_url: taskFile.source_url,
+      source_url: taskFile.source_url || "",
       size: taskFile.size,
       connector_type: taskFile.connector_type,
       status: taskFile.status,
@@ -161,7 +186,7 @@ function SearchPage() {
   });
   // Create a map of task files by filename for quick lookup
   const taskFileMap = new Map(
-    taskFilesAsFiles.map((file) => [file.filename, file]),
+    taskFilesAsFiles.map((file) => [getFileIdentity(file), file]),
   );
   // Override backend files with task file status if they exist.
   // Keep openrag_docs rows sourced from indexed search results so
@@ -170,7 +195,7 @@ function SearchPage() {
     if (file.connector_type === "openrag_docs") {
       return file;
     }
-    const taskFile = taskFileMap.get(file.filename);
+    const taskFile = taskFileMap.get(getFileIdentity(file));
     if (taskFile) {
       // Override backend file with task file data (includes status)
       return { ...file, ...taskFile };
@@ -195,15 +220,13 @@ function SearchPage() {
     return (
       taskFile.status !== "active" &&
       !backendFiles.some(
-        (backendFile) => backendFile.filename === taskFile.filename,
+        (backendFile) => getFileIdentity(backendFile) === getFileIdentity(taskFile),
       )
     );
   });
   // Combine task files first, then backend files
   const fileResults = [...backendFiles, ...filteredTaskFiles];
-  const hasOpenragDocsEntry = fileResults.some(
-    (file) => file.connector_type === "system_default",
-  );
+  const hasOpenragDocsEntry = fileResults.some((file) => isOpenragDocsRow(file));
   const isDefaultKnowledgeView =
     !queryOverride || queryOverride.trim().length === 0 || queryOverride === "*";
   const shouldShowDefaultOpenragPlaceholder =
@@ -217,7 +240,7 @@ function SearchPage() {
     mimetype: "text/markdown",
     source_url: "https://www.openr.ag/",
     size: 0,
-    connector_type: "system_default",
+    connector_type: "openrag_docs",
     status: "unavailable",
   };
   const gridRows = shouldShowDefaultOpenragPlaceholder
@@ -596,7 +619,7 @@ function SearchPage() {
           rowSelection="multiple"
           rowMultiSelectWithClick={false}
           suppressRowClickSelection={true}
-          getRowId={(params: GetRowIdParams<File>) => params.data?.filename}
+          getRowId={(params: GetRowIdParams<File>) => getFileIdentity(params.data)}
           domLayout="normal"
           onSelectionChanged={onSelectionChanged}
           pagination={pagination}
