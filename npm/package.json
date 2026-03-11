@@ -1,7 +1,7 @@
 {
   "name": "openrag",
   "version": "0.3.0",
-  "description": "OpenRAG - Intelligent Agent-powered document search and RAG platform",
+  "description": "npm bootstrap/installer for OpenRAG, a Python-based RAG platform for intelligent document search",
   "keywords": [
     "rag",
     "retrieval-augmented-generation",
