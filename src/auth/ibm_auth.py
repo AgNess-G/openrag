@@ -1,9 +1,10 @@
 """IBM AMS JWT validation helper.
 
-Validates JWTs from the `ibm-lh-console-session` cookie issued by IBM
-Watsonx Data (lakehouse). The public key is fetched from IBM_JWT_PUBLIC_KEY_URL
-at startup and cached in-process. On validation failure the key is re-fetched
-once to handle key rotation.
+Validates JWTs from IBM Watsonx Data session cookies, including the fixed
+`ibm-lh-console-session` name and dynamic `ibm-lh-console-session-*` variants.
+The public key is fetched from IBM_JWT_PUBLIC_KEY_URL at startup and cached
+in-process. On validation failure the key is re-fetched once to handle key
+rotation.
 """
 import httpx
 import jwt

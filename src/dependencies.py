@@ -89,8 +89,21 @@ def get_flows_service(services: dict = Depends(get_services)):
 # IBM AMS authentication helper
 # ─────────────────────────────────────────────
 
+def _get_ibm_session_cookie(request: Request) -> Optional[str]:
+    """Return the IBM session cookie value from fixed or dynamic cookie names."""
+    ibm_token = request.cookies.get("ibm-lh-console-session")
+    if ibm_token:
+        return ibm_token
+
+    for cookie_name, cookie_value in request.cookies.items():
+        if cookie_name.startswith("ibm-lh-console-session-"):
+            return cookie_value
+
+    return None
+
+
 def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
-    """Extract and validate the IBM AMS JWT from ibm-lh-console-session cookie.
+    """Extract and validate the IBM AMS JWT from IBM Lakehouse session cookies.
 
     If *required* is True, raises HTTP 401 on missing/invalid token.
     If *required* is False, returns None instead of raising.
@@ -98,7 +111,7 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     import auth.ibm_auth as ibm_auth
     from config.settings import IBM_JWT_PUBLIC_KEY_URL
 
-    ibm_token = request.cookies.get("ibm-lh-console-session")
+    ibm_token = _get_ibm_session_cookie(request)
     if not ibm_token:
         if required:
             raise HTTPException(status_code=401, detail="IBM session cookie missing")
