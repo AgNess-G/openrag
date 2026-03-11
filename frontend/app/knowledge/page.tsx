@@ -522,7 +522,7 @@ function SearchPage() {
             ) : (
               <>
                 <RefreshCw className="h-4 w-4 mr-2" />
-                Fetch latest docs
+                Fetch latest changes
               </>
             )}
           </Button>
