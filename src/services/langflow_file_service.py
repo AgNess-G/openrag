@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional
 
-from config.settings import LANGFLOW_INGEST_FLOW_ID, clients
+from config.settings import LANGFLOW_INGEST_FLOW_ID, LANGFLOW_URL_INGEST_FLOW_ID, clients
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 class LangflowFileService:
     def __init__(self):
         self.flow_id_ingest = LANGFLOW_INGEST_FLOW_ID
+        self.flow_id_url_ingest = LANGFLOW_URL_INGEST_FLOW_ID
 
     async def upload_user_file(
         self, file_tuple, jwt_token: Optional[str] = None
@@ -229,6 +230,86 @@ class LangflowFileService:
 
             raise
         return resp_json
+
+    async def run_url_ingestion_flow(
+        self,
+        docs_url: str,
+        crawl_depth: int,
+        jwt_token: Optional[str] = None,
+        owner: Optional[str] = None,
+        owner_name: Optional[str] = None,
+        owner_email: Optional[str] = None,
+        connector_type: str = "system_default",
+        prevent_outside: bool = True,
+    ) -> Dict[str, Any]:
+        """Run URL-based docs ingestion flow using Langflow global variable passthrough."""
+        if not self.flow_id_url_ingest:
+            logger.error("[LF] LANGFLOW_URL_INGEST_FLOW_ID is not configured")
+            raise ValueError("LANGFLOW_URL_INGEST_FLOW_ID is not configured")
+        if not docs_url:
+            raise ValueError("DEFAULT_DOCS_URL is not configured")
+
+        payload: Dict[str, Any] = {
+            "input_value": docs_url,
+            "input_type": "chat",
+            "output_type": "text",
+        }
+
+        from config.settings import get_openrag_config
+        from utils.langflow_headers import add_provider_credentials_to_headers
+
+        config = get_openrag_config()
+        embedding_model = config.knowledge.embedding_model
+        headers = {
+            "X-Langflow-Global-Var-JWT": str(jwt_token) if jwt_token else "",
+            "X-Langflow-Global-Var-OWNER": str(owner) if owner else "",
+            "X-Langflow-Global-Var-OWNER_NAME": str(owner_name) if owner_name else "",
+            "X-Langflow-Global-Var-OWNER_EMAIL": str(owner_email) if owner_email else "",
+            "X-Langflow-Global-Var-CONNECTOR_TYPE": str(connector_type),
+            "X-Langflow-Global-Var-SELECTED_EMBEDDING_MODEL": str(embedding_model),
+            "X-Langflow-Global-Var-DOCS_URL": str(docs_url),
+            "X-Langflow-Global-Var-DOCS_URLS": json.dumps([docs_url]),
+            "X-Langflow-Global-Var-DOCS_CRAWL_DEPTH": str(crawl_depth),
+            "X-Langflow-Global-Var-DOCS_PREVENT_OUTSIDE": "true"
+            if prevent_outside
+            else "false",
+        }
+        add_provider_credentials_to_headers(headers, config)
+
+        logger.info(
+            "[LF] Running URL ingestion flow",
+            docs_url=docs_url,
+            crawl_depth=crawl_depth,
+        )
+        resp = await clients.langflow_request(
+            "POST",
+            f"/api/v1/run/{self.flow_id_url_ingest}",
+            json=payload,
+            headers=headers,
+        )
+        if resp.status_code >= 400:
+            logger.error(
+                "[LF] URL ingestion flow failed",
+                status_code=resp.status_code,
+                reason=resp.reason_phrase,
+                body=resp.text[:1000],
+            )
+            resp.raise_for_status()
+
+        content_type = resp.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            logger.error(
+                "[LF] Unexpected URL ingestion response content type",
+                content_type=content_type,
+                status_code=resp.status_code,
+                body=resp.text[:1000],
+            )
+            raise ValueError(
+                f"Langflow returned {content_type} instead of JSON for URL ingestion. "
+                f"Response preview: {resp.text[:500]}"
+            )
+
+        return resp.json()
 
     async def upload_and_ingest_file(
         self,
