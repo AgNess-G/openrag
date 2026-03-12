@@ -14,7 +14,7 @@ import { useAuth } from "@/contexts/auth-context";
 import ThemeButtons from "./theme-switcher-buttons";
 
 export function UserNav() {
-  const { user, isLoading, isAuthenticated, isNoAuthMode, login, logout } =
+  const { user, isLoading, isAuthenticated, isNoAuthMode, isEnvAuthMode, login, logout } =
     useAuth();
   const { theme, setTheme } = useTheme();
 
@@ -91,15 +91,19 @@ export function UserNav() {
           <span className="text-sm">Theme</span>
           <ThemeButtons />
         </div>
-        <DropdownMenuSeparator className="m-0" />
-        <button
-          type="button"
-          onClick={logout}
-          className="flex items-center hover:bg-muted w-full h-9 px-3"
-        >
-          <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />
-          <span className="text-sm">Logout</span>
-        </button>
+        {!isEnvAuthMode && (
+          <>
+            <DropdownMenuSeparator className="m-0" />
+            <button
+              type="button"
+              onClick={logout}
+              className="flex items-center hover:bg-muted w-full h-9 px-3"
+            >
+              <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">Logout</span>
+            </button>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -11,6 +11,30 @@ import os
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+_env_jwt_claims_cache = None
+
+
+def _parse_env_jwt_claims() -> dict:
+    """Decode OPENSEARCH_JWT_TOKEN without signature verification to extract user claims.
+
+    The token is trusted because it comes from an environment variable.
+    Results are cached since the env var doesn't change at runtime.
+    """
+    global _env_jwt_claims_cache
+    if _env_jwt_claims_cache is not None:
+        return _env_jwt_claims_cache
+    token = os.getenv("OPENSEARCH_JWT_TOKEN")
+    if token:
+        try:
+            _env_jwt_claims_cache = jwt.decode(token, options={"verify_signature": False})
+            return _env_jwt_claims_cache
+        except Exception:
+            logger.warning("Failed to decode OPENSEARCH_JWT_TOKEN for user identity extraction")
+    _env_jwt_claims_cache = {}
+    return _env_jwt_claims_cache
+
+
 @dataclass
 class User:
     """User information from OAuth provider"""
@@ -39,6 +63,28 @@ class AnonymousUser(User):
     name: str = "Anonymous User"
     picture: str = None
     provider: str = "none"
+
+
+@dataclass
+class EnvUser(User):
+    """User authenticated via environment variables (AUTH_MODE=env).
+
+    Extracts identity from OPENSEARCH_JWT_TOKEN claims when available,
+    falling back to OPENRAG_AUTH_USER_* env vars.
+    """
+
+    user_id: str = None
+    email: str = None
+    name: str = None
+    picture: str = None
+    provider: str = "env"
+
+    def __post_init__(self):
+        claims = _parse_env_jwt_claims()
+        self.user_id = self.user_id or claims.get("user_id") or claims.get("sub") or os.getenv("OPENRAG_AUTH_USER_ID", "env-user")
+        self.email = self.email or claims.get("email") or claims.get("preferred_username") or os.getenv("OPENRAG_AUTH_USER_EMAIL", "env-user@localhost")
+        self.name = self.name or claims.get("name") or os.getenv("OPENRAG_AUTH_USER_NAME", "Env User")
+        super().__post_init__()
 
 
 
@@ -261,15 +307,20 @@ class SessionManager:
         return self.user_opensearch_clients[user_id]
 
     def get_effective_jwt_token(self, user_id: str, jwt_token: str) -> str:
-        """Get the effective JWT token, creating anonymous JWT if needed in no-auth mode"""
-        from config.settings import is_no_auth_mode
+        """Get the effective JWT token, creating anonymous/env JWT if needed"""
+        from config.settings import is_no_auth_mode, is_env_auth_mode
 
         if jwt_token is not None:
             return jwt_token
 
+        # Env-auth mode: return a cached JWT for the env user
+        if is_env_auth_mode() or user_id == EnvUser().user_id:
+            if not hasattr(self, "_env_user_jwt"):
+                self._env_user_jwt = self._create_env_user_jwt()
+            return self._env_user_jwt
+
         # No token — create one
         if is_no_auth_mode() or user_id in (None, AnonymousUser().user_id):
-            # anonymous JWT (cached)
             if not hasattr(self, "_anonymous_jwt"):
                 self._anonymous_jwt = self._create_anonymous_jwt()
             return self._anonymous_jwt
@@ -285,3 +336,9 @@ class SessionManager:
         """Create JWT token for anonymous user in no-auth mode"""
         anonymous_user = AnonymousUser()
         return self.create_jwt_token(anonymous_user)
+
+    def _create_env_user_jwt(self) -> str:
+        """Create JWT token for the env-authenticated user"""
+        env_user = EnvUser()
+        self.users[env_user.user_id] = env_user
+        return self.create_jwt_token(env_user)

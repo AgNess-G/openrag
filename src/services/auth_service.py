@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import asyncio
 
-from config.settings import WEBHOOK_BASE_URL, is_no_auth_mode
+from config.settings import WEBHOOK_BASE_URL, is_no_auth_mode, is_env_auth_mode
 
 logger = logging.getLogger(__name__)
 from session_manager import SessionManager
@@ -38,8 +38,8 @@ class AuthService:
         user_id: str = None,
     ) -> dict:
         """Initialize OAuth flow for authentication or data source connection"""
-        # Check if we're in no-auth mode
-        if is_no_auth_mode():
+        # In true no-auth mode (not env-auth), block all OAuth flows
+        if is_no_auth_mode() and not is_env_auth_mode():
             if purpose == "app_auth":
                 raise ValueError(
                     "OAuth credentials not configured. Please add GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables to enable authentication."
@@ -48,6 +48,13 @@ class AuthService:
                 raise ValueError(
                     "OAuth credentials not configured. Data source connections require OAuth setup."
                 )
+
+        # In env-auth mode, app_auth is unnecessary — user is already authenticated
+        if purpose == "app_auth" and is_env_auth_mode():
+            raise ValueError(
+                "Google Login is not available in env-auth mode. "
+                "User is already authenticated via environment variables."
+            )
 
         # Validate connector_type based on purpose
         if purpose == "app_auth" and connector_type != "google_drive":
@@ -430,7 +437,24 @@ class AuthService:
 
     async def get_user_info(self, request) -> Optional[dict]:
         """Get current user information from request"""
-        # In no-auth mode, return a consistent response
+        # Env-auth mode: return authenticated env user
+        if is_env_auth_mode():
+            from session_manager import EnvUser
+            env_user = EnvUser()
+            return {
+                "authenticated": True,
+                "auth_mode": "env",
+                "user": {
+                    "user_id": env_user.user_id,
+                    "email": env_user.email,
+                    "name": env_user.name,
+                    "picture": None,
+                    "provider": "env",
+                    "last_login": None,
+                },
+            }
+
+        # In true no-auth mode, return a consistent response
         if is_no_auth_mode():
             return {"authenticated": False, "user": None, "no_auth_mode": True}
 

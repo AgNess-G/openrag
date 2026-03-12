@@ -51,6 +51,9 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
 DOCLING_OCR_ENGINE = os.getenv("DOCLING_OCR_ENGINE")
 
+# Authentication mode: auto | google | env | none
+AUTH_MODE = os.getenv("AUTH_MODE", "auto").lower()
+
 # Ingestion configuration
 DISABLE_INGEST_WITH_LANGFLOW = os.getenv(
     "DISABLE_INGEST_WITH_LANGFLOW", "false"
@@ -76,10 +79,38 @@ LANGFLOW_CONNECT_TIMEOUT = get_env_float("LANGFLOW_CONNECT_TIMEOUT", 30.0)  # 30
 INGESTION_TIMEOUT = get_env_int("INGESTION_TIMEOUT", 3600)
 
 
+def _has_google_oauth():
+    return bool(GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET)
+
+
+def is_env_auth_mode():
+    """Check if we're using environment-variable-based authentication.
+
+    Returns True when user identity comes from OPENSEARCH_JWT_TOKEN claims
+    or OPENRAG_AUTH_USER_* env vars, instead of Google OAuth login.
+    """
+    if AUTH_MODE == "env":
+        return True
+    if AUTH_MODE == "auto":
+        has_env_jwt = bool(os.getenv("OPENSEARCH_JWT_TOKEN"))
+        has_env_user = bool(os.getenv("OPENRAG_AUTH_USER_EMAIL"))
+        return not _has_google_oauth() and (has_env_jwt or has_env_user)
+    return False
+
+
 def is_no_auth_mode():
-    """Check if we're running in no-auth mode (OAuth credentials missing)"""
-    result = not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET)
-    return result
+    """Check if we're running in no-auth mode (no authenticated user identity).
+
+    Returns False for env-auth mode because the user is considered authenticated.
+    """
+    if AUTH_MODE == "none":
+        return True
+    if AUTH_MODE == "env" or is_env_auth_mode():
+        return False
+    if AUTH_MODE == "google":
+        return not _has_google_oauth()
+    # auto: no-auth only when neither Google creds nor env user are configured
+    return not _has_google_oauth() and not is_env_auth_mode()
 
 
 # Webhook configuration - must be set to enable webhooks

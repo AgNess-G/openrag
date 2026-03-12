@@ -99,8 +99,17 @@ def get_current_user(
     Sets request.state.user.
     Raises HTTP 401 if the user is not authenticated.
     """
-    from config.settings import is_no_auth_mode
-    from session_manager import AnonymousUser
+    from config.settings import is_no_auth_mode, is_env_auth_mode
+    from session_manager import AnonymousUser, EnvUser
+
+    if is_env_auth_mode():
+        user = EnvUser()
+        if user.user_id not in session_manager.users:
+            session_manager.users[user.user_id] = user
+        effective_token = session_manager.get_effective_jwt_token(user.user_id, None)
+        user_with_token = dataclasses.replace(user, jwt_token=effective_token)
+        request.state.user = user_with_token
+        return user_with_token
 
     if is_no_auth_mode():
         user = AnonymousUser()
@@ -135,8 +144,17 @@ def get_optional_user(
     Sets request.state.user (may be None).
     Never raises — returns None if unauthenticated.
     """
-    from config.settings import is_no_auth_mode
-    from session_manager import AnonymousUser
+    from config.settings import is_no_auth_mode, is_env_auth_mode
+    from session_manager import AnonymousUser, EnvUser
+
+    if is_env_auth_mode():
+        user = EnvUser()
+        if user.user_id not in session_manager.users:
+            session_manager.users[user.user_id] = user
+        effective_token = session_manager.get_effective_jwt_token(user.user_id, None)
+        user_with_token = dataclasses.replace(user, jwt_token=effective_token)
+        request.state.user = user_with_token
+        return user_with_token
 
     if is_no_auth_mode():
         user = AnonymousUser()

@@ -23,6 +23,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isNoAuthMode: boolean;
+  isEnvAuthMode: boolean;
   login: () => void;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isNoAuthMode, setIsNoAuthMode] = useState(false);
+  const [isEnvAuthMode, setIsEnvAuthMode] = useState(false);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -60,15 +62,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const data = await response.json();
 
-      // Check if we're in no-auth mode
       if (data.no_auth_mode) {
         setIsNoAuthMode(true);
+        setIsEnvAuthMode(false);
         setUser(null);
       } else if (data.authenticated && data.user) {
         setIsNoAuthMode(false);
+        setIsEnvAuthMode(data.auth_mode === "env");
         setUser(data.user);
       } else {
         setIsNoAuthMode(false);
+        setIsEnvAuthMode(false);
         setUser(null);
       }
 
@@ -82,9 +86,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const login = () => {
-    // Don't allow login in no-auth mode
-    if (isNoAuthMode) {
-      console.log("Login attempted in no-auth mode - ignored");
+    if (isNoAuthMode || isEnvAuthMode) {
+      console.log("Login attempted in no-auth/env-auth mode - ignored");
       return;
     }
 
@@ -176,6 +179,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isLoading,
     isAuthenticated: !!user,
     isNoAuthMode,
+    isEnvAuthMode,
     login,
     logout,
     refreshAuth,

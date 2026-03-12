@@ -54,6 +54,7 @@ from config.settings import (
     get_embedding_model,
     get_index_name,
     is_no_auth_mode,
+    is_env_auth_mode,
     get_openrag_config,
 )
 from services.auth_service import AuthService
@@ -495,20 +496,33 @@ async def _update_mcp_servers_with_provider_credentials(services):
 
         global_vars = build_mcp_global_vars_from_config(config)
 
+        # In env-auth mode, add the env user JWT and details
+        if is_env_auth_mode() and session_manager:
+            from session_manager import EnvUser
+
+            env_user = EnvUser()
+            env_jwt = session_manager.get_effective_jwt_token(env_user.user_id, None)
+            if env_jwt:
+                global_vars["JWT"] = env_jwt
+
+            global_vars["OWNER"] = env_user.user_id
+            global_vars["OWNER_NAME"] = f'"{env_user.name}"'
+            global_vars["OWNER_EMAIL"] = env_user.email
+
+            logger.info("Added env-user JWT and user details to MCP servers for env-auth mode")
+
         # In no-auth mode, add the anonymous JWT token and user details
-        if is_no_auth_mode() and session_manager:
+        elif is_no_auth_mode() and session_manager:
             from session_manager import AnonymousUser
 
-            # Create/get anonymous JWT for no-auth mode
             anonymous_jwt = session_manager.get_effective_jwt_token(None, None)
             if anonymous_jwt:
                 global_vars["JWT"] = anonymous_jwt
 
-            # Add anonymous user details
             anonymous_user = AnonymousUser()
-            global_vars["OWNER"] = anonymous_user.user_id  # "anonymous"
-            global_vars["OWNER_NAME"] = f'"{anonymous_user.name}"'  # "Anonymous User" (quoted for spaces)
-            global_vars["OWNER_EMAIL"] = anonymous_user.email  # "anonymous@localhost"
+            global_vars["OWNER"] = anonymous_user.user_id
+            global_vars["OWNER_NAME"] = f'"{anonymous_user.name}"'
+            global_vars["OWNER_EMAIL"] = anonymous_user.email
 
             logger.info("Added anonymous JWT and user details to MCP servers for no-auth mode")
 
@@ -648,10 +662,11 @@ async def initialize_services():
     )
 
     # Load persisted connector connections at startup so webhooks and syncs
-    # can resolve existing subscriptions immediately after server boot
-    # Skip in no-auth mode since connectors require OAuth
+    # can resolve existing subscriptions immediately after server boot.
+    # Allow in env-auth mode (connectors work) and google-auth mode.
+    # Only skip in true no-auth mode (no user identity at all).
 
-    if not is_no_auth_mode():
+    if not is_no_auth_mode() or is_env_auth_mode():
         try:
             await connector_service.initialize()
             loaded_count = len(connector_service.connection_manager.connections)
