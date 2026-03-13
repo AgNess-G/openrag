@@ -134,10 +134,14 @@ async def auth_logout(
 
 
 async def ibm_login(request: Request):
-    """IBM login endpoint — Basic Auth header is validated by Traefik in production.
+    """IBM login endpoint.
 
-    When running without Traefik (local dev), this endpoint sets an ibm-auth-basic
-    session cookie from the Basic Auth header so subsequent requests are authenticated.
+    Production: Traefik intercepts the request, validates Basic credentials
+    with AMS, and sets the ibm-openrag-session cookie before forwarding here.
+    This handler just returns 200 — no cookie work needed.
+
+    Local dev (no Traefik): stores the Basic Auth header in ibm-auth-basic
+    cookie so subsequent requests can be authenticated by _get_ibm_user.
     """
     from config.settings import IBM_AUTH_ENABLED
 
@@ -146,15 +150,15 @@ async def ibm_login(request: Request):
 
     response = JSONResponse({"status": "ok"})
 
-    # Persist the Basic Auth header as a cookie so /auth/me and other endpoints
-    # can authenticate subsequent requests (Traefik handles this in production).
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Basic "):
-        response.set_cookie(
-            "ibm-auth-basic",
-            auth_header,
-            httponly=True,
-            samesite="lax",
-        )
+    # Local dev fallback only — in production Traefik sets ibm-openrag-session.
+    if not request.cookies.get("ibm-openrag-session"):
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            response.set_cookie(
+                "ibm-auth-basic",
+                auth_header,
+                httponly=True,
+                samesite="lax",
+            )
 
     return response

@@ -90,50 +90,23 @@ def get_flows_service(services: dict = Depends(get_services)):
 # ─────────────────────────────────────────────
 
 def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
-    """Authenticate via IBM AMS — cookie-first, Basic Auth fallback.
+    """Authenticate via IBM AMS.
 
-    1. ibm-lh-console-session cookie: JWT validated with IBM's public key.
-    2. Authorization: Basic header: decoded for user identity; Traefik has
-       already validated the credentials, so we trust the header as-is and
-       store the full header value to forward to OpenSearch.
+    1. ibm-openrag-session cookie — set by Traefik after validating credentials
+       with AMS. JWT is decoded without re-validation (Traefik already validated).
+    2. ibm-auth-basic cookie — local dev fallback set by our ibm_login endpoint
+       when Traefik is not present.
 
-    If *required* is True, raises HTTP 401 when neither is present/valid.
+    If *required* is True, raises HTTP 401 when neither is present.
     If *required* is False, returns None instead of raising.
     """
     import base64
     import auth.ibm_auth as ibm_auth
-    from config.settings import IBM_JWT_PUBLIC_KEY_URL
 
-    # ── Option 1: cookie-based JWT ──────────────────────────────────────
-    # Cookie name may include an instance UUID suffix, e.g.
-    # ibm-lh-console-session-cd4fcbaf-6a3a-4a05-80af-92df02f64c54
-    logger.info("IBM auth: cookies received by backend", cookie_keys=list(request.cookies.keys()))
-    ibm_token = next(
-        (v for k, v in request.cookies.items() if k.startswith("ibm-lh-console-session")),
-        None,
-    )
-    logger.info("IBM auth: ibm_token found", found=ibm_token is not None)
+    # ── Option 1: ibm-openrag-session cookie (production via Traefik) ───
+    ibm_token = request.cookies.get("ibm-openrag-session")
     if ibm_token:
-        claims = ibm_auth.validate_ibm_jwt(ibm_token, ibm_auth._cached_public_key)
-        logger.info("IBM auth: JWT validation result", claims_found=claims is not None, public_key_loaded=ibm_auth._cached_public_key is not None)
-
-        # On validation failure, try re-fetching the public key once (key rotation)
-        if claims is None and IBM_JWT_PUBLIC_KEY_URL:
-            try:
-                import httpx
-                from cryptography.hazmat.primitives.serialization import load_pem_public_key
-                with httpx.Client(timeout=10.0) as client:
-                    resp = client.get(IBM_JWT_PUBLIC_KEY_URL)
-                    resp.raise_for_status()
-                    pem = resp.json().get("public_key", "")
-                    if isinstance(pem, str):
-                        pem = pem.encode("utf-8")
-                    ibm_auth._cached_public_key = load_pem_public_key(pem)
-                logger.info("IBM public key refreshed (key rotation detected)")
-                claims = ibm_auth.validate_ibm_jwt(ibm_token, ibm_auth._cached_public_key)
-            except Exception as exc:
-                logger.warning("Failed to refresh IBM public key", error=str(exc))
-
+        claims = ibm_auth.decode_ibm_jwt(ibm_token)
         if claims is not None:
             user = User(
                 user_id=claims.get("uid") or claims["sub"],
@@ -141,14 +114,13 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
                 name=claims.get("display_name", claims.get("username", claims["sub"])),
                 picture=None,
                 provider="ibm_ams",
-                jwt_token=ibm_token,  # raw IBM JWT forwarded to OpenSearch as Bearer
+                jwt_token=ibm_token,
             )
             request.state.user = user
             return user
 
-    # ── Option 2: Basic Auth header or ibm-auth-basic cookie ────────────
-    # The cookie is set by our ibm_login endpoint when Traefik is not present (local dev).
-    auth_header = request.headers.get("Authorization", "") or request.cookies.get("ibm-auth-basic", "")
+    # ── Option 2: ibm-auth-basic cookie (local dev, no Traefik) ─────────
+    auth_header = request.cookies.get("ibm-auth-basic", "")
     if auth_header.startswith("Basic "):
         try:
             decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
@@ -162,7 +134,7 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             name=username,
             picture=None,
             provider="ibm_ams_basic",
-            jwt_token=auth_header,  # full "Basic <value>" forwarded to OpenSearch
+            jwt_token=auth_header,
         )
         request.state.user = user
         return user
