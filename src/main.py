@@ -1275,15 +1275,9 @@ async def initialize_services():
     # Generate JWT keys if they don't exist
     generate_jwt_keys()
 
-    # Pre-fetch IBM JWT public key when IBM auth is enabled
-    from config.settings import IBM_AUTH_ENABLED, IBM_JWT_PUBLIC_KEY_URL
+    from config.settings import IBM_AUTH_ENABLED
     if IBM_AUTH_ENABLED:
-        if not IBM_JWT_PUBLIC_KEY_URL:
-            logger.error("IBM_AUTH_ENABLED=true but IBM_JWT_PUBLIC_KEY_URL is not set")
-            raise RuntimeError("IBM_JWT_PUBLIC_KEY_URL must be set when IBM_AUTH_ENABLED=true")
-        from auth.ibm_auth import fetch_ibm_public_key
-        await fetch_ibm_public_key(IBM_JWT_PUBLIC_KEY_URL)
-        logger.info("IBM auth mode enabled", public_key_url=IBM_JWT_PUBLIC_KEY_URL)
+        logger.info("IBM auth mode enabled — JWT validation delegated to Traefik")
 
     # Initialize clients (now async to generate Langflow API key)
     try:
