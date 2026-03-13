@@ -102,9 +102,10 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     """
     import base64
     import auth.ibm_auth as ibm_auth
+    from config.settings import IBM_SESSION_COOKIE_NAME
 
     # ── Option 1: ibm-openrag-session cookie (production via Traefik) ───
-    ibm_token = request.cookies.get("ibm-openrag-session")
+    ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
     if ibm_token:
         claims = ibm_auth.decode_ibm_jwt(ibm_token)
         if claims is not None:

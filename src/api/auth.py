@@ -143,15 +143,15 @@ async def ibm_login(request: Request):
     Local dev (no Traefik): stores the Basic Auth header in ibm-auth-basic
     cookie so subsequent requests can be authenticated by _get_ibm_user.
     """
-    from config.settings import IBM_AUTH_ENABLED
+    from config.settings import IBM_AUTH_ENABLED, IBM_SESSION_COOKIE_NAME
 
     if not IBM_AUTH_ENABLED:
         raise HTTPException(status_code=404, detail="IBM auth is not enabled")
 
     response = JSONResponse({"status": "ok"})
 
-    # Local dev fallback only — in production Traefik sets ibm-openrag-session.
-    if not request.cookies.get("ibm-openrag-session"):
+    # Local dev fallback only — in production Traefik sets the session cookie.
+    if not request.cookies.get(IBM_SESSION_COOKIE_NAME):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Basic "):
             response.set_cookie(
