@@ -1066,13 +1066,20 @@ class FlowsService:
 
         # Update provider-specific fields
         field_mappings = {
+            "api_key": {
+                "openai": "OPENAI_API_KEY",
+                "watsonx": "WATSONX_APIKEY",
+                "anthropic": "ANTHROPIC_API_KEY",
+            },
             "api_base": {
                 "ollama": "OLLAMA_BASE_URL",
-                "watsonx": "WATSONX_URL"
+            },
+            "base_url_ibm_watsonx": {
+                "watsonx": "WATSONX_URL",
             },
             "project_id": {
-                "watsonx": "WATSONX_PROJECT_ID"
-            }
+                "watsonx": "WATSONX_PROJECT_ID",
+            },
         }
 
         for field, mapping in field_mappings.items():
