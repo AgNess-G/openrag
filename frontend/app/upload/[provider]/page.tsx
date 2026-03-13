@@ -125,6 +125,15 @@ function BucketView({
             Select buckets to ingest.
           </p>
           <div className="flex items-center gap-2">
+            {selectedBuckets.size > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedBuckets(new Set())}
+              >
+                Deselect All
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -145,7 +154,7 @@ function BucketView({
                 size={14}
                 className={isLoading ? "animate-spin" : ""}
               />
-              Refresh
+              Refresh Buckets
             </Button>
           </div>
         </div>
