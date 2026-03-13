@@ -512,6 +512,30 @@ async def _update_mcp_servers_with_provider_credentials(services):
 
             logger.info("Added anonymous JWT and user details to MCP servers for no-auth mode")
 
+        # In IBM auth mode, derive owner details from the OpenSearch JWT
+        from config.settings import IBM_AUTH_ENABLED
+        if IBM_AUTH_ENABLED:
+            from session_manager import get_opensearch_jwt_claims
+
+            os_claims = get_opensearch_jwt_claims()
+            if os_claims:
+                os_jwt = os.getenv("OPENSEARCH_JWT_TOKEN")
+                if os_jwt:
+                    global_vars["JWT"] = os_jwt
+                global_vars["OWNER"] = os_claims.get("user_id", os_claims.get("sub", ""))
+                owner_name = os_claims.get("name", "")
+                if owner_name:
+                    global_vars["OWNER_NAME"] = f'"{owner_name}"'
+                global_vars["OWNER_EMAIL"] = os_claims.get(
+                    "email", os_claims.get("preferred_username", "")
+                )
+                global_vars["CONNECTOR_TYPE_URL"] = "url"
+                logger.info(
+                    "Added OpenSearch JWT owner details to MCP servers for IBM auth mode",
+                    owner=global_vars.get("OWNER"),
+                    owner_email=global_vars.get("OWNER_EMAIL"),
+                )
+
         if global_vars:
             result = await auth_service.langflow_mcp_service.update_mcp_servers_with_global_vars(global_vars)
             logger.info("Updated MCP servers with provider credentials at startup", **result)

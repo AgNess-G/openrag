@@ -89,6 +89,30 @@ def get_flows_service(services: dict = Depends(get_services)):
 # IBM AMS authentication helper
 # ─────────────────────────────────────────────
 
+def _apply_opensearch_jwt_overrides(user: "User") -> "User":
+    """If OPENSEARCH_JWT_TOKEN is set, override user details from its claims.
+
+    The OpenSearch JWT is the token actually sent downstream to OpenSearch and
+    Langflow, so its claims (name, email, user_id) should be the authoritative
+    source for owner metadata.
+    """
+    import os
+    from session_manager import get_opensearch_jwt_claims
+
+    os_claims = get_opensearch_jwt_claims()
+    if os_claims is None:
+        return user
+
+    os_token = os.getenv("OPENSEARCH_JWT_TOKEN")
+    return dataclasses.replace(
+        user,
+        user_id=os_claims.get("user_id", os_claims.get("sub", user.user_id)),
+        email=os_claims.get("email", os_claims.get("preferred_username", user.email)),
+        name=os_claims.get("name", user.name),
+        jwt_token=os_token or user.jwt_token,
+    )
+
+
 def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     """Authenticate via IBM AMS.
 
@@ -96,6 +120,10 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
        with AMS. JWT is decoded without re-validation (Traefik already validated).
     2. ibm-auth-basic cookie — local dev fallback set by our ibm_login endpoint
        when Traefik is not present.
+
+    When OPENSEARCH_JWT_TOKEN is set, the user's name/email/user_id are
+    overridden from the OpenSearch JWT claims so that downstream owner metadata
+    matches what OpenSearch sees.
 
     If *required* is True, raises HTTP 401 when neither is present.
     If *required* is False, returns None instead of raising.
@@ -117,6 +145,7 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
                 provider="ibm_ams",
                 jwt_token=ibm_token,
             )
+            user = _apply_opensearch_jwt_overrides(user)
             request.state.user = user
             return user
 
@@ -137,6 +166,7 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             provider="ibm_ams_basic",
             jwt_token=auth_header,
         )
+        user = _apply_opensearch_jwt_overrides(user)
         request.state.user = user
         return user
 

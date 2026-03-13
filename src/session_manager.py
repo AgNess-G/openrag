@@ -42,6 +42,38 @@ class AnonymousUser(User):
 
 
 
+_opensearch_jwt_claims_cache: Optional[Dict[str, Any]] = None
+
+
+def get_opensearch_jwt_claims() -> Optional[Dict[str, Any]]:
+    """Decode OPENSEARCH_JWT_TOKEN (if set) and return the claims dict.
+
+    The result is cached at module level so the token is only decoded once.
+    Returns None when the env var is missing or the token cannot be decoded.
+    """
+    global _opensearch_jwt_claims_cache
+    if _opensearch_jwt_claims_cache is not None:
+        return _opensearch_jwt_claims_cache
+
+    token = os.getenv("OPENSEARCH_JWT_TOKEN")
+    if not token:
+        return None
+    try:
+        _opensearch_jwt_claims_cache = jwt.decode(
+            token, options={"verify_signature": False}
+        )
+        logger.info(
+            "Decoded OPENSEARCH_JWT_TOKEN claims",
+            user_id=_opensearch_jwt_claims_cache.get("user_id"),
+            email=_opensearch_jwt_claims_cache.get("email"),
+            name=_opensearch_jwt_claims_cache.get("name"),
+        )
+        return _opensearch_jwt_claims_cache
+    except jwt.DecodeError as exc:
+        logger.warning("Failed to decode OPENSEARCH_JWT_TOKEN", error=str(exc))
+        return None
+
+
 class SessionManager:
     """Manages user sessions and JWT tokens"""
 
