@@ -284,7 +284,7 @@ function ChatPage() {
         role: "assistant",
         content: `❌ Failed to process document. Please try again.`,
         timestamp: new Date(),
-				error: true,
+        error: true,
       };
       setMessages((prev) => [...prev.slice(0, -1), errorMessage]);
     } finally {
@@ -369,7 +369,7 @@ function ChatPage() {
           content: string;
           timestamp?: string;
           response_id?: string;
-					error?: boolean;
+          error?: boolean;
           chunks?: Array<{
             item?: {
               type?: string;
@@ -397,7 +397,7 @@ function ChatPage() {
             role: msg.role as "user" | "assistant",
             content: msg.content,
             timestamp: new Date(msg.timestamp || new Date()),
-						error: msg.error || false,
+            error: msg.error || false,
           };
 
           // Extract function calls from chunks or response_data
@@ -855,7 +855,7 @@ function ChatPage() {
             role: "assistant",
             content: "Sorry, I encountered an error. Please try again.",
             timestamp: new Date(),
-						error: true,
+            error: true,
           };
           setMessages((prev) => [...prev, errorMessage]);
         }
@@ -868,7 +868,7 @@ function ChatPage() {
           content:
             "Sorry, I couldn't connect to the chat service. Please try again.",
           timestamp: new Date(),
-					error: true,
+          error: true,
         };
         setMessages((prev) => [...prev, errorMessage]);
       }

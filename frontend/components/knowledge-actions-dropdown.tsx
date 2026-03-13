@@ -19,8 +19,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { formatFilesToDelete } from "@/lib/format-files-to-delete";
 import { useTask } from "@/contexts/task-context";
+import { formatFilesToDelete } from "@/lib/format-files-to-delete";
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog";
 import { Button } from "./ui/button";
 

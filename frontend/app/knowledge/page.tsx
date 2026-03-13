@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
   type CheckboxSelectionCallbackParams,
   type ColDef,
@@ -8,7 +9,6 @@ import {
   type ValueFormatterParams,
 } from "ag-grid-community";
 import { AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Cloud, FileIcon, Globe, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -40,7 +40,10 @@ import {
   DeleteConfirmationDialog,
   formatFilesToDelete,
 } from "../../components/delete-confirmation-dialog";
+import AwsLogo from "../../components/icons/aws-logo";
 import GoogleDriveIcon from "../../components/icons/google-drive-logo";
+import IBMCOSIcon from "../../components/icons/ibm-cos-icon";
+import IBMLogo from "../../components/icons/ibm-logo";
 import OneDriveIcon from "../../components/icons/one-drive-logo";
 import SharePointIcon from "../../components/icons/share-point-logo";
 import { useDeleteDocument } from "../api/mutations/useDeleteDocument";
@@ -65,6 +68,10 @@ function getSourceIcon(connectorType?: string) {
       return <Globe className="h-4 w-4 text-muted-foreground flex-shrink-0" />;
     case "s3":
       return <Cloud className="h-4 w-4 text-foreground flex-shrink-0" />;
+    case "ibm_cos":
+      return <IBMCOSIcon className="h-4 w-4 flex-shrink-0" />;
+    case "aws_s3":
+      return <AwsLogo className="h-4 w-4 flex-shrink-0" />;
     default:
       return (
         <FileIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -141,8 +148,7 @@ function SearchPage() {
     return Object.entries(task.files).some(([fileKey, fileInfo]) => {
       const filename = (fileInfo as { filename?: string })?.filename ?? "";
       return (
-        filename === "OpenRAG docs refresh" ||
-        fileKey.includes("openr.ag")
+        filename === "OpenRAG docs refresh" || fileKey.includes("openr.ag")
       );
     });
   });
@@ -170,7 +176,9 @@ function SearchPage() {
   // Convert TaskFiles to File format and merge with backend results
   const taskFilesAsFiles: File[] = taskFiles.map((taskFile) => {
     const normalizedFilename =
-      taskFile.filename?.trim() || taskFile.source_url?.trim() || "Untitled source";
+      taskFile.filename?.trim() ||
+      taskFile.source_url?.trim() ||
+      "Untitled source";
 
     return {
       filename: normalizedFilename,
@@ -220,13 +228,14 @@ function SearchPage() {
     return (
       taskFile.status !== "active" &&
       !backendFiles.some(
-        (backendFile) => getFileIdentity(backendFile) === getFileIdentity(taskFile),
+        (backendFile) =>
+          getFileIdentity(backendFile) === getFileIdentity(taskFile),
       )
     );
   });
   // Combine task files first, then backend files
   const fileResults = [...backendFiles, ...filteredTaskFiles];
- 
+
   const gridRows = fileResults;
   const gridRef = useRef<AgGridReact>(null);
 
@@ -348,7 +357,8 @@ function SearchPage() {
       headerName: "Status",
       cellRenderer: ({ data }: CustomCellRendererProps<File>) => {
         const status = data?.status || "active";
-        const showOpenragRefreshCue = isOpenragDocsRow(data) && hasOpenragRefreshCue;
+        const showOpenragRefreshCue =
+          isOpenragDocsRow(data) && hasOpenragRefreshCue;
         const error =
           typeof data?.error === "string" && data.error.trim().length > 0
             ? data.error.trim()
@@ -565,13 +575,9 @@ function SearchPage() {
             }}
           >
             {refreshOpenragDocsMutation.isPending ? (
-              <>
-                Refreshing docs...
-              </>
+              <>Refreshing docs...</>
             ) : (
-              <>
-                Fetch latest docs
-              </>
+              <>Fetch latest docs</>
             )}
           </Button>
           {selectedRows.length > 0 && (
@@ -599,7 +605,9 @@ function SearchPage() {
           rowSelection="multiple"
           rowMultiSelectWithClick={false}
           suppressRowClickSelection={true}
-          getRowId={(params: GetRowIdParams<File>) => getFileIdentity(params.data)}
+          getRowId={(params: GetRowIdParams<File>) =>
+            getFileIdentity(params.data)
+          }
           domLayout="normal"
           onSelectionChanged={onSelectionChanged}
           pagination={pagination}

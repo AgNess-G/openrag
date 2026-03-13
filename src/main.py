@@ -44,6 +44,18 @@ from api import (
 )
 
 from api.connector_router import ConnectorRouter
+from connectors.ibm_cos.api import (
+    ibm_cos_defaults,
+    ibm_cos_configure,
+    ibm_cos_list_buckets,
+    ibm_cos_bucket_status,
+)
+from connectors.aws_s3.api import (
+    s3_defaults,
+    s3_configure,
+    s3_list_buckets,
+    s3_bucket_status,
+)
 from services.api_key_service import APIKeyService
 from api import keys as api_keys
 from api.v1 import (
@@ -1516,45 +1528,23 @@ async def create_app():
     app.add_api_route("/auth/ibm/login", auth.ibm_login, methods=["POST"], tags=["internal"])
 
     # Connector endpoints
-    app.add_api_route(
-        "/connectors", connectors.list_connectors, methods=["GET"], tags=["internal"]
-    )
-    app.add_api_route(
-        "/connectors/{connector_type}/sync",
-        connectors.connector_sync,
-        methods=["POST"],
-        tags=["internal"],
-    )
-    app.add_api_route(
-        "/connectors/sync-all",
-        connectors.sync_all_connectors,
-        methods=["POST"],
-        tags=["internal"],
-    )
-    app.add_api_route(
-        "/connectors/{connector_type}/status",
-        connectors.connector_status,
-        methods=["GET"],
-        tags=["internal"],
-    )
-    app.add_api_route(
-        "/connectors/{connector_type}/token",
-        connectors.connector_token,
-        methods=["GET"],
-        tags=["internal"],
-    )
-    app.add_api_route(
-        "/connectors/{connector_type}/disconnect",
-        connectors.connector_disconnect,
-        methods=["DELETE"],
-        tags=["internal"],
-    )
-    app.add_api_route(
-        "/connectors/{connector_type}/webhook",
-        connectors.connector_webhook,
-        methods=["POST", "GET"],
-        tags=["internal"],
-    )
+    app.add_api_route("/connectors", connectors.list_connectors, methods=["GET"], tags=["internal"])
+    # IBM COS-specific routes (registered before generic /{connector_type}/... to avoid shadowing)
+    app.add_api_route("/connectors/ibm_cos/defaults", ibm_cos_defaults, methods=["GET"], tags=["internal"])
+    app.add_api_route("/connectors/ibm_cos/configure", ibm_cos_configure, methods=["POST"], tags=["internal"])
+    app.add_api_route("/connectors/ibm_cos/{connection_id}/buckets", ibm_cos_list_buckets, methods=["GET"], tags=["internal"])
+    app.add_api_route("/connectors/ibm_cos/{connection_id}/bucket-status", ibm_cos_bucket_status, methods=["GET"], tags=["internal"])
+    # AWS S3-specific routes (registered before generic /{connector_type}/... to avoid shadowing)
+    app.add_api_route("/connectors/aws_s3/defaults", s3_defaults, methods=["GET"], tags=["internal"])
+    app.add_api_route("/connectors/aws_s3/configure", s3_configure, methods=["POST"], tags=["internal"])
+    app.add_api_route("/connectors/aws_s3/{connection_id}/buckets", s3_list_buckets, methods=["GET"], tags=["internal"])
+    app.add_api_route("/connectors/aws_s3/{connection_id}/bucket-status", s3_bucket_status, methods=["GET"], tags=["internal"])
+    app.add_api_route("/connectors/{connector_type}/sync", connectors.connector_sync, methods=["POST"], tags=["internal"])
+    app.add_api_route("/connectors/sync-all", connectors.sync_all_connectors, methods=["POST"], tags=["internal"])
+    app.add_api_route("/connectors/{connector_type}/status", connectors.connector_status, methods=["GET"], tags=["internal"])
+    app.add_api_route("/connectors/{connector_type}/token", connectors.connector_token, methods=["GET"], tags=["internal"])
+    app.add_api_route("/connectors/{connector_type}/disconnect", connectors.connector_disconnect, methods=["DELETE"], tags=["internal"])
+    app.add_api_route("/connectors/{connector_type}/webhook", connectors.connector_webhook, methods=["POST", "GET"], tags=["internal"])
 
     # Document endpoints
     app.add_api_route(

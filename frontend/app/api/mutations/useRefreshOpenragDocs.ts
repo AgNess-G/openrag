@@ -33,9 +33,7 @@ const refreshOpenragDocs = async (): Promise<RefreshOpenRAGDocsResponse> => {
       // Keep default fallback message for malformed/non-JSON bodies.
     }
 
-    throw new Error(
-      errorMessage,
-    );
+    throw new Error(errorMessage);
   }
 
   return response.json();

@@ -459,14 +459,17 @@ export function useChatStreaming({
                     currentFunctionCalls.push(newFunctionCall);
                   }
                 }
-                
+
                 // Check for error status from Langflow
-                if (chunk.finish_reason === "error" || chunk.status === "failed") {
+                if (
+                  chunk.finish_reason === "error" ||
+                  chunk.status === "failed"
+                ) {
                   console.error("Error detected in stream");
-                  
+
                   // Mark this as an error message and complete the stream
                   isError = true;
-                  
+
                   // Exit the streaming loop by throwing so the reader stops promptly on error
                   throw new Error("Error detected in stream");
                 }
@@ -490,7 +493,11 @@ export function useChatStreaming({
                 else if (chunk.delta) {
                   if (typeof chunk.delta === "string") {
                     currentContent += chunk.delta;
-                  } else if (typeof chunk.delta === "object" && chunk.delta.text && !chunk.delta.content) {
+                  } else if (
+                    typeof chunk.delta === "object" &&
+                    chunk.delta.text &&
+                    !chunk.delta.content
+                  ) {
                     // Only add text if content wasn't already processed
                     currentContent += chunk.delta.text;
                   }
@@ -652,7 +659,7 @@ export function useChatStreaming({
       // Create user-friendly error message
       const errorMessage = (error as Error).message;
       let errorContent = errorMessage; // Default to the actual error message
-      
+
       // Only override with generic messages for specific infrastructure errors
       if (errorMessage?.includes("timed out")) {
         errorContent =
