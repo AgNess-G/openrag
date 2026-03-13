@@ -54,6 +54,9 @@ GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
 IBM_AUTH_ENABLED = os.getenv("IBM_AUTH_ENABLED", "false").lower() in ("true", "1", "yes")
 IBM_JWT_PUBLIC_KEY_URL = os.getenv("IBM_JWT_PUBLIC_KEY_URL", "")
 IBM_SESSION_COOKIE_NAME = os.getenv("IBM_SESSION_COOKIE_NAME", "ibm-openrag-session")
+# Single test credential pair for local dev login (no Traefik). Not used in production.
+IBM_TEST_USERNAME = os.getenv("IBM_TEST_USERNAME", "ibmlhapikey_openrag.test@ibm.com")
+IBM_TEST_PASSWORD = os.getenv("IBM_TEST_PASSWORD", "openrag_test123")
 DOCLING_OCR_ENGINE = os.getenv("DOCLING_OCR_ENGINE")
 
 # Ingestion configuration

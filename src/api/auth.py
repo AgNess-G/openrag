@@ -143,7 +143,8 @@ async def ibm_login(request: Request):
     Local dev (no Traefik): stores the Basic Auth header in ibm-auth-basic
     cookie so subsequent requests can be authenticated by _get_ibm_user.
     """
-    from config.settings import IBM_AUTH_ENABLED, IBM_SESSION_COOKIE_NAME
+    import base64
+    from config.settings import IBM_AUTH_ENABLED, IBM_SESSION_COOKIE_NAME, IBM_TEST_USERNAME, IBM_TEST_PASSWORD
 
     if not IBM_AUTH_ENABLED:
         raise HTTPException(status_code=404, detail="IBM auth is not enabled")
@@ -154,6 +155,16 @@ async def ibm_login(request: Request):
     if not request.cookies.get(IBM_SESSION_COOKIE_NAME):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Basic "):
+            # Validate against test credentials if configured.
+            if IBM_TEST_USERNAME and IBM_TEST_PASSWORD:
+                try:
+                    decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+                    username, _, password = decoded.partition(":")
+                except Exception:
+                    raise HTTPException(status_code=401, detail="Invalid Authorization header")
+                if username != IBM_TEST_USERNAME or password != IBM_TEST_PASSWORD:
+                    raise HTTPException(status_code=401, detail="Invalid credentials")
+
             response.set_cookie(
                 "ibm-auth-basic",
                 auth_header,
