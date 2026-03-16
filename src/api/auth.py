@@ -110,20 +110,19 @@ async def auth_logout(
     auth_service=Depends(get_auth_service),
     user: User = Depends(get_current_user),
 ):
-    """Logout user by clearing auth cookie"""
-    from config.settings import IBM_AUTH_ENABLED
+    """Logout user by clearing auth cookie(s)"""
+    from config.settings import IBM_AUTH_ENABLED, IBM_SESSION_COOKIE_NAME
 
     await TelemetryClient.send_event(Category.AUTHENTICATION, MessageId.ORB_AUTH_LOGOUT)
-
-    if IBM_AUTH_ENABLED:
-        # IBM manages its own session cookie; there is no local auth_token to clear.
-        return JSONResponse(
-            {"status": "no_local_session", "message": "Session is managed by IBM Watsonx Data"}
-        )
 
     response = JSONResponse(
         {"status": "logged_out", "message": "Successfully logged out"}
     )
+
+    if IBM_AUTH_ENABLED:
+        response.delete_cookie(key=IBM_SESSION_COOKIE_NAME, httponly=True, samesite="lax")
+        response.delete_cookie(key="ibm-auth-basic", httponly=True, samesite="lax")
+        return response
 
     # Clear the auth cookie
     response.delete_cookie(
