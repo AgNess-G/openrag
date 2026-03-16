@@ -333,7 +333,7 @@ help_utils: ## Show utility commands
 # DEVELOPMENT ENVIRONMENTS
 ######################
 
-dev: ## Start full stack with GPU support
+dev: ensure-config-dir ensure-rsa-keys ## Start full stack with GPU support
 	@echo "$(YELLOW)Starting OpenRAG with GPU support...$(NC)"
 	$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.gpu.yml up -d
 	@$(call check_container_running,openrag-backend)
@@ -344,7 +344,7 @@ dev: ## Start full stack with GPU support
 	@echo "   $(CYAN)OpenSearch:$(NC) http://localhost:9200"
 	@echo "   $(CYAN)Dashboards:$(NC) http://localhost:5601"
 
-dev-cpu: ## Start full stack with CPU only
+dev-cpu: ensure-config-dir ensure-rsa-keys ## Start full stack with CPU only
 	@echo "$(YELLOW)Starting OpenRAG with CPU only...$(NC)"
 	$(COMPOSE_CMD) up -d
 	@$(call check_container_running,openrag-backend)
