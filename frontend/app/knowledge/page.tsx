@@ -591,12 +591,26 @@ function SearchPage() {
     <>
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold">Project Knowledge</h2>
+          <h2 className="text-lg font-semibold">Project knowledge</h2>
         </div>
 
         {/* Search Input Area */}
-        <div className="flex-1 flex items-center flex-shrink-0 flex-wrap-reverse gap-3 mb-6">
-          <KnowledgeSearchInput />
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex-1 flex items-center gap-3">
+            <KnowledgeSearchInput />
+            <KnowledgeDropdown />
+          </div>
+
+          {selectedRows.length > 0 && (
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-lg flex-shrink-0"
+              onClick={() => setShowBulkDeleteDialog(true)}
+            >
+              Delete
+            </Button>
+          )}
 
           <Button
             type="button"
@@ -668,19 +682,6 @@ function SearchPage() {
               <>Fetch latest docs</>
             )}
           </Button>
-          {selectedRows.length > 0 && (
-            <Button
-              type="button"
-              variant="destructive"
-              className="rounded-lg flex-shrink-0"
-              onClick={() => setShowBulkDeleteDialog(true)}
-            >
-              Delete
-            </Button>
-          )}
-          <div className="ml-auto">
-            <KnowledgeDropdown />
-          </div>
         </div>
         <AgGridReact
           className="w-full overflow-auto"
