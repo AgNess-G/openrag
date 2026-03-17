@@ -502,6 +502,7 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 	echo "  - Stop all containers"; \
 	echo "  - Remove all volumes"; \
 	echo "  - Delete opensearch-data directory"; \
+	echo "  - Delete langflow-data directory"; \
 	echo "  - Delete config directory"; \
 	echo "  - Delete JWT keys (private_key.pem, public_key.pem)"; \
 	echo "  - Remove OpenRAG images"; \
@@ -524,6 +525,11 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 		$(CONTAINER_RUNTIME) run --rm -v "$$(pwd)/opensearch-data:/data" alpine sh -c "rm -rf /data/*" 2>/dev/null || \
 		rm -rf opensearch-data/* 2>/dev/null || true; \
 		echo "$(PURPLE)opensearch-data removed$(NC)"; \
+	fi; \
+	if [ -d "langflow-data" ]; then \
+		echo "Removing langflow-data..."; \
+		rm -rf langflow-data/* 2>/dev/null || true; \
+		echo "$(PURPLE)langflow-data removed$(NC)"; \
 	fi; \
 	if [ -d "config" ]; then \
 		echo "Removing config..."; \

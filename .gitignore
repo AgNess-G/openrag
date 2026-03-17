@@ -32,6 +32,9 @@ wheels/
 
 # OpenSearch data directory
 opensearch-data/
+# Langflow data directory (ignore contents, keep directory via .gitkeep)
+/langflow-data/*
+!/langflow-data/.gitkeep
 
 node_modules
 

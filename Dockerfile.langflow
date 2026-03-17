@@ -1,6 +1,12 @@
 FROM langflowai/langflow:1.8.0
 
-RUN pip install uv
+# (+) Install uv
+# (+) Pre-create the Langflow data directory with correct ownership.
+#     - This ensures named Docker volumes are initialised with uid=1000 so
+#       the non-root container user can write to the mounted path.
+RUN set -ex \
+    && pip install uv \
+    && mkdir -p /app/langflow-data
 
 EXPOSE 7860
 
