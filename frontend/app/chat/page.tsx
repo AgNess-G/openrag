@@ -1234,6 +1234,7 @@ export default function ProtectedChatPage() {
       <div
         className={cn(
           "flex w-full h-full overflow-hidden",
+          isCloudBrand && "ibm-chat-page",
           isCloudBrand &&
             "bg-[var(--chat-surface-bg)] [background-image:linear-gradient(0deg,var(--chat-surface-gradient),transparent_280px)]",
         )}

@@ -200,6 +200,13 @@
     --layered-select-bg: rgba(131, 131, 131, 0.24);
     --chat-input-border: #f4f4f4;
     --icon-disabled: #525252;
+    /* Contextual layer (~Gray 100); use hsl(var(--layer-contextual)) */
+    /* Layer / contextual surfaces (IBM Gray 10 light, Gray 100 dark) */
+    --layer-contextual: 0 0% 95.7%;
+    --layer-contextual-foreground: 0 0% 9%;
+    --text-text-01: 0 0% 9%;
+    --link-primary: 217 100% 45%;
+    --button-tertiary: 217 100% 45%;
   }
 
   /* IBM Dark */
@@ -210,9 +217,10 @@
     --card-foreground: 0 0% 97%;
     --popover: 0 0% 12%;
     --popover-foreground: 0 0% 97%;
-    --primary: 217 100% 45%; /* IBM Blue 60 #0f62fe */
+    /* Dark UI: lighter blue (Blue 40 ~#78A9FF), not Blue 60 */
+    --primary: 217 100% 74%;
     --primary-foreground: 0 0% 9%;
-    --primary-hover: 217 100% 35%; /* IBM Blue 70 #0043ce */
+    --primary-hover: 217 100% 82%;
     --secondary: 0 0% 12%;
     --secondary-foreground: 0 0% 97%;
     --secondary-hover: 0 0% 18%; /* IBM Gray 80 #393939 */
@@ -222,7 +230,7 @@
     --accent-foreground: 0 0% 97%;
     --border: 0 0% 22.4%; /* IBM Gray 80 #393939 - Ui-border 3 */
     --input: 0 0% 26%;
-    --ring: 217 100% 62%;
+    --ring: 217 100% 74%;
     --placeholder-foreground: var(
       --input
     ); /* placeholder uses shadcn input token */
@@ -245,7 +253,7 @@
     --warning: 46 97% 65%;
     --warning-foreground: 0 0% 0%;
 
-    --component-icon: #4589ff;
+    --component-icon: #78a9ff;
     --flow-icon: #78a9ff;
 
     --radius: 0rem;
@@ -257,17 +265,43 @@
 
     --sidebar-background: 0 0% 12%;
     --sidebar-foreground: 0 0% 97%;
-    --sidebar-primary: 217 100% 62%;
+    --sidebar-primary: 217 100% 74%;
     --sidebar-primary-foreground: 0 0% 9%;
     --sidebar-accent: 0 0% 18%;
     --sidebar-accent-foreground: 0 0% 97%;
     --sidebar-border: 0 0% 26%;
-    --sidebar-ring: 217 100% 62%;
+    --sidebar-ring: 217 100% 74%;
 
     /* IBM-only UI tokens */
     --layered-select-bg: rgba(131, 131, 131, 0.24);
     --chat-input-border: #262626;
     --icon-disabled: #525252;
+    --layer-contextual: 0 0% 15%;
+    --layer-contextual-foreground: 0 0% 95.7%;
+    --text-text-01: 0 0% 95.7%;
+    --link-primary: 217 100% 74%;
+    --button-tertiary: 217 100% 74%;
+  }
+
+  /* IBM Settings: section titles (productive heading-04); beats CardTitle utilities */
+  [data-theme="ibm"] .ibm-settings-section-title {
+    color: hsl(var(--text-text-01));
+    font-family: inherit;
+    font-size: 28px !important;
+    font-weight: 400 !important;
+    line-height: 36px !important;
+    font-style: normal;
+    letter-spacing: 0;
+  }
+
+  /* IBM Settings: inline links (Link/link-primary) */
+  [data-theme="ibm"] .ibm-settings-page a[href] {
+    color: hsl(var(--link-primary));
+  }
+
+  [data-theme="ibm"] .ibm-settings-page a[href]:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   /* IBM chat nudges / quick actions */
@@ -277,6 +311,30 @@
 
   [data-theme="ibm"].dark .ibm-chat-bubble {
     background-color: #262626;
+  }
+
+  /*
+   * IBM chat page only: body copy #000 (light) / #fff (dark) via tokens.
+   * Scoped so OSS and non-chat IBM surfaces keep existing --foreground.
+   */
+  [data-theme="ibm"] .ibm-chat-page {
+    --ibm-chat-text: 0 0% 0%;
+    --foreground: var(--ibm-chat-text);
+    --muted-foreground: var(--ibm-chat-text);
+  }
+
+  [data-theme="ibm"].dark .ibm-chat-page {
+    --ibm-chat-text: 0 0% 100%;
+    --foreground: var(--ibm-chat-text);
+    --muted-foreground: var(--ibm-chat-text);
+  }
+
+  [data-theme="ibm"] .ibm-chat-page .markdown.prose {
+    color: hsl(var(--ibm-chat-text));
+  }
+
+  [data-theme="ibm"] .ibm-chat-page .markdown.prose a {
+    color: hsl(var(--primary));
   }
 
   * {

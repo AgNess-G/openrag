@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { IBM_Plex_Sans } from "next/font/google";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -47,6 +48,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/auth-context";
+import { useIsCloudBrand } from "@/contexts/brand-context";
 import { useTask } from "@/contexts/task-context";
 import {
   DEFAULT_AGENT_SETTINGS,
@@ -63,7 +65,14 @@ import { getModelLogo, type ModelProvider } from "./_helpers/model-helpers";
 
 const { MAX_SYSTEM_PROMPT_CHARS } = UI_CONSTANTS;
 
+const ibmSettingsFont = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
 function KnowledgeSourcesPage() {
+  const isCloudBrand = useIsCloudBrand();
   const { isAuthenticated, isNoAuthMode } = useAuth();
   const { addTask, tasks } = useTask();
   const searchParams = useSearchParams();
@@ -527,11 +536,22 @@ function KnowledgeSourcesPage() {
   };
 
   return (
-    <div className="space-y-8 pb-6">
+    <div
+      className={cn(
+        "space-y-8 pb-6",
+        isCloudBrand && ibmSettingsFont.className,
+        isCloudBrand && "ibm-settings-page",
+      )}
+    >
       {/* Connectors Section */}
       <div className="space-y-6">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight mb-2">
+          <h2
+            className={cn(
+              "mb-2 text-lg font-semibold tracking-tight",
+              isCloudBrand && "ibm-settings-section-title",
+            )}
+          >
             Cloud Connectors
           </h2>
         </div>
@@ -541,7 +561,12 @@ function KnowledgeSourcesPage() {
           isNoAuthMode ? (
             <Card className="border-accent-amber-foreground">
               <CardHeader>
-                <CardTitle className="text-lg">
+                <CardTitle
+                  className={cn(
+                    "text-lg",
+                    isCloudBrand && "ibm-settings-section-title",
+                  )}
+                >
                   Cloud connectors require authentication
                 </CardTitle>
                 <CardDescription className="text-sm">
@@ -646,7 +671,12 @@ function KnowledgeSourcesPage() {
       {/* Model Providers Section */}
       <div className="space-y-6">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight mb-2">
+          <h2
+            className={cn(
+              "mb-2 text-lg font-semibold tracking-tight",
+              isCloudBrand && "ibm-settings-section-title",
+            )}
+          >
             Model Providers
           </h2>
         </div>
@@ -657,7 +687,14 @@ function KnowledgeSourcesPage() {
       <Card id="agent-card">
         <CardHeader>
           <div className="flex items-center justify-between mb-3">
-            <CardTitle className="text-lg">Agent</CardTitle>
+            <CardTitle
+              className={cn(
+                "text-lg",
+                isCloudBrand && "ibm-settings-section-title",
+              )}
+            >
+              Agent
+            </CardTitle>
             <div className="flex gap-2">
               <ConfirmationDialog
                 trigger={
@@ -805,7 +842,14 @@ function KnowledgeSourcesPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between mb-3">
-            <CardTitle className="text-lg">Knowledge Ingest</CardTitle>
+            <CardTitle
+              className={cn(
+                "text-lg",
+                isCloudBrand && "ibm-settings-section-title",
+              )}
+            >
+              Knowledge Ingest
+            </CardTitle>
             <div className="flex gap-2">
               <ConfirmationDialog
                 trigger={
@@ -1056,7 +1100,14 @@ function KnowledgeSourcesPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between mb-3">
-              <CardTitle className="text-lg">API Keys</CardTitle>
+              <CardTitle
+                className={cn(
+                  "text-lg",
+                  isCloudBrand && "ibm-settings-section-title",
+                )}
+              >
+                API Keys
+              </CardTitle>
               <Button onClick={() => setCreateKeyDialogOpen(true)} size="sm">
                 <Plus className="h-4 w-4 mr-2" />
                 Create Key
