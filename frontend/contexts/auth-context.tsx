@@ -8,6 +8,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { encodeBase64 } from "@/lib/utils";
 
 interface User {
   user_id: string;
@@ -151,7 +152,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           });
 
           const returnUrl = result.public_return_url || window.location.origin;
-          const state = `id=${result.connection_id}&return=${encodeURIComponent(returnUrl)}`;
+          const encodedReturnUrl = encodeBase64(returnUrl);
+          const state = `id=${result.connection_id}&return=${encodedReturnUrl}`;
 
           const authUrl =
             `${result.oauth_config.authorization_endpoint}?` +

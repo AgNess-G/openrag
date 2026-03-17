@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAuth } from "@/contexts/auth-context";
+import { decodeBase64 } from "@/lib/utils";
 
 function AuthCallbackContent() {
   const router = useRouter();
@@ -88,7 +89,19 @@ function AuthCallbackContent() {
           try {
             const params = new URLSearchParams(stateParam);
             parsedConnectionId = params.get("id") || finalConnectorId;
-            stateReturnUrl = params.get("return");
+            const b64Return = params.get("return");
+            if (b64Return) {
+              try {
+                stateReturnUrl = decodeBase64(b64Return);
+              } catch (e) {
+                console.error(
+                  "Failed to Base64 decode return URL:",
+                  b64Return,
+                  e,
+                );
+                stateReturnUrl = b64Return; // Fallback to raw if decoding fails
+              }
+            }
             console.log("Parsed state parameter:", {
               parsedConnectionId,
               stateReturnUrl,

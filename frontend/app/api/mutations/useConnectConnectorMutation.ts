@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { encodeBase64 } from "@/lib/utils";
 import type { Connector } from "../queries/useGetConnectorsQuery";
 
 interface ConnectResponse {
@@ -70,7 +71,8 @@ export const useConnectConnectorMutation = () => {
         localStorage.setItem("auth_purpose", "data_source");
 
         const returnUrl = result.public_return_url || window.location.origin;
-        const state = `id=${result.connection_id}&return=${encodeURIComponent(returnUrl)}`;
+        const encodedReturnUrl = encodeBase64(returnUrl);
+        const state = `id=${result.connection_id}&return=${encodedReturnUrl}`;
 
         const authUrl =
           `${result.oauth_config.authorization_endpoint}?` +
