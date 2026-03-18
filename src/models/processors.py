@@ -1,7 +1,11 @@
 from typing import Any
 from .tasks import UploadTask, FileTask
 from utils.logging_config import get_logger
-from utils.file_utils import get_file_extension, clean_connector_filename
+from utils.file_utils import (
+    get_file_extension,
+    clean_connector_filename,
+    get_filename_aliases,
+)
 
 logger = get_logger(__name__)
 
@@ -72,19 +76,22 @@ class TaskProcessor:
         max_retries = 3
         retry_delay = 1.0
 
+        candidate_filenames = get_filename_aliases(filename) or [filename]
+
         for attempt in range(max_retries):
             try:
-                # Search for any document with this exact filename
-                search_body = build_filename_search_body(filename, size=1, source=False)
-
-                response = await opensearch_client.search(
-                    index=get_index_name(),
-                    body=search_body
-                )
-
-                # Check if any hits were found
-                hits = response.get("hits", {}).get("hits", [])
-                return len(hits) > 0
+                for candidate in candidate_filenames:
+                    search_body = build_filename_search_body(
+                        candidate, size=1, source=False
+                    )
+                    response = await opensearch_client.search(
+                        index=get_index_name(),
+                        body=search_body
+                    )
+                    hits = response.get("hits", {}).get("hits", [])
+                    if hits:
+                        return True
+                return False
 
             except (asyncio.TimeoutError, Exception) as e:
                 if attempt == max_retries - 1:
@@ -123,15 +130,15 @@ class TaskProcessor:
         from utils.opensearch_queries import build_filename_delete_body
 
         try:
-            # Delete all documents with this filename
-            delete_body = build_filename_delete_body(filename)
-
-            response = await opensearch_client.delete_by_query(
-                index=get_index_name(),
-                body=delete_body
-            )
-
-            deleted_count = response.get("deleted", 0)
+            deleted_count = 0
+            candidate_filenames = get_filename_aliases(filename) or [filename]
+            for candidate in candidate_filenames:
+                delete_body = build_filename_delete_body(candidate)
+                response = await opensearch_client.delete_by_query(
+                    index=get_index_name(),
+                    body=delete_body
+                )
+                deleted_count += response.get("deleted", 0)
             logger.info(
                 "Deleted existing document chunks",
                 filename=filename,
