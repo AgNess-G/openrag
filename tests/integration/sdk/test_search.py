@@ -1,6 +1,5 @@
 """Tests for the search endpoint."""
 
-import asyncio
 import os
 from pathlib import Path
 
@@ -19,7 +18,6 @@ class TestSearch:
     async def test_search_query(self, client, test_file: Path):
         """A basic search query returns a results list."""
         await client.documents.ingest(file_path=str(test_file))
-        await asyncio.sleep(2)
 
         results = await client.search.query("purple elephants dancing")
         assert results.results is not None
@@ -32,7 +30,6 @@ class TestSearchExtended:
     async def test_search_with_limit(self, client, test_file: Path):
         """limit parameter caps the number of results returned."""
         await client.documents.ingest(file_path=str(test_file))
-        await asyncio.sleep(2)
 
         results = await client.search.query("test", limit=1)
         assert results.results is not None
@@ -42,7 +39,6 @@ class TestSearchExtended:
     async def test_search_with_high_score_threshold_returns_empty(self, client, test_file: Path):
         """A score_threshold of 0.99 should filter out most or all results."""
         await client.documents.ingest(file_path=str(test_file))
-        await asyncio.sleep(2)
 
         results = await client.search.query("test", score_threshold=0.99)
         assert results.results is not None
@@ -66,9 +62,8 @@ class TestSearchExtended:
 
     @pytest.mark.asyncio
     async def test_search_returns_result_fields(self, client, test_file: Path):
-        """Each search result must have content populated as a string."""
+        """Each search result must have text populated as a string."""
         await client.documents.ingest(file_path=str(test_file))
-        await asyncio.sleep(2)
 
         results = await client.search.query("purple elephants dancing", limit=5)
         for result in results.results:

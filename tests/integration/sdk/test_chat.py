@@ -1,6 +1,5 @@
 """Tests for the chat endpoint — non-streaming, streaming, conversations, and RAG."""
 
-import asyncio
 import os
 from pathlib import Path
 
@@ -116,8 +115,6 @@ class TestChat:
         result = await client.documents.ingest(file_path=str(test_file))
         if result.status == "failed" or result.successful_files == 0:
             pytest.skip("Document ingestion failed — cannot test RAG sources")
-
-        await asyncio.sleep(3)
 
         response = await client.chat.create(
             message="What is the color of the dancing animals mentioned in my documents?"

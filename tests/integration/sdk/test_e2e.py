@@ -1,6 +1,5 @@
 """End-to-end tests covering full multi-step SDK workflows."""
 
-import asyncio
 import os
 import uuid
 
@@ -29,8 +28,6 @@ class TestEndToEnd:
         ingest_result = await client.documents.ingest(file_path=str(file_path))
         if ingest_result.successful_files == 0:
             pytest.skip("Ingestion produced no indexed chunks — skipping E2E RAG test")
-
-        await asyncio.sleep(3)
 
         search_results = await client.search.query("flamingo Zephyr planet Xylox")
         assert search_results.results is not None
@@ -62,8 +59,6 @@ class TestEndToEnd:
         ingest_result = await client.documents.ingest(file_path=str(file_path))
         if ingest_result.successful_files == 0:
             pytest.skip("Ingestion produced no indexed chunks — skipping multiturn test")
-
-        await asyncio.sleep(3)
 
         r1 = await client.chat.create(message="What is the capital of Valdoria?")
         assert r1.chat_id is not None
