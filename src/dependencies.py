@@ -103,18 +103,14 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     If *required* is True, raises HTTP 401 when none is present.
     If *required* is False, returns None instead of raising.
     """
-    import base64
     import auth.ibm_auth as ibm_auth
+    from auth.ibm_auth import extract_ibm_credentials
     from config.settings import IBM_SESSION_COOKIE_NAME, IBM_CREDENTIALS_HEADER
 
     # ── Option 0: Configurable credentials header (Traefik production) ───
     lh_credentials = request.headers.get(IBM_CREDENTIALS_HEADER, "")
     if lh_credentials.startswith("Basic "):
-        try:
-            decoded = base64.b64decode(lh_credentials[6:]).decode("utf-8")
-            username = decoded.split(":", 1)[0]
-        except Exception:
-            username = "unknown"
+        username, _ = extract_ibm_credentials(lh_credentials)
 
         # Persist credentials to connections.json for reuse by background processes
         connector_service = request.app.state.services.get("connector_service")
@@ -157,11 +153,7 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     # ── Option 2: ibm-auth-basic cookie (local dev, no Traefik) ─────────
     auth_header = request.cookies.get("ibm-auth-basic", "")
     if auth_header.startswith("Basic "):
-        try:
-            decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
-            username = decoded.split(":", 1)[0]
-        except Exception:
-            username = "unknown"
+        username, _ = extract_ibm_credentials(auth_header)
 
         user = User(
             user_id=username,
@@ -170,6 +162,8 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             picture=None,
             provider="ibm_ams_basic",
             jwt_token=auth_header,
+            opensearch_username=username,
+            opensearch_credentials=auth_header,
         )
         request.state.user = user
         return user

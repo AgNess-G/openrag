@@ -49,6 +49,22 @@ async def fetch_ibm_public_key(url: str):
     return _cached_public_key
 
 
+def extract_ibm_credentials(basic_credentials: str) -> tuple[str, str]:
+    """Decode a 'Basic <base64>' string and return (username, password).
+
+    Returns ("unknown", "") if the string is not a valid Basic credential.
+    """
+    import base64
+    if not basic_credentials.startswith("Basic "):
+        return ("unknown", "")
+    try:
+        decoded = base64.b64decode(basic_credentials[6:]).decode("utf-8")
+        username, _, password = decoded.partition(":")
+        return (username, password)
+    except Exception:
+        return ("unknown", "")
+
+
 def validate_ibm_jwt(token: str, public_key) -> dict | None:
     """Validate *token* with *public_key* (full RS256 + expiry check).
 
