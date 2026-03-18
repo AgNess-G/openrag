@@ -311,6 +311,8 @@ function SearchPage() {
     {
       field: "size",
       headerName: "Size",
+      sortable: true,
+      comparator: (valueA: number, valueB: number) => valueA - valueB,
       valueFormatter: (params: ValueFormatterParams<File>) =>
         params.value ? `${Math.round(params.value / 1024)} KB` : "-",
     },
