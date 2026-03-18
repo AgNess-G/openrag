@@ -204,13 +204,6 @@
     --layered-select-bg: rgba(131, 131, 131, 0.24);
     --chat-input-border: #f4f4f4;
     --icon-disabled: #525252;
-    /* Contextual layer (~Gray 100); use hsl(var(--layer-contextual)) */
-    /* Layer / contextual surfaces (IBM Gray 10 light, Gray 100 dark) */
-    --layer-contextual: 0 0% 95.7%;
-    --layer-contextual-foreground: 0 0% 9%;
-    --text-text-01: 0 0% 9%;
-    --link-primary: 217 100% 45%;
-    --button-tertiary: 217 100% 45%;
   }
 
   /* IBM Dark */
@@ -221,10 +214,9 @@
     --card-foreground: 0 0% 97%;
     --popover: 0 0% 12%;
     --popover-foreground: 0 0% 97%;
-    /* Dark UI: lighter blue (Blue 40 ~#78A9FF), not Blue 60 */
-    --primary: 217 100% 74%;
+    --primary: 217 100% 45%; /* IBM Blue 60 #0f62fe */
     --primary-foreground: 0 0% 9%;
-    --primary-hover: 217 100% 82%;
+    --primary-hover: 217 100% 35%; /* IBM Blue 70 #0043ce */
     --secondary: 0 0% 12%;
     --secondary-foreground: 0 0% 97%;
     --secondary-hover: 0 0% 18%; /* IBM Gray 80 #393939 */
@@ -234,7 +226,7 @@
     --accent-foreground: 0 0% 97%;
     --border: 0 0% 22.4%; /* IBM Gray 80 #393939 - Ui-border 3 */
     --input: 0 0% 26%;
-    --ring: 217 100% 74%;
+    --ring: 217 100% 62%;
     --placeholder-foreground: var(
       --input
     ); /* placeholder uses shadcn input token */
@@ -257,7 +249,7 @@
     --warning: 46 97% 65%;
     --warning-foreground: 0 0% 0%;
 
-    --component-icon: #78a9ff;
+    --component-icon: #4589ff;
     --flow-icon: #78a9ff;
 
     --radius: 0rem;
@@ -269,12 +261,12 @@
 
     --sidebar-background: 0 0% 12%;
     --sidebar-foreground: 0 0% 97%;
-    --sidebar-primary: 217 100% 74%;
+    --sidebar-primary: 217 100% 62%;
     --sidebar-primary-foreground: 0 0% 9%;
     --sidebar-accent: 0 0% 18%;
     --sidebar-accent-foreground: 0 0% 97%;
     --sidebar-border: 0 0% 26%;
-    --sidebar-ring: 217 100% 74%;
+    --sidebar-ring: 217 100% 62%;
 
     /* IBM-only UI tokens */
     --layered-select-bg: rgba(131, 131, 131, 0.24);
@@ -294,422 +286,400 @@
 
   /* IBM Settings: section titles (productive heading-04); beats CardTitle utilities */
   [data-theme="ibm"] .ibm-section-title {
-    color: hsl(var(--text-text-01));
-    font-family: inherit;
-    font-size: 28px !important;
-    font-weight: 400 !important;
-    line-height: 36px !important;
-    font-style: normal;
-    letter-spacing: 0;
-  }
-
-  /* IBM Settings: inline links (Link/link-primary) */
-  [data-theme="ibm"] .ibm-settings-page a[href] {
-    color: hsl(var(--link-primary));
-  }
-
-  [data-theme="ibm"] .ibm-settings-page a[href]:hover {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-
-  /* IBM Carbon Design System: Input fields styling */
-  [data-theme="ibm"] .primary-input {
-    border: none;
-    border-radius: 0;
-    border-bottom: 2px solid hsl(var(--input));
-    background-color: hsl(var(--card));
-  }
-
-  [data-theme="ibm"] .primary-input:hover {
-    border-bottom-color: hsl(var(--foreground));
-  }
-
-  [data-theme="ibm"] .primary-input:focus {
-    border-bottom-color: hsl(var(--primary));
-  }
-
-  /* IBM Carbon Design System: Placeholder text uses secondary color #C6C6C6 */
-  [data-theme="ibm"] .primary-input::placeholder {
-    color: hsl(var(--muted-foreground));
-  }
-
-  /* IBM Carbon Design System: Select/Combobox styling (ModelSelector buttons) */
-  [data-theme="ibm"] .ibm-settings-page button[role="combobox"] {
-    border: none;
-    border-radius: 0;
-    border-bottom: 2px solid hsl(var(--input));
-    background-color: hsl(var(--card));
-  }
-
-  [data-theme="ibm"]
-    .ibm-settings-page
-    button[role="combobox"]:hover:not(:disabled) {
-    border-bottom-color: hsl(var(--foreground));
-    background-color: hsl(var(--card));
-  }
-
-  [data-theme="ibm"] .ibm-settings-page button[role="combobox"]:focus {
-    border-bottom-color: hsl(var(--primary));
-  }
-
-  /* IBM Carbon Design System: Regular Select trigger styling */
-  [data-theme="ibm"] .ibm-settings-page [data-radix-select-trigger] {
-    border: none;
-    border-radius: 0;
-    border-bottom: 2px solid hsl(var(--input));
-    background-color: hsl(var(--card));
-  }
-
-  [data-theme="ibm"]
-    .ibm-settings-page
-    [data-radix-select-trigger]:hover:not(:disabled) {
-    border-bottom-color: hsl(var(--foreground));
-    background-color: hsl(var(--card));
-  }
-
-  [data-theme="ibm"] .ibm-settings-page [data-radix-select-trigger]:focus {
-    border-bottom-color: hsl(var(--primary));
-  }
-
-  /* IBM Carbon Design System: Flatten cards in settings page */
-  [data-theme="ibm"] .ibm-settings-page .rounded-xl {
-    border-color: transparent;
-    background-color: transparent;
-    box-shadow: none;
-  }
-
-  [data-theme="ibm"] .ibm-section-title {
-    color: hsl(var(--text-text-01));
-    font-family: inherit;
-    font-size: 28px !important;
-    font-weight: 400 !important;
-    line-height: 36px !important;
-    font-style: normal;
-    letter-spacing: 0;
-  }
-
-  .text-placeholder {
-    color: hsl(var(--placeholder));
-    font-family: inherit;
-    font-size: 14px;
-    font-weight: 400;
-    line-height: 18px;
-    letter-spacing: 0.16px;
-  }
-
-  /* IBM chat nudges / quick actions */
-  [data-theme="ibm"] .ibm-chat-bubble {
-    border-color: var(--chat-surface-border);
-  }
-
-  [data-theme="ibm"].dark .ibm-chat-bubble {
-    background-color: #262626;
-  }
-
-  /*
-   * IBM chat page only: body copy #000 (light) / #fff (dark) via tokens.
-   * Scoped so OSS and non-chat IBM surfaces keep existing --foreground.
-   */
-  [data-theme="ibm"] .ibm-chat-page {
-    --ibm-chat-text: 0 0% 0%;
-    --foreground: var(--ibm-chat-text);
-    --muted-foreground: var(--ibm-chat-text);
-  }
-
-  [data-theme="ibm"].dark .ibm-chat-page {
-    --ibm-chat-text: 0 0% 100%;
-    --foreground: var(--ibm-chat-text);
-    --muted-foreground: var(--ibm-chat-text);
-  }
-
-  [data-theme="ibm"] .ibm-chat-page .markdown.prose {
-    color: hsl(var(--ibm-chat-text));
-  }
-
-  [data-theme="ibm"] .ibm-chat-page .markdown.prose a {
-    color: hsl(var(--primary));
-  }
-
-  * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings:
-      "rlig" 1,
-      "calt" 1;
-    font-family: Inter, system-ui, sans-serif;
-  }
-}
-
-@layer components {
-  .app-grid-arrangement {
-    --nav-width: 280px;
-    --right-panel-width: 0px;
-    --header-height: 54px;
-
-    &.notifications-open,
-    &.filters-open {
-      --right-panel-width: 320px;
+    [data-theme="ibm"] .ibm-section-title {
+      color: hsl(var(--text-text-01));
+      font-family: inherit;
+      font-size: 28px !important;
+      font-weight: 400 !important;
+      line-height: 36px !important;
+      font-style: normal;
+      letter-spacing: 0;
     }
-    display: grid;
-    height: 100%;
-    width: 100%;
-    grid-template-rows:
-      auto
-      var(--header-height)
-      1fr;
-    grid-template-columns:
-      var(--nav-width)
-      1fr
-      var(--right-panel-width);
-    grid-template-areas:
-      "banner banner banner"
-      "header header header"
-      "nav main right-panel";
-    transition: grid-template-columns 0.25s ease-in-out;
+
+    /* IBM Settings: inline links (Link/link-primary) */
+    [data-theme="ibm"] .ibm-settings-page a[href] {
+      color: hsl(var(--link-primary));
+    }
+
+    [data-theme="ibm"] .ibm-settings-page a[href]:hover {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    /* IBM Carbon Design System: Input fields styling */
+    [data-theme="ibm"] .primary-input {
+      border: none;
+      border-radius: 0;
+      border-bottom: 2px solid hsl(var(--input));
+      background-color: hsl(var(--card));
+    }
+
+    [data-theme="ibm"] .primary-input:hover {
+      border-bottom-color: hsl(var(--foreground));
+    }
+
+    [data-theme="ibm"] .primary-input:focus {
+      border-bottom-color: hsl(var(--primary));
+    }
+
+    /* IBM Carbon Design System: Placeholder text uses secondary color #C6C6C6 */
+    [data-theme="ibm"] .primary-input::placeholder {
+      color: hsl(var(--muted-foreground));
+    }
+
+    /* IBM Carbon Design System: Select/Combobox styling (ModelSelector buttons) */
+    [data-theme="ibm"] .ibm-settings-page button[role="combobox"] {
+      border: none;
+      border-radius: 0;
+      border-bottom: 2px solid hsl(var(--input));
+      background-color: hsl(var(--card));
+    }
+
+    [data-theme="ibm"]
+      .ibm-settings-page
+      button[role="combobox"]:hover:not(:disabled) {
+      border-bottom-color: hsl(var(--foreground));
+      background-color: hsl(var(--card));
+    }
+
+    [data-theme="ibm"] .ibm-settings-page button[role="combobox"]:focus {
+      border-bottom-color: hsl(var(--primary));
+    }
+
+    /* IBM Carbon Design System: Regular Select trigger styling */
+    [data-theme="ibm"] .ibm-settings-page [data-radix-select-trigger] {
+      border: none;
+      border-radius: 0;
+      border-bottom: 2px solid hsl(var(--input));
+      background-color: hsl(var(--card));
+    }
+
+    [data-theme="ibm"]
+      .ibm-settings-page
+      [data-radix-select-trigger]:hover:not(:disabled) {
+      border-bottom-color: hsl(var(--foreground));
+      background-color: hsl(var(--card));
+    }
+
+    [data-theme="ibm"] .ibm-settings-page [data-radix-select-trigger]:focus {
+      border-bottom-color: hsl(var(--primary));
+    }
+
+    /* IBM Carbon Design System: Flatten cards in settings page */
+    [data-theme="ibm"] .ibm-settings-page .rounded-xl {
+      border-color: transparent;
+      background-color: transparent;
+      box-shadow: none;
+    }
+
+    [data-theme="ibm"] .ibm-section-title {
+      color: hsl(var(--text-text-01));
+      font-family: inherit;
+      font-size: 28px !important;
+      font-weight: 400 !important;
+      line-height: 36px !important;
+      font-style: normal;
+      letter-spacing: 0;
+    }
+
+    .text-placeholder {
+      color: hsl(var(--placeholder));
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 18px;
+      letter-spacing: 0.16px;
+    }
+
+    /* IBM chat nudges / quick actions */
+    [data-theme="ibm"] .ibm-chat-bubble {
+      border-color: var(--chat-surface-border);
+    }
+
+    [data-theme="ibm"].dark .ibm-chat-bubble {
+      background-color: #262626;
+    }
+
+    * {
+      @apply border-border;
+    }
+
+    body {
+      @apply bg-background text-foreground;
+      font-feature-settings:
+        "rlig" 1,
+        "calt" 1;
+      font-family: Inter, system-ui, sans-serif;
+    }
   }
 
-  .header-start-display {
-    @apply flex items-center gap-2;
-  }
+  @layer components {
+    .app-grid-arrangement {
+      --nav-width: 280px;
+      --right-panel-width: 0px;
+      --header-height: 54px;
 
-  .header-end-division {
-    @apply flex justify-end px-2;
-  }
+      &.notifications-open,
+      &.filters-open {
+        --right-panel-width: 320px;
+      }
+      display: grid;
+      height: 100%;
+      width: 100%;
+      grid-template-rows:
+        auto
+        var(--header-height)
+        1fr;
+      grid-template-columns:
+        var(--nav-width)
+        1fr
+        var(--right-panel-width);
+      grid-template-areas:
+        "banner banner banner"
+        "header header header"
+        "nav main right-panel";
+      transition: grid-template-columns 0.25s ease-in-out;
+    }
 
-  .header-end-display {
-    @apply ml-auto mr-2 flex items-center gap-5;
-  }
+    .header-start-display {
+      @apply flex items-center gap-2;
+    }
 
-  .header-github-link {
-    @apply inline-flex h-8 items-center justify-center rounded-md border border-input px-2 text-sm font-medium text-muted-foreground shadow-sm ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
-  }
+    .header-end-division {
+      @apply flex justify-end px-2;
+    }
 
-  .header-notifications {
-    @apply absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive;
-  }
+    .header-end-display {
+      @apply ml-auto mr-2 flex items-center gap-5;
+    }
 
-  .header-menu-bar {
-    @apply flex items-center rounded-md py-1 text-sm font-medium;
-  }
+    .header-github-link {
+      @apply inline-flex h-8 items-center justify-center rounded-md border border-input px-2 text-sm font-medium text-muted-foreground shadow-sm ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+    }
 
-  .header-menu-bar-display {
-    @apply flex max-w-[110px] cursor-pointer items-center gap-2 lg:max-w-[150px];
-  }
+    .header-notifications {
+      @apply absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive;
+    }
 
-  .header-menu-flow-name {
-    @apply flex-1 truncate;
-  }
+    .header-menu-bar {
+      @apply flex items-center rounded-md py-1 text-sm font-medium;
+    }
 
-  .header-menu-options {
-    @apply mr-2 h-4 w-4;
-  }
+    .header-menu-bar-display {
+      @apply flex max-w-[110px] cursor-pointer items-center gap-2 lg:max-w-[150px];
+    }
 
-  .side-bar-arrangement {
-    @apply flex h-full w-[18rem] flex-col overflow-hidden border-r scrollbar-hide;
-  }
+    .header-menu-flow-name {
+      @apply flex-1 truncate;
+    }
 
-  .side-bar-search-div-placement {
-    @apply relative mx-auto flex items-center py-3;
-  }
+    .header-menu-options {
+      @apply mr-2 h-4 w-4;
+    }
 
-  .side-bar-components-icon {
-    @apply h-6 w-4 text-ring;
-  }
+    .side-bar-arrangement {
+      @apply flex h-full w-[18rem] flex-col overflow-hidden border-r scrollbar-hide;
+    }
 
-  .side-bar-components-text {
-    @apply w-full truncate pr-1 text-xs text-foreground;
-  }
+    .side-bar-search-div-placement {
+      @apply relative mx-auto flex items-center py-3;
+    }
 
-  .side-bar-components-div-form {
-    @apply flex w-full items-center justify-between rounded-md rounded-l-none border border-l-0 border-dashed border-ring px-3 py-1 text-sm;
-  }
+    .side-bar-components-icon {
+      @apply h-6 w-4 text-ring;
+    }
 
-  .side-bar-components-border {
-    @apply cursor-grab rounded-l-md border-l-8;
-  }
+    .side-bar-components-text {
+      @apply w-full truncate pr-1 text-xs text-foreground;
+    }
 
-  .side-bar-components-gap {
-    @apply flex flex-col gap-2 p-2;
-  }
+    .side-bar-components-div-form {
+      @apply flex w-full items-center justify-between rounded-md rounded-l-none border border-l-0 border-dashed border-ring px-3 py-1 text-sm;
+    }
 
-  .side-bar-components-div-arrangement {
-    @apply w-full overflow-auto pb-10 scrollbar-hide;
-  }
+    .side-bar-components-border {
+      @apply cursor-grab rounded-l-md border-l-8;
+    }
 
-  .side-bar-button-size {
-    @apply h-5 w-5;
-  }
+    .side-bar-components-gap {
+      @apply flex flex-col gap-2 p-2;
+    }
 
-  .side-bar-button-size:hover {
-    @apply hover:text-accent-foreground;
-  }
+    .side-bar-components-div-arrangement {
+      @apply w-full overflow-auto pb-10 scrollbar-hide;
+    }
 
-  .side-bar-buttons-arrangement {
-    @apply mb-2 mt-2 flex w-full items-center justify-between gap-2 px-2;
-  }
+    .side-bar-button-size {
+      @apply h-5 w-5;
+    }
 
-  .side-bar-button {
-    @apply flex w-full;
-  }
+    .side-bar-button-size:hover {
+      @apply hover:text-accent-foreground;
+    }
 
-  .components-disclosure-arrangement {
-    @apply -mt-px flex w-full select-none items-center justify-between border-y border-y-input bg-primary-foreground px-3 py-2;
-  }
+    .side-bar-buttons-arrangement {
+      @apply mb-2 mt-2 flex w-full items-center justify-between gap-2 px-2;
+    }
 
-  .components-disclosure-title {
-    @apply flex items-center text-sm text-primary;
-  }
+    .side-bar-button {
+      @apply flex w-full;
+    }
 
-  .toolbar-wrapper {
-    @apply flex h-10 items-center gap-1 rounded-xl border border-border bg-background p-1 shadow-sm;
-  }
+    .components-disclosure-arrangement {
+      @apply -mt-px flex w-full select-none items-center justify-between border-y border-y-input bg-primary-foreground px-3 py-2;
+    }
 
-  .playground-btn-flow-toolbar {
-    @apply relative inline-flex h-8 w-full items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-normal transition-all duration-500 ease-in-out;
-  }
+    .components-disclosure-title {
+      @apply flex items-center text-sm text-primary;
+    }
 
-  .input-search {
-    @apply primary-input mx-2 pr-7;
-  }
+    .toolbar-wrapper {
+      @apply flex h-10 items-center gap-1 rounded-xl border border-border bg-background p-1 shadow-sm;
+    }
 
-  /* GitHub Star Button */
-  .github-star-link {
-    @apply inline-flex h-8 items-center rounded-md text-sm font-medium text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
-  }
+    .playground-btn-flow-toolbar {
+      @apply relative inline-flex h-8 w-full items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-normal transition-all duration-500 ease-in-out;
+    }
 
-  .github-star-content {
-    @apply flex items-center px-2 pr-1;
-  }
+    .input-search {
+      @apply primary-input mx-2 pr-7;
+    }
 
-  .github-star-icon {
-    @apply h-4 w-4;
-  }
+    /* GitHub Star Button */
+    .github-star-link {
+      @apply inline-flex h-8 items-center rounded-md text-sm font-medium text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+    }
 
-  .github-star-text {
-    @apply ml-1;
-  }
+    .github-star-content {
+      @apply flex items-center px-2 pr-1;
+    }
 
-  .github-star-count-section {
-    @apply border-l bg-muted/80 px-2 py-1;
-  }
+    .github-star-icon {
+      @apply h-4 w-4;
+    }
 
-  .github-star-display {
-    @apply flex items-center gap-1;
-  }
+    .github-star-text {
+      @apply ml-1;
+    }
 
-  .github-star-count-icon {
-    @apply h-3 w-3 fill-current;
-  }
+    .github-star-count-section {
+      @apply border-l bg-muted/80 px-2 py-1;
+    }
 
-  .github-star-count {
-    @apply text-xs font-medium text-foreground;
-  }
+    .github-star-display {
+      @apply flex items-center gap-1;
+    }
 
-  .github-star-loading {
-    @apply flex items-center justify-center;
-  }
+    .github-star-count-icon {
+      @apply h-3 w-3 fill-current;
+    }
 
-  .github-star-skeleton {
-    @apply h-3 w-8 animate-pulse bg-muted-foreground/20 rounded;
-  }
+    .github-star-count {
+      @apply text-xs font-medium text-foreground;
+    }
 
-  .github-star-error {
-    @apply text-xs text-muted-foreground;
-  }
+    .github-star-loading {
+      @apply flex items-center justify-center;
+    }
 
-  /* Discord Link */
-  .discord-link {
-    @apply inline-flex h-8 items-center rounded-md text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
-    background-color: #5865f2;
-    border-color: #5865f2;
-    color: white;
-  }
+    .github-star-skeleton {
+      @apply h-3 w-8 animate-pulse bg-muted-foreground/20 rounded;
+    }
 
-  .discord-link:hover {
-    @apply opacity-90;
-  }
+    .github-star-error {
+      @apply text-xs text-muted-foreground;
+    }
 
-  .discord-content {
-    @apply flex items-center px-2 pr-1;
-  }
+    /* Discord Link */
+    .discord-link {
+      @apply inline-flex h-8 items-center rounded-md text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+      background-color: #5865f2;
+      border-color: #5865f2;
+      color: white;
+    }
 
-  .discord-icon {
-    @apply flex items-center justify-center;
-  }
+    .discord-link:hover {
+      @apply opacity-90;
+    }
 
-  .discord-text {
-    @apply ml-1;
-  }
+    .discord-content {
+      @apply flex items-center px-2 pr-1;
+    }
 
-  .discord-member-section {
-    @apply border-l border-white/20 bg-black/10 px-2 py-1;
-  }
+    .discord-icon {
+      @apply flex items-center justify-center;
+    }
 
-  .discord-member-display {
-    @apply flex items-center gap-1;
-  }
+    .discord-text {
+      @apply ml-1;
+    }
 
-  .discord-member-icon {
-    @apply h-3 w-3;
-  }
+    .discord-member-section {
+      @apply border-l border-white/20 bg-black/10 px-2 py-1;
+    }
 
-  .discord-member-count {
-    @apply text-xs font-medium;
-  }
+    .discord-member-display {
+      @apply flex items-center gap-1;
+    }
 
-  .discord-loading {
-    @apply flex items-center justify-center;
-  }
+    .discord-member-icon {
+      @apply h-3 w-3;
+    }
 
-  .discord-skeleton {
-    @apply h-3 w-8 animate-pulse bg-white/20 rounded;
-  }
+    .discord-member-count {
+      @apply text-xs font-medium;
+    }
 
-  .discord-error {
-    @apply text-xs opacity-70;
-  }
+    .discord-loading {
+      @apply flex items-center justify-center;
+    }
 
-  .prose
-    :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-    @apply text-current;
-  }
+    .discord-skeleton {
+      @apply h-3 w-8 animate-pulse bg-white/20 rounded;
+    }
 
-  .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-    @apply text-current;
-  }
+    .discord-error {
+      @apply text-xs opacity-70;
+    }
 
-  .box-shadow-inner::after {
-    content: " ";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    pointer-events: none;
-    background: linear-gradient(to top, hsl(var(--background)), transparent);
-    display: block;
-    width: 100%;
-    height: 30px;
-  }
+    .prose
+      :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+      @apply text-current;
+    }
 
-  .thinking-dots::after {
-    content: ".";
-    animation: thinking-dots 1.4s steps(3, end) infinite;
-  }
+    .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+      @apply text-current;
+    }
 
-  @keyframes thinking-dots {
-    0% {
+    .box-shadow-inner::after {
+      content: " ";
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+      background: linear-gradient(to top, hsl(var(--background)), transparent);
+      display: block;
+      width: 100%;
+      height: 30px;
+    }
+
+    .thinking-dots::after {
       content: ".";
+      animation: thinking-dots 1.4s steps(3, end) infinite;
     }
-    33.33% {
-      content: "..";
-    }
-    66.66%,
-    100% {
-      content: "...";
+
+    @keyframes thinking-dots {
+      0% {
+        content: ".";
+      }
+      33.33% {
+        content: "..";
+      }
+      66.66%,
+      100% {
+        content: "...";
+      }
     }
   }
 }
