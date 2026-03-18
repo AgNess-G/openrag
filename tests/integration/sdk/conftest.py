@@ -11,15 +11,20 @@ from pathlib import Path
 
 import httpx
 import pytest
+import pytest_asyncio
 
 _cached_api_key: str | None = None
 _base_url = os.environ.get("OPENRAG_URL", "http://localhost:3000")
 _onboarding_done = False
 
 
-@pytest.fixture(scope="session", autouse=True)
-def ensure_onboarding():
-    """Ensure the OpenRAG instance is onboarded before running tests."""
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def ensure_onboarding():
+    """Ensure the OpenRAG instance is onboarded before running tests.
+
+    Uses httpx.AsyncClient so the async event loop is never blocked,
+    even on a slow or unreachable server.
+    """
     global _onboarding_done
     if _onboarding_done:
         return
@@ -32,11 +37,11 @@ def ensure_onboarding():
     }
 
     try:
-        response = httpx.post(
-            f"{_base_url}/api/onboarding",
-            json=onboarding_payload,
-            timeout=30.0,
-        )
+        async with httpx.AsyncClient(timeout=30.0) as ac:
+            response = await ac.post(
+                f"{_base_url}/api/onboarding",
+                json=onboarding_payload,
+            )
         if response.status_code in (200, 204):
             print("[SDK Tests] Onboarding completed successfully")
         else:
@@ -47,28 +52,35 @@ def ensure_onboarding():
     _onboarding_done = True
 
 
-def get_api_key() -> str:
-    """Get or create an API key for testing (cached for the session)."""
+async def _fetch_api_key() -> str:
+    """Fetch or create a test API key from the running instance (async, cached)."""
     global _cached_api_key
-    if _cached_api_key is None:
-        response = httpx.post(
+    if _cached_api_key is not None:
+        return _cached_api_key
+
+    async with httpx.AsyncClient(timeout=30.0) as ac:
+        response = await ac.post(
             f"{_base_url}/api/keys",
             json={"name": "SDK Integration Test"},
-            timeout=30.0,
         )
-        if response.status_code == 401:
-            pytest.skip("Cannot create API key - authentication required")
-        assert response.status_code == 200, f"Failed to create API key: {response.text}"
-        _cached_api_key = response.json()["api_key"]
+
+    if response.status_code == 401:
+        pytest.skip("Cannot create API key — authentication required")
+
+    assert response.status_code == 200, f"Failed to create API key: {response.text}"
+    _cached_api_key = response.json()["api_key"]
     return _cached_api_key
 
 
-@pytest.fixture
-def client():
+@pytest_asyncio.fixture
+async def client():
     """OpenRAG client authenticated with a valid test API key."""
     from openrag_sdk import OpenRAGClient
 
-    return OpenRAGClient(api_key=get_api_key(), base_url=_base_url)
+    api_key = await _fetch_api_key()
+    c = OpenRAGClient(api_key=api_key, base_url=_base_url)
+    yield c
+    await c.close()
 
 
 @pytest.fixture
