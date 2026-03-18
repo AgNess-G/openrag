@@ -23,6 +23,8 @@ class User:
     created_at: datetime = None
     last_login: datetime = None
     jwt_token: Optional[str] = None
+    opensearch_username: Optional[str] = None
+    opensearch_credentials: Optional[str] = None  # Full "Basic <base64>" string
 
     def __post_init__(self):
         if self.created_at is None:
@@ -250,10 +252,14 @@ class SessionManager:
         # Get the effective JWT token (handles anonymous JWT creation)
         jwt_token = self.get_effective_jwt_token(user_id, jwt_token)
 
+        from config.settings import IBM_AUTH_ENABLED, clients
+
+        # In IBM mode credentials may rotate per-request — always create a fresh client
+        if IBM_AUTH_ENABLED:
+            return clients.create_user_opensearch_client(jwt_token)
+
         # Check if we have a cached client for this user
         if user_id not in self.user_opensearch_clients:
-            from config.settings import clients
-
             self.user_opensearch_clients[user_id] = (
                 clients.create_user_opensearch_client(jwt_token)
             )

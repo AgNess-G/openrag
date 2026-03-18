@@ -2,80 +2,11 @@
 
 import { Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import GoogleLogo from "@/components/icons/google-logo";
 import Logo from "@/components/icons/openrag-logo";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
-
-function IbmLoginForm({ onSuccess }: { onSuccess: () => void }) {
-  const { loginWithIbm } = useAuth();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      await loginWithIbm(username, password);
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4 w-80">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="username">Username</Label>
-        <Input
-          id="username"
-          type="text"
-          autoComplete="username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-          disabled={isSubmitting}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="password">Password</Label>
-        <Input
-          id="password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          disabled={isSubmitting}
-        />
-      </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button
-        type="submit"
-        className="w-full"
-        size="lg"
-        disabled={isSubmitting}
-      >
-        {isSubmitting ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Signing in…
-          </>
-        ) : (
-          "Sign in"
-        )}
-      </Button>
-    </form>
-  );
-}
 
 function LoginPageContent() {
   const { isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode, login } =
@@ -86,10 +17,10 @@ function LoginPageContent() {
   const redirect = searchParams.get("redirect") || "/chat";
 
   useEffect(() => {
-    if (!isLoading && (isAuthenticated || isNoAuthMode)) {
+    if (!isLoading && (isAuthenticated || isNoAuthMode || isIbmAuthMode)) {
       router.push(redirect);
     }
-  }, [isLoading, isAuthenticated, isNoAuthMode, router, redirect]);
+  }, [isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode, router, redirect]);
 
   if (isLoading) {
     return (
@@ -102,7 +33,7 @@ function LoginPageContent() {
     );
   }
 
-  if (isAuthenticated || isNoAuthMode) {
+  if (isAuthenticated || isNoAuthMode || isIbmAuthMode) {
     return null; // Will redirect in useEffect
   }
 
@@ -114,14 +45,10 @@ function LoginPageContent() {
           <h1 className="text-2xl font-medium font-chivo">
             Welcome to OpenRAG
           </h1>
-          {isIbmAuthMode ? (
-            <IbmLoginForm onSuccess={() => router.push(redirect)} />
-          ) : (
-            <Button onClick={login} className="w-80 gap-1.5" size="lg">
-              <GoogleLogo className="h-4 w-4" />
-              Continue with Google
-            </Button>
-          )}
+          <Button onClick={login} className="w-80 gap-1.5" size="lg">
+            <GoogleLogo className="h-4 w-4" />
+            Continue with Google
+          </Button>
         </div>
       </div>
     </div>

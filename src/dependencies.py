@@ -89,20 +89,54 @@ def get_flows_service(services: dict = Depends(get_services)):
 # IBM AMS authentication helper
 # ─────────────────────────────────────────────
 
-def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
+async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     """Authenticate via IBM AMS.
 
+    0. X-IBM-LH-Credentials header (configurable via IBM_CREDENTIALS_HEADER) —
+       injected by Traefik on every forwarded request. Contains Basic credentials
+       for OpenSearch. Decoded and persisted to connections.json per user.
     1. ibm-openrag-session cookie — set by Traefik after validating credentials
        with AMS. JWT is decoded without re-validation (Traefik already validated).
     2. ibm-auth-basic cookie — local dev fallback set by our ibm_login endpoint
        when Traefik is not present.
 
-    If *required* is True, raises HTTP 401 when neither is present.
+    If *required* is True, raises HTTP 401 when none is present.
     If *required* is False, returns None instead of raising.
     """
     import base64
     import auth.ibm_auth as ibm_auth
-    from config.settings import IBM_SESSION_COOKIE_NAME
+    from config.settings import IBM_SESSION_COOKIE_NAME, IBM_CREDENTIALS_HEADER
+
+    # ── Option 0: Configurable credentials header (Traefik production) ───
+    lh_credentials = request.headers.get(IBM_CREDENTIALS_HEADER, "")
+    if lh_credentials.startswith("Basic "):
+        try:
+            decoded = base64.b64decode(lh_credentials[6:]).decode("utf-8")
+            username = decoded.split(":", 1)[0]
+        except Exception:
+            username = "unknown"
+
+        # Persist credentials to connections.json for reuse by background processes
+        connector_service = request.app.state.services.get("connector_service")
+        if connector_service:
+            await connector_service.connection_manager.upsert_ibm_credentials(
+                user_id=username,
+                basic_credentials=lh_credentials,
+                username=username,
+            )
+
+        user = User(
+            user_id=username,
+            email=username,
+            name=username,
+            picture=None,
+            provider="ibm_ams",
+            jwt_token=lh_credentials,
+            opensearch_username=username,
+            opensearch_credentials=lh_credentials,
+        )
+        request.state.user = user
+        return user
 
     # ── Option 1: ibm-openrag-session cookie (production via Traefik) ───
     ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
@@ -151,7 +185,7 @@ def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
 # Authentication dependencies
 # ─────────────────────────────────────────────
 
-def get_current_user(
+async def get_current_user(
     request: Request,
     session_manager=Depends(get_session_manager),
 ) -> User:
@@ -166,7 +200,7 @@ def get_current_user(
 
     # IBM AMS cookie auth takes priority when enabled
     if IBM_AUTH_ENABLED:
-        return _get_ibm_user(request, required=True)
+        return await _get_ibm_user(request, required=True)
 
     if is_no_auth_mode():
         user = AnonymousUser()
@@ -191,7 +225,7 @@ def get_current_user(
     return user_with_token
 
 
-def get_optional_user(
+async def get_optional_user(
     request: Request,
     session_manager=Depends(get_session_manager),
 ) -> Optional[User]:
@@ -206,7 +240,7 @@ def get_optional_user(
 
     # IBM AMS cookie auth takes priority when enabled
     if IBM_AUTH_ENABLED:
-        return _get_ibm_user(request, required=False)
+        return await _get_ibm_user(request, required=False)
 
     if is_no_auth_mode():
         user = AnonymousUser()
