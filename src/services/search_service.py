@@ -317,8 +317,19 @@ class SearchService:
                                 "query": query,
                                 "fields": ["text^2", "filename^1.5"],
                                 "type": "best_fields",
-                                "fuzziness": "AUTO",
+                                "operator": "and",
+                                "fuzziness": "AUTO:4,7",
                                 "boost": 0.3,  # 30% weight for keyword search
+                            }
+                        },
+                        {
+                            # Help prefix/partial inputs (e.g. "vita" -> "vitamin")
+                            # without making the whole query fully fuzzy.
+                            "multi_match": {
+                                "query": query,
+                                "fields": ["text^1.5", "filename^2"],
+                                "type": "bool_prefix",
+                                "boost": 0.25,
                             }
                         },
                     ],
@@ -481,15 +492,35 @@ class SearchService:
                 }
             )
 
+        # If query text appears verbatim in one subset of files, prefer those files
+        # to avoid broad semantic spillover for unique lookups.
+        normalized_query = query.strip().lower()
+        if (
+            normalized_query
+            and not is_wildcard_match_all
+            and len(normalized_query) >= 4
+        ):
+            exact_files = {
+                filename
+                for chunk in chunks
+                for filename in [chunk.get("filename")]
+                if isinstance(filename, str)
+                and (
+                    normalized_query in filename.lower()
+                    or (
+                        isinstance(chunk.get("text"), str)
+                        and normalized_query in chunk.get("text", "").lower()
+                    )
+                )
+            }
+            if exact_files:
+                chunks = [chunk for chunk in chunks if chunk.get("filename") in exact_files]
+
         # Return both transformed results and aggregations
         return {
             "results": chunks,
             "aggregations": results.get("aggregations", {}),
-            "total": (
-                results.get("hits", {}).get("total", {}).get("value")
-                if isinstance(results.get("hits", {}).get("total"), dict)
-                else results.get("hits", {}).get("total")
-            ),
+            "total": len(chunks),
         }
 
     async def search(
