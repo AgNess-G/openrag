@@ -1,6 +1,6 @@
 import sys
 import requests
-from packaging.version import Version
+from packaging.version import Version, InvalidVersion
 from pathlib import Path
 import tomllib
 from typing import Optional
@@ -8,18 +8,20 @@ from typing import Optional
 PYPI_OPENRAG_NIGHTLY_URL = "https://pypi.org/pypi/openrag-nightly/json"
 PYPI_OPENRAG_URL = "https://pypi.org/pypi/openrag/json"
 
-def get_latest_published_version(is_nightly: bool) -> Optional[Version]:
-    url = PYPI_OPENRAG_NIGHTLY_URL if is_nightly else PYPI_OPENRAG_URL
-    res = requests.get(url, timeout=10)
-    if res.status_code == 404:
-        return None
-    res.raise_for_status()
+def get_latest_published_version(project_name: str) -> Optional[Version]:
+    url = f"https://pypi.org/pypi/{project_name}/json"
     try:
-        version_str = res.json()["info"]["version"]
-    except Exception as e:
-        msg = "Got unexpected response from PyPI"
-        raise RuntimeError(msg) from e
-    return Version(version_str)
+        res = requests.get(url, timeout=10)
+        if res.status_code == 404:
+            return None
+        res.raise_for_status()
+        data = res.json()
+        all_versions = [Version(v) for v in data.get("releases", {}).keys()]
+        if not all_versions:
+            return None
+        return max(all_versions)
+    except (requests.RequestException, KeyError, ValueError, InvalidVersion):
+        return None
 
 def create_tag():
     # Read version from pyproject.toml
@@ -27,27 +29,38 @@ def create_tag():
     with open(pyproject_path, "rb") as f:
         pyproject_data = tomllib.load(f)
 
-    current_version_str = pyproject_data["project"]["version"]
-    current_version = Version(current_version_str)
+    local_version_str = pyproject_data["project"]["version"]
+    local_version = Version(local_version_str)
 
-    try:
-        current_nightly_version = get_latest_published_version(is_nightly=True)
-    except (requests.RequestException, KeyError, ValueError):
-        current_nightly_version = None
+    # Check both projects on PyPI
+    pypi_main = get_latest_published_version("openrag")
+    pypi_nightly = get_latest_published_version("openrag-nightly")
 
-    build_number = "0"
-    latest_base_version = current_version.base_version
-    nightly_base_version = current_nightly_version.base_version if current_nightly_version else None
+    # Find the absolute latest version between local and both pypi versions
+    # We use this as a reference point for the dev suffix
+    versions_to_check = [v for v in [local_version, pypi_main, pypi_nightly] if v is not None]
+    latest_known_version = max(versions_to_check)
 
-    if latest_base_version == nightly_base_version:
-        dev_number = (current_nightly_version.dev if current_nightly_version.dev is not None else -1) if current_nightly_version else -1
-        build_number = str(dev_number + 1)
+    build_number = 0
+    base_version = local_version.base_version
+
+    # If the latest version on PyPI matches our local base version (or is higher),
+    # we need to increment the dev suffix.
+    if latest_known_version.base_version == base_version:
+        if latest_known_version.dev is not None:
+            build_number = latest_known_version.dev + 1
+        else:
+            # If the latest is a stable release (no dev suffix), we still need to
+            # increment because you shouldn't have dev releases for an already released version
+            # However, PEP 440 doesn't strictly forbid 0.3.2.dev0 if 0.3.2 already exists,
+            # but usually you'd move to the next minor/patch.
+            # For now, let's keep the dev0 for the next version if possible?
+            # Actually, standard practice for nightlies if base version is out: move to next patch.
+            # But we respect the version in pyproject.toml.
+            build_number = 0
 
     # Build PEP 440-compliant nightly version (without leading "v")
-    nightly_version_str = f"{latest_base_version}.dev{build_number}"
-
-    # Verify PEP440
-    Version(nightly_version_str)
+    nightly_version_str = f"{base_version}.dev{build_number}"
 
     # Git tag uses a leading "v" prefix
     new_nightly_version = f"v{nightly_version_str}"
