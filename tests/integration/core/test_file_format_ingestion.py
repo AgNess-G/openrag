@@ -42,66 +42,22 @@ SAMPLES_DIR = Path(__file__).parent.parent.parent / "data" / "samples"
 # ---------------------------------------------------------------------------
 
 _FORMAT_CASES = [
-    # Text formats that bypass docling in OpenRAG — always runnable
-    (
-        "markdown",
-        ".md",
-        "# OpenRAG markdown format test\n\nOpenRAG markdown format content for integration testing.",
-        False,
-    ),
+    # --- Text formats that bypass docling in OpenRAG — always runnable ---
+    # (committed sample files used for consistency with other formats)
+    ("markdown", ".md",   SAMPLES_DIR / "sample.md",   False),
     (
         "text",
         ".txt",
         "OpenRAG text format content for integration testing. Plain text document.",
         False,
     ),
-    # Text formats sent to docling-serve
-    (
-        "html",
-        ".html",
-        "<html><body><h1>OpenRAG html format test</h1>"
-        "<p>OpenRAG html format content for integration testing.</p></body></html>",
-        True,
-    ),
-    (
-        "xhtml",
-        ".xhtml",
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<html xmlns="http://www.w3.org/1999/xhtml">'
-        "<body><h1>OpenRAG xhtml format test</h1>"
-        "<p>OpenRAG xhtml format content for integration testing.</p>"
-        "</body></html>",
-        True,
-    ),
-    (
-        "csv",
-        ".csv",
-        "column1,column2,column3\n"
-        "OpenRAG,csv,format\n"
-        "content,for,testing\n"
-        "integration,test,document",
-        True,
-    ),
-    (
-        "asciidoc",
-        ".adoc",
-        "= OpenRAG AsciiDoc Format Test\n\n"
-        "OpenRAG asciidoc format content for integration testing.\n\n"
-        "== Section\n\nThis document tests AsciiDoc ingestion.",
-        True,
-    ),
-    (
-        "latex",
-        ".tex",
-        r"\documentclass{article}"
-        r"\begin{document}"
-        r"\title{OpenRAG LaTeX Format Test}"
-        r"\maketitle"
-        r"OpenRAG latex format content for integration testing."
-        r"\end{document}",
-        True,
-    ),
-    # Binary formats (pre-generated sample files)
+    # --- Text formats sent to docling-serve (committed sample files) ---
+    ("html",     ".html",  SAMPLES_DIR / "sample.html",  True),
+    ("xhtml",    ".xhtml", SAMPLES_DIR / "sample.xhtml", True),
+    ("csv",      ".csv",   SAMPLES_DIR / "sample.csv",   True),
+    ("asciidoc", ".adoc",  SAMPLES_DIR / "sample.adoc",  True),
+    ("latex",    ".tex",   SAMPLES_DIR / "sample.tex",   True),
+    # --- Binary formats (committed sample files, require docling-serve) ---
     ("pdf",  ".pdf",  SAMPLES_DIR / "sample.pdf",  True),
     ("docx", ".docx", SAMPLES_DIR / "sample.docx", True),
     ("xlsx", ".xlsx", SAMPLES_DIR / "sample.xlsx", True),

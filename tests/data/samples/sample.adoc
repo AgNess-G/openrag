@@ -1,0 +1,17 @@
+= OpenRAG AsciiDoc Format Test
+:author: OpenRAG Integration Tests
+:description: AsciiDoc sample for integration testing
+
+OpenRAG asciidoc format content for integration testing.
+
+== Introduction
+
+This is an *AsciiDoc* sample document used to verify that OpenRAG can ingest and index AsciiDoc files correctly.
+
+AsciiDoc is a human-readable, plain-text markup language for structured technical content.
+
+== Features
+
+* Heading support
+* List support
+* Attribute support

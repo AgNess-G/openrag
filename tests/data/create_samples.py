@@ -216,7 +216,8 @@ def create_minimal_pptx(text: str) -> bytes:
 
 
 def main():
-    formats = {
+    # --- Binary formats (require docling-serve) ---
+    binary_formats = {
         "sample.pdf": create_minimal_pdf(
             "OpenRAG pdf format test document. This sample is used for integration testing."
         ),
@@ -231,10 +232,111 @@ def main():
         ),
     }
 
-    for filename, content in formats.items():
+    for filename, content in binary_formats.items():
         path = SAMPLES_DIR / filename
         path.write_bytes(content)
         print(f"Created {path} ({len(content)} bytes)")
+
+    # --- Text formats (require docling-serve, committed as files for consistency) ---
+    text_formats = {
+        "sample.md": (
+            "# OpenRAG Markdown Format Test\n\n"
+            "OpenRAG markdown format content for integration testing.\n\n"
+            "## About\n\n"
+            "This is a **Markdown** sample document used to verify that OpenRAG can ingest "
+            "and index Markdown files correctly.\n\n"
+            "- Feature 1: Heading support\n"
+            "- Feature 2: List support\n"
+            "- Feature 3: Emphasis support\n\n"
+            "> Markdown is a lightweight markup language for creating formatted text.\n"
+        ),
+        "sample.adoc": (
+            "= OpenRAG AsciiDoc Format Test\n"
+            ":author: OpenRAG Integration Tests\n"
+            ":description: AsciiDoc sample for integration testing\n\n"
+            "OpenRAG asciidoc format content for integration testing.\n\n"
+            "== Introduction\n\n"
+            "This is an *AsciiDoc* sample document used to verify that OpenRAG can ingest "
+            "and index AsciiDoc files correctly.\n\n"
+            "AsciiDoc is a human-readable, plain-text markup language for structured technical content.\n\n"
+            "== Features\n\n"
+            "* Heading support\n"
+            "* List support\n"
+            "* Attribute support\n"
+        ),
+        "sample.tex": (
+            r"\documentclass{article}" + "\n"
+            r"\title{OpenRAG \LaTeX\ Format Test}" + "\n"
+            r"\author{OpenRAG Integration Tests}" + "\n"
+            r"\begin{document}" + "\n"
+            r"\maketitle" + "\n\n"
+            "OpenRAG latex format content for integration testing.\n\n"
+            r"\section{Introduction}" + "\n\n"
+            "This is a \\LaTeX\\ sample document used to verify that OpenRAG can ingest "
+            "and index \\LaTeX\\ files correctly.\n\n"
+            "\\LaTeX\\ is a scientific document preparation system widely used in academia.\n\n"
+            r"\section{Features}" + "\n\n"
+            r"\begin{itemize}" + "\n"
+            r"  \item Mathematical typesetting" + "\n"
+            r"  \item Structured sections" + "\n"
+            r"  \item Bibliography support" + "\n"
+            r"\end{itemize}" + "\n\n"
+            r"\end{document}" + "\n"
+        ),
+        "sample.html": (
+            "<!DOCTYPE html>\n"
+            "<html lang=\"en\">\n"
+            "<head>\n"
+            "  <meta charset=\"UTF-8\">\n"
+            "  <title>OpenRAG HTML Format Test</title>\n"
+            "</head>\n"
+            "<body>\n"
+            "  <h1>OpenRAG HTML Format Test</h1>\n"
+            "  <p>OpenRAG html format content for integration testing.</p>\n"
+            "  <h2>About</h2>\n"
+            "  <p>This is an <strong>HTML</strong> sample document used to verify that OpenRAG\n"
+            "  can ingest and index HTML files correctly.</p>\n"
+            "  <ul>\n"
+            "    <li>Heading support</li>\n"
+            "    <li>Paragraph support</li>\n"
+            "    <li>List support</li>\n"
+            "  </ul>\n"
+            "</body>\n"
+            "</html>\n"
+        ),
+        "sample.xhtml": (
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\"\n"
+            "  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\n"
+            "<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">\n"
+            "<head>\n"
+            "  <meta charset=\"UTF-8\" />\n"
+            "  <title>OpenRAG XHTML Format Test</title>\n"
+            "</head>\n"
+            "<body>\n"
+            "  <h1>OpenRAG XHTML Format Test</h1>\n"
+            "  <p>OpenRAG xhtml format content for integration testing.</p>\n"
+            "  <h2>About</h2>\n"
+            "  <p>This is an <strong>XHTML</strong> sample document used to verify that OpenRAG\n"
+            "  can ingest and index XHTML files correctly.</p>\n"
+            "  <p>XHTML is a stricter, XML-based version of HTML.</p>\n"
+            "</body>\n"
+            "</html>\n"
+        ),
+        "sample.csv": (
+            "format,category,description,searchable_content\n"
+            "OpenRAG csv format,Integration Test,CSV sample for testing,openrag csv format content for integration testing\n"
+            "Comma-Separated Values,Data Format,Tabular data format,structured data storage\n"
+            "Column 1,Column 2,Column 3,Column 4\n"
+            "Value A,Value B,Value C,Value D\n"
+            "Row 2 A,Row 2 B,Row 2 C,Row 2 D\n"
+        ),
+    }
+
+    for filename, content in text_formats.items():
+        path = SAMPLES_DIR / filename
+        path.write_text(content, encoding="utf-8")
+        print(f"Created {path} ({len(content.encode())} bytes)")
 
     print(f"\nAll sample files written to {SAMPLES_DIR}")
 

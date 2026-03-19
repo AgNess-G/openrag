@@ -1,0 +1,6 @@
+format,category,description,searchable_content
+OpenRAG csv format,Integration Test,CSV sample for testing,openrag csv format content for integration testing
+Comma-Separated Values,Data Format,Tabular data format,structured data storage
+Column 1,Column 2,Column 3,Column 4
+Value A,Value B,Value C,Value D
+Row 2 A,Row 2 B,Row 2 C,Row 2 D
