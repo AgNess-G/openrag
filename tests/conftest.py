@@ -51,15 +51,6 @@ async def onboard_system():
         except Exception as e:
             print(f"[DEBUG] Could not clean OpenSearch data directory: {e}")
 
-    # Clean up Langflow data directory to ensure a fresh Langflow DB for tests
-    langflow_data_path = Path(os.getenv("LANGFLOW_DATA_PATH", "./langflow-data"))
-    if langflow_data_path.exists():
-        try:
-            shutil.rmtree(langflow_data_path)
-            print(f"[DEBUG] Cleaned up Langflow data directory: {langflow_data_path}")
-        except Exception as e:
-            print(f"[DEBUG] Could not clean Langflow data directory: {e}")
-
     # Initialize clients
     await clients.initialize()
 
