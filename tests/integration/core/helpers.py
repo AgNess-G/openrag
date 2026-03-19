@@ -30,7 +30,7 @@ async def boot_app(
     """
     Boot a fresh in-process FastAPI app and return (app, client).
 
-    The caller is responsible for closing the client and calling clients.close()
+    The caller is responsible for closing the client and calling clients.cleanup()
     in a finally block.
 
     Usage:
@@ -40,7 +40,7 @@ async def boot_app(
         finally:
             await client.aclose()
             from config.settings import clients
-            await clients.close()
+            await clients.cleanup()
     """
     os.environ["DISABLE_INGEST_WITH_LANGFLOW"] = "true" if disable_langflow_ingest else "false"
     os.environ["DISABLE_STARTUP_INGEST"] = "true" if disable_startup_ingest else "false"

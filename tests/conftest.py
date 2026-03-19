@@ -80,7 +80,7 @@ async def onboard_system():
 
     # Cleanup after all tests
     try:
-        await clients.close()
+        await clients.cleanup()
     except Exception:
         pass
 

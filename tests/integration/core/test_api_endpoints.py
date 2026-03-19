@@ -237,7 +237,7 @@ async def test_upload_and_search_endpoint(tmp_path: Path, disable_langflow_inges
         # Explicitly close global clients to avoid aiohttp warnings
         from config.settings import clients
         try:
-            await clients.close()
+            await clients.cleanup()
         except Exception:
             pass
 
@@ -429,7 +429,7 @@ async def test_langflow_chat_and_nudges_endpoints():
         from config.settings import clients
 
         try:
-            await clients.close()
+            await clients.cleanup()
         except Exception:
             pass
 
@@ -569,7 +569,7 @@ async def test_search_multi_embedding_models(
         from config.settings import clients
 
         try:
-            await clients.close()
+            await clients.cleanup()
         except Exception:
             pass
 
@@ -654,6 +654,6 @@ async def test_router_upload_ingest_traditional(tmp_path: Path, disable_langflow
     finally:
         from config.settings import clients
         try:
-            await clients.close()
+            await clients.cleanup()
         except Exception:
             pass

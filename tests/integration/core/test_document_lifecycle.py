@@ -50,7 +50,7 @@ async def test_check_filename_not_exists(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -74,7 +74,7 @@ async def test_check_filename_exists_after_upload(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ async def test_delete_empty_filename(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_delete_invalid_body(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -127,7 +127,7 @@ async def test_delete_not_found(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -174,7 +174,7 @@ async def test_delete_then_check_gone(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ async def test_upload_path_invalid_path(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -210,7 +210,7 @@ async def test_upload_path_empty_directory(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -234,4 +234,4 @@ async def test_upload_path_creates_task_and_completes(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()

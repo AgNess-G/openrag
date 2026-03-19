@@ -159,4 +159,4 @@ async def test_ingest_format(tmp_path, fmt, ext, content, req_docling):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()

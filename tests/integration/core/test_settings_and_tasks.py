@@ -52,7 +52,7 @@ async def test_get_settings_shape(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_post_settings_updates_system_prompt(tmp_path):
                 pass
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_post_settings_updates_chunk_size(tmp_path):
                 pass
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ async def test_post_settings_rejects_invalid_llm_provider(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -141,7 +141,7 @@ async def test_post_settings_rejects_zero_chunk_size(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 @pytest.mark.asyncio
@@ -154,7 +154,7 @@ async def test_post_settings_rejects_negative_chunk_overlap(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ async def test_get_tasks_returns_list(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +192,7 @@ async def test_get_task_not_found(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ async def test_cancel_task_not_found(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -253,4 +253,4 @@ async def test_task_lifecycle_via_upload_path(tmp_path):
     finally:
         await client.aclose()
         from config.settings import clients
-        await clients.close()
+        await clients.cleanup()

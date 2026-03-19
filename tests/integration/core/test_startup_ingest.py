@@ -116,6 +116,6 @@ async def test_startup_ingest_creates_task(disable_langflow_ingest: bool):
         # Explicitly close global clients to avoid aiohttp warnings
         from config.settings import clients
         try:
-            await clients.close()
+            await clients.cleanup()
         except Exception:
             pass
