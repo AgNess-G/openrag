@@ -85,11 +85,11 @@ def _fmt_ids():
 async def test_ingest_format(tmp_path, fmt, ext, content, req_docling):
     """
     Upload a file of format 'fmt' through the production Langflow ingestion pipeline
-    and assert it is indexed and searchable.
+    and assert it is indexed in OpenSearch.
 
     SKIPPED when Langflow is not running (all formats).
     SKIPPED when docling-serve is not running and the format requires it.
-    PASSED when the file is successfully ingested and appears in search results.
+    PASSED when the file is successfully ingested and appears in the index.
     FAILED when the upload or indexing step errors unexpectedly.
     """
     # Production path requires Langflow — skip entire test if it's not running
@@ -131,35 +131,30 @@ async def test_ingest_format(tmp_path, fmt, ext, content, req_docling):
             f"{fmt}: Task did not complete successfully: {task}"
         )
 
-        # Verify content appears in search results
-        search_query = f"OpenRAG {fmt} format"
+        # Verify file was indexed by checking filename exists in OpenSearch
+        # This is more reliable than search and avoids KNN/embedding dependencies
         deadline = asyncio.get_event_loop().time() + 30
         found = False
         last_resp = None
         while asyncio.get_event_loop().time() < deadline:
-            search_resp = await client.post(
-                "/search", json={"query": search_query, "limit": 5}
+            check_resp = await client.get(
+                f"/documents/check-filename?filename={filename}"
             )
-            if search_resp.status_code == 200:
-                results = search_resp.json().get("results", [])
-                if results:
+            if check_resp.status_code == 200:
+                body = check_resp.json()
+                if body.get("exists"):
                     found = True
                     break
-            last_resp = search_resp
+            last_resp = check_resp
             await asyncio.sleep(1)
 
-        # For binary formats (PDF/DOCX/XLSX/PPTX), text extraction quality depends
-        # on docling — accept task completion as sufficient proof of ingestion.
-        if not found and isinstance(content, Path):
-            pass  # Task completed = file was processed; search miss is acceptable
-        else:
-            assert found, (
-                f"{fmt}: Content not found in search within 30s. "
-                f"Query: '{search_query}'. "
-                f"Last search response: {last_resp.text if last_resp else 'none'}"
-            )
+        assert found, (
+            f"{fmt}: File '{filename}' not found in index within 30s. "
+            f"Task completed successfully but document was not indexed. "
+            f"Last check response: {last_resp.text if last_resp else 'none'}"
+        )
 
-        print(f"\n✓ {fmt.upper()}: ingested {filename} ({len(file_bytes)} bytes) via Langflow")
+        print(f"\n✓ {fmt.upper()}: ingested and indexed {filename} ({len(file_bytes)} bytes) via Langflow")
 
     finally:
         await client.aclose()
