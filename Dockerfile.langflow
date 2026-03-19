@@ -1,13 +1,20 @@
+# syntax=docker/dockerfile:1.4
 FROM langflowai/langflow:1.8.0
 
+# Switch to root so the entrypoint can fix data directory ownership before dropping privileges.
+# The base image runs as uid=1000; we restore that in the entrypoint script.
+USER root
+
 # (+) Install uv
-# (+) Pre-create the Langflow data directory with correct ownership.
-#     - This ensures named Docker volumes are initialised with uid=1000 so
-#       the non-root container user can write to the mounted path.
-RUN set -ex \
-    && pip install uv \
+# (+) Pre-create the Langflow data directory.
+#     - For named Docker volumes, this seeds the volume with the correct path on first mount.
+#     - For bind mounts, the entrypoint chowns the directory at startup.
+RUN pip install uv \
     && mkdir -p /app/langflow-data
+
+COPY --chmod=755 docker-entrypoint-langflow.sh /docker-entrypoint-langflow.sh
 
 EXPOSE 7860
 
+ENTRYPOINT ["/docker-entrypoint-langflow.sh"]
 CMD ["langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
