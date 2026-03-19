@@ -59,13 +59,12 @@ Because the OpenRAG UI validates model availability and compatibility, setting m
 
 For ingestion, OpenRAG allows only one active embedding model at a time.
 
-OpenRAG _doesn't_ reprocess existing documents when you change the embedding model.
+OpenRAG _doesn't_ reprocess existing documents when you change, add, or remove embedding models.
+
 If you want to generate new embeddings for existing documents, you must reupload the documents after enabling the new embedding model.
 To remove previously generated embeddings, you must delete the existing document from the knowledge base.
 
 If you use different embedding models for different documents, you can create [filters](/knowledge-filters) to separate documents that were embedded with different models.
-
-If you use multiple embeddings models, be aware that similarity search (in **Chat**) can take longer as the agent searches each model's embeddings separately.
 
 ## Set the chunking strategy
 
