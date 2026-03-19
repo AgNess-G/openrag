@@ -665,9 +665,11 @@ test-unit: ## Run unit tests only
 	@echo "$(PURPLE)Unit tests complete.$(NC)"
 
 test-integration: ## Run integration tests (requires infrastructure)
-	@echo "$(YELLOW)Running integration tests (requires infrastructure)...$(NC)"
-	@echo "$(CYAN)Make sure to run 'make dev-local' first!$(NC)"
-	uv run pytest tests/integration/ -v
+	@echo "$(CYAN)════════════════════════════════════════$(NC)"
+	@echo "$(PURPLE) Core Integration Tests$(NC)"
+	@echo "$(CYAN)════════════════════════════════════════$(NC)"
+	@echo "$(YELLOW)Make sure to run 'make dev-local' first!$(NC)"
+	uv run pytest tests/integration/core/ -v
 
 test-ci: ## Start infra, run integration + SDK tests, tear down (uses DockerHub images)
 	@set -e; \
@@ -681,12 +683,15 @@ test-ci: ## Start infra, run integration + SDK tests, tear down (uses DockerHub 
 		chmod 600 keys/private_key.pem 2>/dev/null || true; \
 		chmod 644 keys/public_key.pem 2>/dev/null || true; \
 	fi; \
+	echo "::group::Cleanup, Pull & Build Images"; \
 	echo "$(YELLOW)Cleaning up old containers and volumes...$(NC)"; \
 	$(COMPOSE_CMD) down -v 2>/dev/null || true; \
 	echo "$(YELLOW)Pulling latest images...$(NC)"; \
 	$(COMPOSE_CMD) pull; \
 	echo "$(YELLOW)Building OpenSearch image override...$(NC)"; \
 	$(CONTAINER_RUNTIME) build --no-cache -t langflowai/openrag-opensearch:latest -f Dockerfile .; \
+	echo "::endgroup::"; \
+	echo "::group::Start Infrastructure"; \
 	echo "$(YELLOW)Starting infra (OpenSearch + Dashboards + Langflow + Backend + Frontend) with CPU containers$(NC)"; \
 	OPENSEARCH_HOST=opensearch $(COMPOSE_CMD) up -d opensearch dashboards langflow openrag-backend openrag-frontend; \
 	echo "$(CYAN)Architecture: $$(uname -m), Platform: $$(uname -s)$(NC)"; \
@@ -752,31 +757,42 @@ test-ci: ## Start infra, run integration + SDK tests, tear down (uses DockerHub 
 		$(COMPOSE_CMD) down -v 2>/dev/null || true; \
 		exit 1; \
 	fi; \
-	echo "$(PURPLE)Running integration tests$(NC)"; \
+	echo "::endgroup::"; \
+	echo "::group::Core Integration Tests"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	echo "$(PURPLE) Core Integration Tests$(NC)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	LOG_LEVEL=$${LOG_LEVEL:-DEBUG} \
 	GOOGLE_OAUTH_CLIENT_ID="" \
 	GOOGLE_OAUTH_CLIENT_SECRET="" \
 	OPENSEARCH_HOST=localhost OPENSEARCH_PORT=9200 \
 	OPENSEARCH_USERNAME=admin OPENSEARCH_PASSWORD=$${OPENSEARCH_PASSWORD} \
 	DISABLE_STARTUP_INGEST=$${DISABLE_STARTUP_INGEST:-true} \
-	uv run pytest tests/integration -vv -s -o log_cli=true --log-cli-level=DEBUG; \
+	uv run pytest tests/integration/core -vv -s -o log_cli=true --log-cli-level=DEBUG; \
 	TEST_RESULT=$$?; \
+	echo "::endgroup::"; \
 	echo ""; \
 	echo "$(YELLOW)Waiting for frontend at http://localhost:3000...$(NC)"; \
 	for i in $$(seq 1 60); do \
 		curl -s http://localhost:3000/ >/dev/null 2>&1 && break || sleep 2; \
 	done; \
-	echo "$(PURPLE)Running Python SDK integration tests$(NC)"; \
-	cd sdks/python && \
-	uv sync --extra dev && \
-	OPENRAG_URL=http://localhost:3000 uv run pytest tests/test_integration.py -vv -s || TEST_RESULT=1; \
-	cd ../..; \
-	echo "$(PURPLE)Running TypeScript SDK integration tests$(NC)"; \
+	echo "::group::SDK Integration Tests (Python)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	echo "$(PURPLE) SDK Integration Tests (Python)$(NC)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	uv pip install -e sdks/python; \
+	SDK_TESTS_ONLY=true OPENRAG_URL=http://localhost:3000 uv run pytest tests/integration/sdk/ -vv -s || TEST_RESULT=1; \
+	echo "::endgroup::"; \
+	echo "::group::SDK Integration Tests (TypeScript)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	echo "$(PURPLE) SDK Integration Tests (TypeScript)$(NC)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	cd sdks/typescript && \
 	npm install && npm run build && \
 	OPENRAG_URL=http://localhost:3000 npm test || TEST_RESULT=1; \
 	cd ../..; \
-	echo "$(CYAN)=================================$(NC)"; \
+	echo "::endgroup::"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	echo ""; \
 	($(call test_jwt_opensearch)) || TEST_RESULT=1; \
 	echo "$(YELLOW)Tearing down infra$(NC)"; \
@@ -796,6 +812,7 @@ test-ci-local: ## Same as test-ci but builds all images locally
 		chmod 600 keys/private_key.pem 2>/dev/null || true; \
 		chmod 644 keys/public_key.pem 2>/dev/null || true; \
 	fi; \
+	echo "::group::Cleanup & Build Images"; \
 	echo "$(YELLOW)Cleaning up old containers and volumes...$(NC)"; \
 	$(COMPOSE_CMD) down -v 2>/dev/null || true; \
 	echo "$(YELLOW)Building all images locally...$(NC)"; \
@@ -803,6 +820,8 @@ test-ci-local: ## Same as test-ci but builds all images locally
 	$(CONTAINER_RUNTIME) build -t langflowai/openrag-backend:latest -f Dockerfile.backend .; \
 	$(CONTAINER_RUNTIME) build -t langflowai/openrag-frontend:latest -f Dockerfile.frontend .; \
 	$(CONTAINER_RUNTIME) build -t langflowai/openrag-langflow:latest -f Dockerfile.langflow .; \
+	echo "::endgroup::"; \
+	echo "::group::Start Infrastructure"; \
 	echo "$(YELLOW)Starting infra (OpenSearch + Dashboards + Langflow + Backend + Frontend) with CPU containers$(NC)"; \
 	echo "$(CYAN)Architecture: $$(uname -m), Platform: $$(uname -s)$(NC)"; \
 	OPENSEARCH_HOST=opensearch $(COMPOSE_CMD) up -d opensearch dashboards langflow openrag-backend openrag-frontend; \
@@ -868,31 +887,42 @@ test-ci-local: ## Same as test-ci but builds all images locally
 		$(COMPOSE_CMD) down -v 2>/dev/null || true; \
 		exit 1; \
 	fi; \
-	echo "$(PURPLE)Running integration tests$(NC)"; \
+	echo "::endgroup::"; \
+	echo "::group::Core Integration Tests"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	echo "$(PURPLE) Core Integration Tests$(NC)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	LOG_LEVEL=$${LOG_LEVEL:-DEBUG} \
 	GOOGLE_OAUTH_CLIENT_ID="" \
 	GOOGLE_OAUTH_CLIENT_SECRET="" \
 	OPENSEARCH_HOST=localhost OPENSEARCH_PORT=9200 \
 	OPENSEARCH_USERNAME=admin OPENSEARCH_PASSWORD=$${OPENSEARCH_PASSWORD} \
 	DISABLE_STARTUP_INGEST=$${DISABLE_STARTUP_INGEST:-true} \
-	uv run pytest tests/integration -vv -s -o log_cli=true --log-cli-level=DEBUG; \
+	uv run pytest tests/integration/core -vv -s -o log_cli=true --log-cli-level=DEBUG; \
 	TEST_RESULT=$$?; \
+	echo "::endgroup::"; \
 	echo ""; \
 	echo "$(YELLOW)Waiting for frontend at http://localhost:3000...$(NC)"; \
 	for i in $$(seq 1 60); do \
 		curl -s http://localhost:3000/ >/dev/null 2>&1 && break || sleep 2; \
 	done; \
-	echo "$(PURPLE)Running Python SDK integration tests$(NC)"; \
-	cd sdks/python && \
-	uv sync --extra dev && \
-	OPENRAG_URL=http://localhost:3000 uv run pytest tests/test_integration.py -vv -s || TEST_RESULT=1; \
-	cd ../..; \
-	echo "$(PURPLE)Running TypeScript SDK integration tests$(NC)"; \
+	echo "::group::SDK Integration Tests (Python)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	echo "$(PURPLE) SDK Integration Tests (Python)$(NC)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	uv pip install -e sdks/python; \
+	SDK_TESTS_ONLY=true OPENRAG_URL=http://localhost:3000 uv run pytest tests/integration/sdk/ -vv -s || TEST_RESULT=1; \
+	echo "::endgroup::"; \
+	echo "::group::SDK Integration Tests (TypeScript)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
+	echo "$(PURPLE) SDK Integration Tests (TypeScript)$(NC)"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	cd sdks/typescript && \
 	npm install && npm run build && \
 	OPENRAG_URL=http://localhost:3000 npm test || TEST_RESULT=1; \
 	cd ../..; \
-	echo "$(CYAN)=================================$(NC)"; \
+	echo "::endgroup::"; \
+	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	echo ""; \
 	if [ $$TEST_RESULT -ne 0 ]; then \
 		echo "$(RED)=== Tests failed, dumping container logs ===$(NC)"; \
@@ -914,11 +944,12 @@ test-os-jwt: ## Test JWT authentication against OpenSearch
 	@$(call test_jwt_opensearch)
 
 test-sdk: ## Run SDK integration tests (requires running OpenRAG at localhost:3000)
-	@echo "$(YELLOW)Running SDK integration tests...$(NC)"
-	@echo "$(CYAN)Make sure OpenRAG is running at localhost:3000 (make dev)$(NC)"
-	@echo ""
-	@echo "$(PURPLE)Running Python SDK tests...$(NC)"
-	cd sdks/python && uv sync --extra dev && OPENRAG_URL=http://localhost:3000 uv run pytest tests/test_integration.py -vv -s
+	@echo "$(CYAN)════════════════════════════════════════$(NC)"
+	@echo "$(PURPLE) SDK Integration Tests (Python)$(NC)"
+	@echo "$(CYAN)════════════════════════════════════════$(NC)"
+	@echo "$(YELLOW)Make sure OpenRAG is running at localhost:3000 (make dev)$(NC)"
+	uv pip install -e sdks/python
+	SDK_TESTS_ONLY=true OPENRAG_URL=http://localhost:3000 uv run pytest tests/integration/sdk/ -vv -s
 	@echo ""
 	@echo "$(PURPLE)Running TypeScript SDK tests...$(NC)"
 	cd sdks/typescript && npm install && npm run build && OPENRAG_URL=http://localhost:3000 npm test
