@@ -359,7 +359,9 @@ class SearchService:
         if not is_wildcard_match_all and score_threshold > 0:
             search_body["min_score"] = score_threshold
 
-        # Prepare fallback search body without num_candidates for clusters that don't support it
+        # Pre-build a fallback query without num_candidates for OpenSearch versions
+        # that don't support it. Used unconditionally on any RequestError so we
+        # don't rely on fragile error-string matching.
         fallback_search_body = None
         if not is_wildcard_match_all:
             try:
@@ -410,12 +412,10 @@ class SearchService:
                     error=error_message,
                 )
                 raise OpenSearchDiskSpaceError(DISK_SPACE_ERROR_MESSAGE) from e
-            if (
-                fallback_search_body is not None
-                and "unknown field [num_candidates]" in error_message.lower()
-            ):
+            if fallback_search_body is not None:
                 logger.warning(
-                    "OpenSearch cluster does not support num_candidates; retrying without it"
+                    "OpenSearch query failed; retrying without num_candidates",
+                    error=error_message,
                 )
                 try:
                     results = await opensearch_client.search(
@@ -425,15 +425,10 @@ class SearchService:
                     )
                 except RequestError as retry_error:
                     if is_disk_space_error(retry_error):
-                        logger.error(
-                            "OpenSearch retry blocked by disk space constraint",
-                            error=str(retry_error),
-                        )
                         raise OpenSearchDiskSpaceError(DISK_SPACE_ERROR_MESSAGE) from retry_error
                     logger.error(
-                        "OpenSearch retry without num_candidates failed",
+                        "OpenSearch retry without num_candidates also failed",
                         error=str(retry_error),
-                        search_body=fallback_search_body,
                     )
                     raise
             else:
