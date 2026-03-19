@@ -77,7 +77,7 @@ jobs:
 
       - name: Update pyproject.toml
         run: |
-          python3 scripts/ci/update_pyproject_combined.py main ${{ steps.ensure_unique_tag.outputs.nightly_version }}
+          python3 scripts/ci/update_pyproject_version.py ${{ steps.ensure_unique_tag.outputs.nightly_version }}
 
       - name: Commit and push tag
         run: |
