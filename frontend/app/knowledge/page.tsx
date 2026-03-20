@@ -220,6 +220,26 @@ function SearchPage() {
     return file?.owner_name?.trim() || file?.owner_email?.trim() || "—";
   }, []);
 
+  const normalizeSourceForSort = useCallback((value?: string): string => {
+    const trimmed = (value || "").trim();
+    if (!trimmed) {
+      return "";
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+      const hostname = parsed.hostname.toLowerCase();
+      const pathname = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+      return `${hostname}${pathname}`;
+    } catch {
+      return trimmed
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .split(/[?#]/)[0]
+        .replace(/\/+$/, "");
+    }
+  }, []);
+
   const getStatusSortRank = useCallback((status?: File["status"]): number => {
     switch (status) {
       case "active":
@@ -286,6 +306,19 @@ function SearchPage() {
       field: "filename",
       headerName: "Source",
       sortable: true,
+      comparator: (valueA?: string, valueB?: string) => {
+        const sourceA = normalizeSourceForSort(valueA);
+        const sourceB = normalizeSourceForSort(valueB);
+        if (sourceA === sourceB) {
+          const fallbackA = (valueA || "").trim().toLowerCase();
+          const fallbackB = (valueB || "").trim().toLowerCase();
+          if (fallbackA === fallbackB) {
+            return 0;
+          }
+          return fallbackA < fallbackB ? -1 : 1;
+        }
+        return sourceA < sourceB ? -1 : 1;
+      },
       checkboxSelection: (params: CheckboxSelectionCallbackParams<File>) =>
         (params?.data?.status || "active") === "active",
       headerCheckboxSelection: true,
