@@ -33,6 +33,58 @@ class LangflowFileService:
             ),
         )
 
+    @staticmethod
+    def _should_reconcile_url_ingestion_error(error_text: str, selected_provider: str) -> bool:
+        normalized = (error_text or "").lower()
+        # Intention: reconcile only on known stale-state signatures, so normal
+        # backend errors are not hidden behind automatic retries.
+        if "failed to connect to ollama" in normalized and selected_provider != "ollama":
+            return True
+        if "outdated components" in normalized:
+            return True
+        if "attribute" in normalized and "agentcomponent" in normalized:
+            return True
+        return False
+
+    async def _reconcile_url_ingestion_runtime_state(self, selected_provider: str) -> None:
+        """Best-effort self-heal for stale Langflow runtime state before one retry."""
+        if not self.flows_service:
+            return
+        try:
+            if hasattr(self.flows_service, "reset_langflow_flow"):
+                await self.flows_service.reset_langflow_flow("url_ingest")
+        except Exception as e:
+            logger.warning("[LF] URL ingest self-heal reset failed", error=str(e))
+        try:
+            if hasattr(self.flows_service, "change_langflow_model_value"):
+                from config.settings import get_openrag_config
+
+                config = get_openrag_config()
+                await self.flows_service.change_langflow_model_value(
+                    selected_provider,
+                    embedding_model=config.knowledge.embedding_model,
+                    force_embedding_update=True,
+                    flow_configs=[{"name": "url_ingest", "flow_id": self.flow_id_url_ingest}],
+                )
+        except Exception as e:
+            logger.warning("[LF] URL ingest self-heal model sync failed", error=str(e))
+
+    @staticmethod
+    def _raise_retry_provider_error(selected_provider: str, response_text: str) -> None:
+        normalized = (response_text or "").lower()
+        # Intention: surface actionable provider-context errors after self-heal retry
+        # so users don't get ambiguous raw HTTP/internal messages.
+        if "authenticationexception(401" in normalized or "401" in normalized:
+            raise ValueError(
+                f"URL ingestion failed after retry for provider '{selected_provider}': "
+                f"authentication/authorization error in downstream component. "
+                f"Raw error: {response_text}"
+            )
+        raise ValueError(
+            f"URL ingestion failed after retry for provider '{selected_provider}'. "
+            f"Raw error: {response_text}"
+        )
+
     async def upload_user_file(
         self, file_tuple, jwt_token: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -183,7 +235,13 @@ class LangflowFileService:
             )
         
         # Add provider credentials as global variables for ingestion
-        await add_provider_credentials_to_headers(headers, config, flows_service=self.flows_service)
+        selected_provider = (getattr(config.knowledge, "embedding_provider", "") or "").lower()
+        await add_provider_credentials_to_headers(
+            headers,
+            config,
+            flows_service=self.flows_service,
+            selected_provider=selected_provider,
+        )
         logger.info(f"[LF] Headers {headers}")
         logger.info(f"[LF] Payload {payload}")
         resp = await clients.langflow_request(
@@ -296,7 +354,13 @@ class LangflowFileService:
             "X-Langflow-Global-Var-ALLOWED_USERS": json.dumps( []),
             "X-Langflow-Global-Var-ALLOWED_GROUPS": json.dumps( []),
         }
-        await add_provider_credentials_to_headers(headers, config, flows_service=self.flows_service)
+        selected_provider = (getattr(config.knowledge, "embedding_provider", "") or "").lower()
+        await add_provider_credentials_to_headers(
+            headers,
+            config,
+            flows_service=self.flows_service,
+            selected_provider=selected_provider,
+        )
 
 
         logger.info(
@@ -326,7 +390,34 @@ class LangflowFileService:
                 reason=resp.reason_phrase,
                 body=resp.text[:1000],
             )
-            resp.raise_for_status()
+            if self._should_reconcile_url_ingestion_error(resp.text, selected_provider):
+                logger.warning(
+                    "[LF] Detected stale-state URL ingestion error; reconciling once before retry",
+                    selected_provider=selected_provider,
+                )
+                await self._reconcile_url_ingestion_runtime_state(selected_provider)
+                flow_id = await self._ensure_url_ingest_flow_id()
+                resp = await clients.langflow_request(
+                    "POST",
+                    f"/api/v1/run/{flow_id}",
+                    json=payload,
+                    headers=headers,
+                )
+                logger.info(
+                    "[LF] URL ingestion retry response received",
+                    status_code=resp.status_code,
+                    flow_id=flow_id,
+                )
+                if resp.status_code >= 400:
+                    logger.error(
+                        "[LF] URL ingestion retry failed",
+                        status_code=resp.status_code,
+                        reason=resp.reason_phrase,
+                        body=resp.text[:1000],
+                    )
+                    self._raise_retry_provider_error(selected_provider, resp.text)
+            else:
+                resp.raise_for_status()
 
         content_type = resp.headers.get("content-type", "")
         if "application/json" not in content_type:
@@ -350,6 +441,20 @@ class LangflowFileService:
         permanently block URL ingestion for the current process.
         """
         configured_flow_id = self.flow_id_url_ingest
+        if self.flows_service and hasattr(self.flows_service, "resolve_flow_id"):
+            try:
+                resolved_flow_id = await self.flows_service.resolve_flow_id(
+                    "url_ingest", configured_flow_id
+                )
+                if resolved_flow_id:
+                    configured_flow_id = resolved_flow_id
+                    self.flow_id_url_ingest = resolved_flow_id
+            except Exception as e:
+                logger.warning(
+                    "[LF] Dynamic URL ingest flow resolution failed; using configured flow ID",
+                    configured_flow_id=configured_flow_id,
+                    error=str(e),
+                )
         max_attempts = 2
         last_error: Exception | None = None
 

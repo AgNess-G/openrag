@@ -90,6 +90,38 @@ class LangflowMCPService:
         else:
             updated_args = list(args)
 
+        managed_provider_header_keys = {
+            "x-langflow-global-var-openai_api_key",
+            "x-langflow-global-var-anthropic_api_key",
+            "x-langflow-global-var-watsonx_apikey",
+            "x-langflow-global-var-watsonx_project_id",
+            "x-langflow-global-var-ollama_base_url",
+        }
+        desired_provider_header_keys = {
+            f"x-langflow-global-var-{k.lower()}"
+            for k in global_vars.keys()
+            if str(k).upper() != "SELECTED_EMBEDDING_MODEL"
+        }
+
+        # Remove stale provider headers not present in the desired set.
+        # Keep non-provider headers (JWT/OWNER/etc.) untouched.
+        pruned_args: List[str] = []
+        i = 0
+        while i < len(updated_args):
+            token = updated_args[i]
+            if token == "--headers" and i + 2 < len(updated_args):
+                header_key = updated_args[i + 1]
+                header_key_l = header_key.lower() if isinstance(header_key, str) else ""
+                if (
+                    header_key_l in managed_provider_header_keys
+                    and header_key_l not in desired_provider_header_keys
+                ):
+                    i += 3
+                    continue
+            pruned_args.append(token)
+            i += 1
+        updated_args = pruned_args
+
         for var_key, var_value in global_vars.items():
             header_name = f"X-Langflow-Global-Var-{var_key}"
             
