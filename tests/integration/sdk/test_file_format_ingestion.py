@@ -30,10 +30,8 @@ Binary sample files must exist in tests/data/samples/ — generate them with:
     python tests/data/create_samples.py
 """
 import io
-import os
 from pathlib import Path
 
-import httpx
 import pytest
 
 from tests.integration.core.helpers import is_docling_available
@@ -66,25 +64,8 @@ _FORMAT_CASES = [
 
 _PRIORITY_FORMATS = {"pdf", "docx", "html"}
 
-_OPENRAG_URL = os.environ.get("OPENRAG_URL", "http://localhost:3000")
-
-
 def _fmt_ids():
     return [c[0] for c in _FORMAT_CASES]
-
-
-# ---------------------------------------------------------------------------
-# Availability helpers
-# ---------------------------------------------------------------------------
-
-async def _is_openrag_available() -> bool:
-    """Return True if the OpenRAG instance is reachable."""
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as ac:
-            r = await ac.get(f"{_OPENRAG_URL}/health")
-            return r.status_code == 200
-    except Exception:
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -107,13 +88,6 @@ async def test_ingest_format(fmt, ext, content, req_docling, ingestion_report, c
     # ------------------------------------------------------------------
     # Infrastructure availability checks
     # ------------------------------------------------------------------
-    if not await _is_openrag_available():
-        ingestion_report[fmt] = {
-            "status": "SKIPPED",
-            "reason": f"OpenRAG not reachable at {_OPENRAG_URL}",
-        }
-        pytest.skip(f"OpenRAG not reachable at {_OPENRAG_URL}")
-
     if req_docling and not await is_docling_available():
         ingestion_report[fmt] = {
             "status": "SKIPPED",

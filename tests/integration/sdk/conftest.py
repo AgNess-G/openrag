@@ -85,7 +85,19 @@ _onboarding_done = False
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
-async def ensure_onboarding():
+async def require_openrag():
+    """Skip the entire test session if OpenRAG is not reachable."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as ac:
+            r = await ac.get(f"{_base_url}/health")
+            if r.status_code != 200:
+                pytest.skip(f"OpenRAG not reachable at {_base_url} (status {r.status_code})")
+    except Exception:
+        pytest.skip(f"OpenRAG not reachable at {_base_url}")
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def ensure_onboarding(require_openrag):
     """Ensure the OpenRAG instance is onboarded before running tests.
 
     Uses httpx.AsyncClient so the async event loop is never blocked,
