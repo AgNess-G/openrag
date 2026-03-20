@@ -773,10 +773,26 @@ test-ci: ## Start infra, run integration + SDK tests, tear down (uses DockerHub 
 	TEST_RESULT=$$?; \
 	echo "::endgroup::"; \
 	echo ""; \
-	echo "$(YELLOW)Waiting for frontend at http://localhost:3000...$(NC)"; \
+	echo "$(YELLOW)Waiting for OpenRAG API to be ready at http://localhost:3000/api/health...$(NC)"; \
+	OPENRAG_READY=0; \
 	for i in $$(seq 1 60); do \
-		curl -s http://localhost:3000/ >/dev/null 2>&1 && break || sleep 2; \
+		if curl -s http://localhost:3000/api/health | grep -q '"status"'; then \
+			OPENRAG_READY=1; \
+			echo "$(PURPLE)OpenRAG API is ready$(NC)"; \
+			break; \
+		fi; \
+		sleep 2; \
 	done; \
+	if [ "$$OPENRAG_READY" = "0" ]; then \
+		echo "$(RED)ERROR: OpenRAG API did not become ready at http://localhost:3000/api/health after waiting$(NC)"; \
+		echo "$(YELLOW)Backend logs (last 100 lines):$(NC)"; \
+		$(CONTAINER_RUNTIME) logs openrag-backend 2>&1 | tail -100 || true; \
+		echo "$(YELLOW)Frontend logs (last 50 lines):$(NC)"; \
+		$(CONTAINER_RUNTIME) logs openrag-frontend 2>&1 | tail -50 || true; \
+		uv run python scripts/docling_ctl.py stop || true; \
+		$(COMPOSE_CMD) down -v 2>/dev/null || true; \
+		exit 1; \
+	fi; \
 	echo "::group::SDK Integration Tests (Python)"; \
 	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	echo "$(PURPLE) SDK Integration Tests (Python)$(NC)"; \
@@ -904,10 +920,26 @@ test-ci-local: ## Same as test-ci but builds all images locally
 	TEST_RESULT=$$?; \
 	echo "::endgroup::"; \
 	echo ""; \
-	echo "$(YELLOW)Waiting for frontend at http://localhost:3000...$(NC)"; \
+	echo "$(YELLOW)Waiting for OpenRAG API to be ready at http://localhost:3000/api/health...$(NC)"; \
+	OPENRAG_READY=0; \
 	for i in $$(seq 1 60); do \
-		curl -s http://localhost:3000/ >/dev/null 2>&1 && break || sleep 2; \
+		if curl -s http://localhost:3000/api/health | grep -q '"status"'; then \
+			OPENRAG_READY=1; \
+			echo "$(PURPLE)OpenRAG API is ready$(NC)"; \
+			break; \
+		fi; \
+		sleep 2; \
 	done; \
+	if [ "$$OPENRAG_READY" = "0" ]; then \
+		echo "$(RED)ERROR: OpenRAG API did not become ready at http://localhost:3000/api/health after waiting$(NC)"; \
+		echo "$(YELLOW)Backend logs (last 100 lines):$(NC)"; \
+		$(CONTAINER_RUNTIME) logs openrag-backend 2>&1 | tail -100 || true; \
+		echo "$(YELLOW)Frontend logs (last 50 lines):$(NC)"; \
+		$(CONTAINER_RUNTIME) logs openrag-frontend 2>&1 | tail -50 || true; \
+		uv run python scripts/docling_ctl.py stop || true; \
+		$(COMPOSE_CMD) down -v 2>/dev/null || true; \
+		exit 1; \
+	fi; \
 	echo "::group::SDK Integration Tests (Python)"; \
 	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	echo "$(PURPLE) SDK Integration Tests (Python)$(NC)"; \

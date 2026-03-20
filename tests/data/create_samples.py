@@ -16,33 +16,42 @@ SAMPLES_DIR.mkdir(exist_ok=True)
 
 
 def create_minimal_pdf(text: str) -> bytes:
-    """Create a minimal valid PDF containing text. No external library needed."""
-    # Minimal PDF structure: header, catalog, pages, page, content stream, xref, trailer
-    content_stream = f"BT /F1 12 Tf 50 750 Td ({text}) Tj ET"
-    content_len = len(content_stream)
+    """Create a minimal valid PDF containing text with correct xref offsets."""
+    content_stream = f"BT /F1 12 Tf 50 750 Td ({text}) Tj ET".encode("latin-1")
 
-    pdf = (
-        "%PDF-1.4\n"
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]"
-        " /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
-        f"4 0 obj\n<< /Length {content_len} >>\nstream\n{content_stream}\nendstream\nendobj\n"
-        "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+    header = b"%PDF-1.4\n"
+    obj1 = b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    obj2 = b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+    obj3 = (
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]"
+        b" /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
     )
-    # Simple xref (offsets not accurate — sufficient for content extraction tests)
-    xref_offset = len(pdf)
-    pdf += (
-        "xref\n0 6\n"
-        "0000000000 65535 f \n"
-        "0000000009 00000 n \n"
-        "0000000058 00000 n \n"
-        "0000000115 00000 n \n"
-        "0000000266 00000 n \n"
-        "0000000360 00000 n \n"
-        f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n"
+    obj4 = (
+        b"4 0 obj\n<< /Length " + str(len(content_stream)).encode() + b" >>\n"
+        b"stream\n" + content_stream + b"\nendstream\nendobj\n"
     )
-    return pdf.encode("latin-1")
+    obj5 = b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+
+    # Compute accurate byte offsets for each object
+    off1 = len(header)
+    off2 = off1 + len(obj1)
+    off3 = off2 + len(obj2)
+    off4 = off3 + len(obj3)
+    off5 = off4 + len(obj4)
+    xref_offset = off5 + len(obj5)
+
+    xref = (
+        b"xref\n0 6\n"
+        b"0000000000 65535 f \n"
+        + f"{off1:010d} 00000 n \n".encode()
+        + f"{off2:010d} 00000 n \n".encode()
+        + f"{off3:010d} 00000 n \n".encode()
+        + f"{off4:010d} 00000 n \n".encode()
+        + f"{off5:010d} 00000 n \n".encode()
+        + f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
+    )
+
+    return header + obj1 + obj2 + obj3 + obj4 + obj5 + xref
 
 
 def create_minimal_docx(text: str) -> bytes:
@@ -148,69 +157,126 @@ def create_minimal_xlsx(text: str) -> bytes:
     return buf.getvalue()
 
 
-def create_minimal_pptx(text: str) -> bytes:
-    """Create a minimal valid PPTX (ZIP+XML) with one slide containing text."""
+def create_minimal_pptx(title: str, body_lines: list[str]) -> bytes:
+    """Create a minimal valid PPTX (ZIP+XML) with one slide containing a title and body text."""
+    NS_PKG_CT   = "http://schemas.openxmlformats.org/package/2006/content-types"
+    NS_PKG_REL  = "http://schemas.openxmlformats.org/package/2006/relationships"
+    NS_OFF_REL  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    NS_PML      = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    NS_DML      = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "[Content_Types].xml",
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-            '<Default Extension="xml" ContentType="application/xml"/>'
-            '<Override PartName="/ppt/presentation.xml"'
-            ' ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>'
-            '<Override PartName="/ppt/slides/slide1.xml"'
-            ' ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
-            '</Types>',
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Types xmlns="{NS_PKG_CT}">'
+            f'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            f'<Default Extension="xml" ContentType="application/xml"/>'
+            f'<Override PartName="/ppt/presentation.xml"'
+            f' ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>'
+            f'<Override PartName="/ppt/slides/slide1.xml"'
+            f' ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
+            f'<Override PartName="/ppt/slideLayouts/slideLayout1.xml"'
+            f' ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'
+            f'</Types>',
         )
         zf.writestr(
             "_rels/.rels",
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"'
-            ' Target="ppt/presentation.xml"/>'
-            '</Relationships>',
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Relationships xmlns="{NS_PKG_REL}">'
+            f'<Relationship Id="rId1" Type="{NS_OFF_REL}/officeDocument"'
+            f' Target="ppt/presentation.xml"/>'
+            f'</Relationships>',
         )
         zf.writestr(
             "ppt/_rels/presentation.xml.rels",
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"'
-            ' Target="slides/slide1.xml"/>'
-            '</Relationships>',
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Relationships xmlns="{NS_PKG_REL}">'
+            f'<Relationship Id="rId1" Type="{NS_OFF_REL}/slide"'
+            f' Target="slides/slide1.xml"/>'
+            f'</Relationships>',
         )
+        # slide1 references its layout
         zf.writestr(
             "ppt/slides/_rels/slide1.xml.rels",
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '</Relationships>',
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Relationships xmlns="{NS_PKG_REL}">'
+            f'<Relationship Id="rId1" Type="{NS_OFF_REL}/slideLayout"'
+            f' Target="../slideLayouts/slideLayout1.xml"/>'
+            f'</Relationships>',
+        )
+        # minimal blank slide layout so parsers can resolve the reference
+        zf.writestr(
+            "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Relationships xmlns="{NS_PKG_REL}"/>'
+        )
+        zf.writestr(
+            "ppt/slideLayouts/slideLayout1.xml",
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<p:sldLayout xmlns:p="{NS_PML}" xmlns:a="{NS_DML}" type="blank">'
+            f'<p:cSld><p:spTree>'
+            f'<p:grpSpPr>'
+            f'<a:xfrm>'
+            f'<a:off x="0" y="0"/><a:ext cx="9144000" cy="6858000"/>'
+            f'<a:chOff x="0" y="0"/><a:chExt cx="9144000" cy="6858000"/>'
+            f'</a:xfrm>'
+            f'</p:grpSpPr>'
+            f'</p:spTree></p:cSld>'
+            f'</p:sldLayout>',
         )
         zf.writestr(
             "ppt/presentation.xml",
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
-            ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            '<p:sldMasterIdLst/>'
-            '<p:sldSz cx="9144000" cy="6858000"/>'
-            '<p:notesSz cx="6858000" cy="9144000"/>'
-            '<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>'
-            '</p:presentation>',
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<p:presentation xmlns:p="{NS_PML}"'
+            f' xmlns:r="{NS_OFF_REL}">'
+            f'<p:sldMasterIdLst/>'
+            f'<p:sldSz cx="9144000" cy="6858000"/>'
+            f'<p:notesSz cx="6858000" cy="9144000"/>'
+            f'<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>'
+            f'</p:presentation>',
         )
+        body_paragraphs = "".join(
+            f'<a:p><a:r><a:t>{line}</a:t></a:r></a:p>'
+            for line in body_lines
+        )
+        # Standard slide dimensions: 9144000 x 6858000 EMUs (10" x 7.5")
+        # Title box: full width, top quarter
+        # Body box: full width, remaining area
         zf.writestr(
             "ppt/slides/slide1.xml",
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
-            ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
-            '<p:cSld><p:spTree>'
-            '<p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr><a:spLocks/></p:cNvSpPr>'
-            '<p:nvPr/></p:nvSpPr>'
-            '<p:spPr/>'
-            '<p:txBody><a:bodyPr/><a:lstStyle/>'
-            f'<a:p><a:r><a:t>{text}</a:t></a:r></a:p>'
-            '</p:txBody></p:sp>'
-            '</p:spTree></p:cSld>'
-            '</p:sld>',
+            f'<?xml version="1.0" encoding="UTF-8"?>'
+            f'<p:sld xmlns:p="{NS_PML}" xmlns:a="{NS_DML}">'
+            f'<p:cSld><p:spTree>'
+            f'<p:grpSpPr>'
+            f'<a:xfrm>'
+            f'<a:off x="0" y="0"/><a:ext cx="9144000" cy="6858000"/>'
+            f'<a:chOff x="0" y="0"/><a:chExt cx="9144000" cy="6858000"/>'
+            f'</a:xfrm>'
+            f'</p:grpSpPr>'
+            f'<p:sp>'
+            f'<p:nvSpPr><p:cNvPr id="1" name="Title"/>'
+            f'<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+            f'<p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>'
+            f'<p:spPr>'
+            f'<a:xfrm><a:off x="457200" y="274638"/><a:ext cx="8229600" cy="1143000"/></a:xfrm>'
+            f'</p:spPr>'
+            f'<p:txBody><a:bodyPr/><a:lstStyle/>'
+            f'<a:p><a:r><a:t>{title}</a:t></a:r></a:p>'
+            f'</p:txBody></p:sp>'
+            f'<p:sp>'
+            f'<p:nvSpPr><p:cNvPr id="2" name="Content"/>'
+            f'<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+            f'<p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr>'
+            f'<p:spPr>'
+            f'<a:xfrm><a:off x="457200" y="1600200"/><a:ext cx="8229600" cy="4525963"/></a:xfrm>'
+            f'</p:spPr>'
+            f'<p:txBody><a:bodyPr/><a:lstStyle/>'
+            f'{body_paragraphs}'
+            f'</p:txBody></p:sp>'
+            f'</p:spTree></p:cSld>'
+            f'</p:sld>',
         )
     return buf.getvalue()
 
@@ -228,7 +294,12 @@ def main():
             "OpenRAG xlsx format test document. This sample is used for integration testing."
         ),
         "sample.pptx": create_minimal_pptx(
-            "OpenRAG pptx format test document. This sample is used for integration testing."
+            title="OpenRAG PPTX Format Test",
+            body_lines=[
+                "OpenRAG pptx format test document used for integration testing.",
+                "This slide verifies that OpenRAG can ingest and index PPTX files.",
+                "Key features: title extraction, body text parsing, multi-paragraph support.",
+            ],
         ),
     }
 

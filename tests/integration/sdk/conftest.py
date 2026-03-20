@@ -89,7 +89,7 @@ async def require_openrag():
     """Skip the entire test session if OpenRAG is not reachable."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as ac:
-            r = await ac.get(f"{_base_url}/health")
+            r = await ac.get(f"{_base_url}/api/health")
             if r.status_code != 200:
                 pytest.skip(f"OpenRAG not reachable at {_base_url} (status {r.status_code})")
     except Exception:
