@@ -682,6 +682,7 @@ test-integration: ## Run integration tests (requires infrastructure)
 	uv run pytest tests/integration/core/ -v
 
 test-ci: ensure-langflow-data ## Start infra, run integration + SDK tests, tear down (uses DockerHub images)
+	@chmod 777 langflow-data
 	@set -e; \
 	echo "$(YELLOW)Installing test dependencies...$(NC)"; \
 	uv sync --group dev; \
@@ -811,6 +812,7 @@ test-ci: ensure-langflow-data ## Start infra, run integration + SDK tests, tear 
 	exit $$TEST_RESULT
 
 test-ci-local: ensure-langflow-data ## Same as test-ci but builds all images locally
+	@chmod 777 langflow-data
 	@set -e; \
 	echo "$(YELLOW)Installing test dependencies...$(NC)"; \
 	uv sync --group dev; \
