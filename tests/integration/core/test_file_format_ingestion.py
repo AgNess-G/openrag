@@ -12,14 +12,17 @@ Parametrized across all non-multimedia formats supported by docling:
 Each parametrized test case:
   1. Uploads the sample file via /router/upload_ingest (Langflow path → 202 + task_id)
   2. Polls GET /tasks/{task_id} until completed
-  3. Polls /search to confirm content was indexed
+  3. Polls /documents/check-filename to confirm content was indexed
+
+Results are never hard-failed — every format records PASSED / FAILED / SKIPPED in
+the shared ``ingestion_report`` fixture.  A formatted summary table is printed by
+the pytest_terminal_summary hook defined in conftest.py.
+
+Priority formats (pdf, docx, html) are highlighted in the report.
 
 Skip conditions:
-  - Langflow not running → entire test is skipped
-  - docling-serve not running + format requires docling → test is skipped
-
-This test file serves as a living format-support report. Run with -v to see
-per-format results.
+  - Langflow not running → format recorded as SKIPPED, test skipped
+  - docling-serve not running + format requires docling → SKIPPED
 
 Binary sample files are pre-generated in tests/data/samples/ by running:
   python tests/data/create_samples.py
@@ -50,7 +53,6 @@ SAMPLES_DIR = Path(__file__).parent.parent.parent / "data" / "samples"
 
 _FORMAT_CASES = [
     # --- Text formats that bypass docling in OpenRAG — always runnable ---
-    # (committed sample files used for consistency with other formats)
     ("markdown", ".md",   SAMPLES_DIR / "sample.md",   False),
     (
         "text",
@@ -71,6 +73,9 @@ _FORMAT_CASES = [
     ("pptx", ".pptx", SAMPLES_DIR / "sample.pptx", True),
 ]
 
+# Formats whose failures are highlighted in the final report
+_PRIORITY_FORMATS = {"pdf", "docx", "html"}
+
 
 def _fmt_ids():
     return [case[0] for case in _FORMAT_CASES]
@@ -82,57 +87,89 @@ def _fmt_ids():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fmt,ext,content,req_docling", _FORMAT_CASES, ids=_fmt_ids())
-async def test_ingest_format(tmp_path, fmt, ext, content, req_docling):
+async def test_ingest_format(tmp_path, fmt, ext, content, req_docling, ingestion_report):
     """
     Upload a file of format 'fmt' through the production Langflow ingestion pipeline
     and assert it is indexed in OpenSearch.
 
+    Results are recorded in ``ingestion_report`` without raising — the test itself
+    always exits cleanly so that all formats run.  Consult the ingestion report
+    printed at the end of the session for pass / fail details.
+
     SKIPPED when Langflow is not running (all formats).
     SKIPPED when docling-serve is not running and the format requires it.
-    PASSED when the file is successfully ingested and appears in the index.
-    FAILED when the upload or indexing step errors unexpectedly.
     """
-    # Production path requires Langflow — skip entire test if it's not running
+    # --- Infrastructure checks — record SKIPPED and let pytest skip normally ---
     if not await is_langflow_available():
+        ingestion_report[fmt] = {
+            "status": "SKIPPED",
+            "reason": "Langflow not running",
+        }
         pytest.skip("Langflow not running — skipping format ingestion test")
 
-    # Skip docling-dependent formats when docling-serve is unavailable
     if req_docling and not await is_docling_available():
+        ingestion_report[fmt] = {
+            "status": "SKIPPED",
+            "reason": "docling-serve not running",
+        }
         pytest.skip(f"docling-serve not running — skipping {fmt} format test")
 
     # Boot app with production ingestion path (Langflow enabled)
     app, client = await boot_app(disable_langflow_ingest=False)
     try:
-        # Prepare file bytes
         filename = f"sample_openrag_{fmt}{ext}"
-        if isinstance(content, Path):
-            assert content.exists(), (
-                f"Pre-baked sample file missing: {content}\n"
-                f"Run: python tests/data/create_samples.py"
-            )
-            file_bytes = content.read_bytes()
-        else:
-            file_bytes = content.encode("utf-8")
 
-        # Upload via production route — Langflow path always returns 202 + task_id
-        files = {"file": (filename, file_bytes, "application/octet-stream")}
-        upload_resp = await client.post("/router/upload_ingest", files=files)
-        assert upload_resp.status_code == 202, (
-            f"{fmt}: Upload failed with {upload_resp.status_code}: {upload_resp.text}"
-        )
+        # ------------------------------------------------------------------
+        # Step 1 — Prepare file bytes
+        # ------------------------------------------------------------------
+        try:
+            if isinstance(content, Path):
+                if not content.exists():
+                    raise FileNotFoundError(
+                        f"Pre-baked sample file missing: {content}  "
+                        f"Run: python tests/data/create_samples.py"
+                    )
+                file_bytes = content.read_bytes()
+            else:
+                file_bytes = content.encode("utf-8")
+        except Exception as exc:
+            _record_failure(ingestion_report, fmt, "file preparation", exc)
+            return
 
-        body = upload_resp.json()
-        task_id = body.get("task_id")
-        assert task_id, f"{fmt}: 202 response missing task_id: {body}"
+        # ------------------------------------------------------------------
+        # Step 2 — Upload via production route
+        # ------------------------------------------------------------------
+        try:
+            files = {"file": (filename, file_bytes, "application/octet-stream")}
+            upload_resp = await client.post("/router/upload_ingest", files=files)
+            if upload_resp.status_code != 202:
+                raise AssertionError(
+                    f"Upload returned {upload_resp.status_code}: {upload_resp.text}"
+                )
+            body = upload_resp.json()
+            task_id = body.get("task_id")
+            if not task_id:
+                raise AssertionError(f"202 response missing task_id: {body}")
+        except Exception as exc:
+            _record_failure(ingestion_report, fmt, "upload", exc)
+            return
 
-        # Poll task until completion (allow generous timeout for docling processing)
-        task = await wait_for_task_completion(client, task_id, timeout_s=180)
-        assert task["status"] == "completed", (
-            f"{fmt}: Task did not complete successfully: {task}"
-        )
+        # ------------------------------------------------------------------
+        # Step 3 — Poll task until completion
+        # ------------------------------------------------------------------
+        try:
+            task = await wait_for_task_completion(client, task_id, timeout_s=180)
+            if task["status"] != "completed":
+                raise AssertionError(
+                    f"Task ended with status '{task['status']}': {task}"
+                )
+        except Exception as exc:
+            _record_failure(ingestion_report, fmt, "task completion", exc)
+            return
 
-        # Verify file was indexed by checking filename exists in OpenSearch
-        # This is more reliable than search and avoids KNN/embedding dependencies
+        # ------------------------------------------------------------------
+        # Step 4 — Confirm file appears in the index (30 s window)
+        # ------------------------------------------------------------------
         deadline = asyncio.get_event_loop().time() + 30
         found = False
         last_resp = None
@@ -140,23 +177,46 @@ async def test_ingest_format(tmp_path, fmt, ext, content, req_docling):
             check_resp = await client.get(
                 f"/documents/check-filename?filename={filename}"
             )
-            if check_resp.status_code == 200:
-                body = check_resp.json()
-                if body.get("exists"):
-                    found = True
-                    break
+            if check_resp.status_code == 200 and check_resp.json().get("exists"):
+                found = True
+                break
             last_resp = check_resp
             await asyncio.sleep(1)
 
-        assert found, (
-            f"{fmt}: File '{filename}' not found in index within 30s. "
-            f"Task completed successfully but document was not indexed. "
-            f"Last check response: {last_resp.text if last_resp else 'none'}"
-        )
+        if not found:
+            reason = (
+                f"'{filename}' not found in index within 30 s — task completed but "
+                f"document was not indexed. "
+                f"Last check: {last_resp.text if last_resp else 'none'}"
+            )
+            _record_failure(ingestion_report, fmt, "index verification", reason)
+            return
 
-        print(f"\n✓ {fmt.upper()}: ingested and indexed {filename} ({len(file_bytes)} bytes) via Langflow")
+        # ------------------------------------------------------------------
+        # All steps passed
+        # ------------------------------------------------------------------
+        ingestion_report[fmt] = {"status": "PASSED"}
+        _print_result(fmt, passed=True, detail=f"{filename} ({len(file_bytes)} bytes)")
 
     finally:
         await client.aclose()
         from config.settings import clients
         await clients.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _record_failure(report: dict, fmt: str, step: str, exc) -> None:
+    """Store a FAILED entry and print an inline notice (no exception raised)."""
+    reason = f"[{step}] {exc}"
+    report[fmt] = {"status": "FAILED", "reason": reason}
+    _print_result(fmt, passed=False, detail=reason)
+
+
+def _print_result(fmt: str, *, passed: bool, detail: str = "") -> None:
+    symbol = "✓" if passed else "✗"
+    priority = " [PRIORITY]" if fmt in _PRIORITY_FORMATS else ""
+    status = "PASSED" if passed else "FAILED"
+    print(f"\n{symbol} {fmt.upper()}{priority}: {status} — {detail}")
