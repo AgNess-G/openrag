@@ -13,6 +13,72 @@ import httpx
 import pytest
 import pytest_asyncio
 
+# ---------------------------------------------------------------------------
+# File-format ingestion report (used by test_file_format_ingestion.py)
+# ---------------------------------------------------------------------------
+
+# Module-level dict populated by the format ingestion tests.
+# Keys: format label ("pdf", "docx", …)
+# Values: {"status": "PASSED"|"FAILED"|"SKIPPED", "reason": "…"}
+_FORMAT_INGESTION_RESULTS: dict = {}
+
+# Formats highlighted in the summary
+_FORMAT_PRIORITY = {"pdf", "docx", "html"}
+
+
+@pytest.fixture(scope="session")
+def ingestion_report() -> dict:
+    """Session-scoped dict for recording per-format ingestion results."""
+    return _FORMAT_INGESTION_RESULTS
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print the file-format ingestion report at the end of the session."""
+    if not _FORMAT_INGESTION_RESULTS:
+        return
+
+    tw = terminalreporter
+    passed  = {f: r for f, r in _FORMAT_INGESTION_RESULTS.items() if r["status"] == "PASSED"}
+    failed  = {f: r for f, r in _FORMAT_INGESTION_RESULTS.items() if r["status"] == "FAILED"}
+    skipped = {f: r for f, r in _FORMAT_INGESTION_RESULTS.items() if r["status"] == "SKIPPED"}
+
+    tw.write_sep("=", "FILE FORMAT INGESTION REPORT")
+
+    if passed:
+        tw.write_line(
+            f"\n  PASSED  ({len(passed)}):  {', '.join(sorted(passed))}",
+            green=True,
+        )
+
+    if failed:
+        tw.write_line(
+            f"\n  FAILED  ({len(failed)}):  {', '.join(sorted(failed))}",
+            red=True,
+        )
+        for fmt in sorted(failed):
+            tag = "  [PRIORITY]" if fmt in _FORMAT_PRIORITY else ""
+            tw.write_line(
+                f"    {fmt}{tag}: {failed[fmt].get('reason', 'unknown')}",
+                red=True,
+            )
+
+    if skipped:
+        tw.write_line(
+            f"\n  SKIPPED ({len(skipped)}):  {', '.join(sorted(skipped))}",
+            yellow=True,
+        )
+        for fmt in sorted(skipped):
+            tw.write_line(
+                f"    {fmt}: {skipped[fmt].get('reason', 'unknown')}",
+                yellow=True,
+            )
+
+    tw.write_sep(
+        "-",
+        f"Ingestion totals — passed: {len(passed)}, "
+        f"failed: {len(failed)}, skipped: {len(skipped)}",
+    )
+
 _cached_api_key: str | None = None
 _base_url = os.environ.get("OPENRAG_URL", "http://localhost:3000")
 _onboarding_done = False
