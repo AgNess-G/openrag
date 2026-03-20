@@ -2,11 +2,23 @@ import Icon from "@site/src/components/icon/icon";
 
 1. In OpenRAG, click <Icon name="Settings2" aria-hidden="true"/> **Settings**, and then find the **Agent** section.
 
-2. If you only need to edit the language model or agent instructions, edit those fields directly on the **Settings** page.
+2. To change the active language model or agent instructions, edit those fields directly on the **Settings** page.
 Language model changes are saved automatically.
 To apply new instructions, click **Save Agent Instructions**.
 
-3. To edit all flow settings and components with full customization capabilities, edit the flow in the Langflow visual editor:
+3. To add a new language model, edit the model provider settings or configure an additional provider on the **Settings** page, and then select the new model in the **Agent** section.
+
+   :::info
+   On the **Settings** page, you can add, edit, and remove model providers.
+
+   OpenRAG functionality requires at least one language model and one embedding model.
+   If there are no models available, most OpenRAG functionality will fail until you reconfigure one model of each type.
+
+   If you remove providers or models that you previously used for chat or ingestion, you might experience errors or unexpected behaviors.
+   For more information, see [Best practices for multiple embedding models](/ingestion-configure#best-practices-for-multiple-embedding-models).
+   :::
+
+4. To edit all flow settings and components with full customization capabilities, edit the flow in the Langflow visual editor:
 
    1. Click **Edit in Langflow** to launch the Langflow visual editor in a new browser tab.
 

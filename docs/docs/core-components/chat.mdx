@@ -7,6 +7,7 @@ import Icon from "@site/src/components/icon/icon";
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import PartialTempKnowledge from '@site/docs/_partial-temp-knowledge.mdx';
+import PartialEditAgentFlow from '@site/docs/_partial-edit-agent-flow.mdx';
 
 After you [upload documents to your knowledge base](/ingestion), you can use the OpenRAG <Icon name="MessageSquare" aria-hidden="true"/> **Chat** feature to interact with your knowledge through natural language queries.
 
@@ -96,6 +97,10 @@ During the chat, you'll see information about the agent's process. For more deta
 If documents in your knowledge base seem to be missing or interpreted incorrectly, see [Troubleshoot document ingestion or similarity search issues](/support/troubleshoot#document-ingestion-or-similarity-search-issues).
 
 If tool calls and knowledge appear normal, but the agent's responses seem off-topic or incorrect, consider changing the agent's language model or prompt, as explained in [Inspect and modify flows](/agents#inspect-and-modify-flows).
+
+## Change language models, embedding models, and agent instructions
+
+<PartialEditAgentFlow />
 
 ## Integrate OpenRAG chat into an application
 
