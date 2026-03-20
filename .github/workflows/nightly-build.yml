@@ -35,6 +35,8 @@ jobs:
 
       - name: Generate nightly tag
         id: generate_tag
+        env:
+          NIGHTLY_BRANCH: ${{ secrets.NIGHTLY_BRANCH }}
         run: |
           TAG=$(python3 scripts/ci/pypi_nightly_tag.py)
           echo "nightly_tag=$TAG" >> $GITHUB_OUTPUT
@@ -134,6 +136,20 @@ jobs:
           - image: langflow
             file: ./Dockerfile.langflow
             service: openrag-langflow
+            platform: linux/arm64
+            arch: arm64
+            runs-on: [self-hosted, Linux, ARM64, langflow-ai-arm64-40gb-ephemeral]
+
+          # opensearch
+          - image: opensearch
+            file: ./Dockerfile
+            service: openrag-opensearch
+            platform: linux/amd64
+            arch: amd64
+            runs-on: ubuntu-latest
+          - image: opensearch
+            file: ./Dockerfile
+            service: openrag-opensearch
             platform: linux/arm64
             arch: arm64
             runs-on: [self-hosted, Linux, ARM64, langflow-ai-arm64-40gb-ephemeral]
