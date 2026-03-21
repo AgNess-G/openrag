@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   useGetIBMModelsQuery,
   useGetOllamaModelsQuery,
@@ -114,16 +114,8 @@ export const IngestSettings = ({
     }
   }, [apiEmbeddingModel, settings, onSettingsChange, currentSettings]);
 
-  const [chunkError, setChunkError] = useState<string | null>(null);
-
   const handleSettingsChange = (newSettings: Partial<IngestSettingsType>) => {
-    const updatedSettings = { ...currentSettings, ...newSettings };
-    if (updatedSettings.chunkOverlap >= updatedSettings.chunkSize) {
-      setChunkError("Chunk overlap must be less than chunk size");
-      return;
-    }
-    setChunkError(null);
-    onSettingsChange?.(updatedSettings);
+    onSettingsChange?.({ ...currentSettings, ...newSettings });
   };
 
   return (
@@ -202,9 +194,6 @@ export const IngestSettings = ({
                 }
                 unit="characters"
               />
-              {chunkError && (
-                <p className="text-sm text-destructive mt-1">{chunkError}</p>
-              )}
             </div>
           </div>
 
