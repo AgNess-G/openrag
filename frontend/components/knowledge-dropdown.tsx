@@ -45,30 +45,24 @@ import {
 } from "@/lib/upload-utils";
 import { cn } from "@/lib/utils";
 
-// Supported file extensions - single source of truth
-// If modified, please also update the list in the documentation (openrag/docs/docs)
+/**
+ * Local / chat file picker + folder ingest filter — single source of truth.
+ * Only extensions verified to ingest successfully in the Langflow pipeline.
+ * If modified, update docs (docs/docs/core-components/ingestion.mdx).
+ *
+ * documents: txt, md, html, htm, adoc, asciidoc, asc, pdf, docx
+ * spreadsheets: csv
+ */
 export const SUPPORTED_FILE_TYPES = {
-  "image/*": [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"],
-  "application/pdf": [".pdf"],
-  "application/msword": [".doc"],
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
-    ".docx",
-  ],
-  "application/vnd.ms-powerpoint": [".ppt"],
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation": [
-    ".pptx",
-  ],
-  "application/vnd.ms-excel": [".xls"],
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
-    ".xlsx",
-  ],
-  "text/csv": [".csv"],
   "text/plain": [".txt"],
   "text/markdown": [".md"],
   "text/html": [".html", ".htm"],
-  "application/rtf": [".rtf"],
-  "application/vnd.oasis.opendocument.text": [".odt"],
-  "text/asciidoc": [".adoc", ".asciidoc"],
+  "text/asciidoc": [".adoc", ".asciidoc", ".asc"],
+  "application/pdf": [".pdf"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+    ".docx",
+  ],
+  "text/csv": [".csv"],
 };
 
 export const SUPPORTED_EXTENSIONS = Object.values(SUPPORTED_FILE_TYPES).flat();
