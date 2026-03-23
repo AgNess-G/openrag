@@ -10,7 +10,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isLoading, isAuthenticated, isNoAuthMode } = useAuth();
+  const { isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -21,20 +21,26 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     isAuthenticated,
     "isNoAuthMode:",
     isNoAuthMode,
+    "isIbmAuthMode:",
+    isIbmAuthMode,
     "pathname:",
     pathname,
   );
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated && !isNoAuthMode) {
-      // Redirect to login with current path as redirect parameter
+    if (isLoading) return;
+
+    if (!isAuthenticated) {
+      if (isNoAuthMode) return;
+      if (isIbmAuthMode) {
+        router.push("/unauthorized");
+        return;
+      }
       const redirectUrl = `/login?redirect=${encodeURIComponent(pathname)}`;
       router.push(redirectUrl);
-      return;
     }
-  }, [isLoading, isAuthenticated, isNoAuthMode, router, pathname]);
+  }, [isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode, router, pathname]);
 
-  // Show loading state while checking authentication
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -46,16 +52,13 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  // In no-auth mode, always render content
   if (isNoAuthMode) {
     return <>{children}</>;
   }
 
-  // Don't render anything if not authenticated (will redirect)
   if (!isAuthenticated) {
     return null;
   }
 
-  // Render protected content
   return <>{children}</>;
 }
