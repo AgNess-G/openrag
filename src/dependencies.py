@@ -14,6 +14,7 @@ Usage:
     ):
         ...
 """
+
 import dataclasses
 from typing import Optional
 
@@ -28,6 +29,7 @@ logger = get_logger(__name__)
 # ─────────────────────────────────────────────
 # Service dependencies
 # ─────────────────────────────────────────────
+
 
 def get_services(request: Request) -> dict:
     return request.app.state.services
@@ -89,6 +91,7 @@ def get_flows_service(services: dict = Depends(get_services)):
 # IBM AMS authentication helper
 # ─────────────────────────────────────────────
 
+
 async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     """Authenticate via IBM AMS.
 
@@ -109,6 +112,13 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
 
     # ── Option 0: Configurable credentials header (Traefik production) ───
     lh_credentials = request.headers.get(IBM_CREDENTIALS_HEADER, "")
+    if not lh_credentials:
+        logger.warning("IBM credentials header not found in request headers")
+        raise HTTPException(status_code=401, detail="IBM authentication required")
+    if not lh_credentials.startswith("Basic "):
+        logger.warning("IBM credentials header is not a Basic credential")
+        raise HTTPException(status_code=401, detail="IBM authentication required")
+    
     ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
     user_id = None
     email = None
@@ -201,6 +211,7 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
 # Authentication dependencies
 # ─────────────────────────────────────────────
 
+
 async def get_current_user(
     request: Request,
     session_manager=Depends(get_session_manager),
@@ -272,8 +283,14 @@ async def get_optional_user(
 
     user = session_manager.get_user_from_token(auth_token)
     # get_effective_jwt_token handles anonymous JWT creation if needed
-    effective_token = session_manager.get_effective_jwt_token(user.user_id, auth_token) if user else None
-    user_with_token = dataclasses.replace(user, jwt_token=effective_token) if user else None
+    effective_token = (
+        session_manager.get_effective_jwt_token(user.user_id, auth_token)
+        if user
+        else None
+    )
+    user_with_token = (
+        dataclasses.replace(user, jwt_token=effective_token) if user else None
+    )
 
     request.state.user = user_with_token
     return user_with_token
