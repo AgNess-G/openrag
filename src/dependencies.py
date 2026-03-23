@@ -163,28 +163,32 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             )
             if connections:
                 lh_credentials = connections[0].config.get("basic_credentials")
-        if not lh_credentials or not lh_credentials.startswith("Basic "):
-            if required:
-                raise HTTPException(
-                    status_code=401,
-                    detail="IBM credentials not found. Please ensure the X-IBM-LH-Credentials header is sent at least once.",
-                )
-            logger.warning("IBM credentials not found. Please ensure the X-IBM-LH-Credentials header is sent at least once.")
-            request.state.user = None
-            return None
-        opensearch_username, _ = extract_ibm_credentials(lh_credentials)
+        opensearch_username = None
+        opensearch_credentials = None
+        jwt_token = f"Bearer {ibm_token}"
+        if lh_credentials and lh_credentials.startswith("Basic "):
+            opensearch_username, _ = extract_ibm_credentials(lh_credentials)
+            opensearch_credentials = lh_credentials
+            jwt_token = lh_credentials
+        else:
+            logger.warning("IBM LH credentials not found in header or connections store.Using JWT token instead.")
         user = User(
             user_id=user_id,
             email=email,
             name=name,
             picture=None,
             provider="ibm_ams",
-            jwt_token=lh_credentials,
+            jwt_token=jwt_token,
             opensearch_username=opensearch_username,
-            opensearch_credentials=lh_credentials,
+            opensearch_credentials=opensearch_credentials,
         )
         request.state.user = user
         return user
+
+    if ibm_token and not user_id:
+        logger.warning("IBM JWT cookie present but could not extract user_id from claims.")
+        request.state.user = None
+        return None
 
     # ── Option 2: ibm-auth-basic cookie (local dev, no Traefik) ─────────
     auth_header = request.cookies.get("ibm-auth-basic", "")
