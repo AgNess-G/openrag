@@ -211,9 +211,8 @@ class SessionManager:
         # Check for token from environment variable first
         token = os.getenv("OPENSEARCH_JWT_TOKEN")
         if not token:
-            # If no env token, generate using JWT
             token = jwt.encode(token_payload, self.private_key, algorithm=self.algorithm)
-        return token
+        return f"Bearer {token}"
 
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify JWT token and return user info"""

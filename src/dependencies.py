@@ -157,10 +157,8 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             if connections:
                 lh_credentials = connections[0].config.get("basic_credentials")
         opensearch_username = None
-        opensearch_credentials = None
         if lh_credentials and lh_credentials.startswith("Basic "):
             opensearch_username, _ = extract_ibm_credentials(lh_credentials)
-            opensearch_credentials = lh_credentials
         user = User(
             user_id=user_id,
             email=email,
@@ -169,7 +167,7 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             provider="ibm_ams",
             jwt_token=lh_credentials,
             opensearch_username=opensearch_username,
-            opensearch_credentials=opensearch_credentials,
+            opensearch_credentials=lh_credentials,
         )
         request.state.user = user
         return user

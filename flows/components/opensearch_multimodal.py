@@ -317,7 +317,7 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
         BoolInput(
             name="bearer_prefix",
             display_name="Prefix 'Bearer '",
-            value=True,
+            value=False,
             show=False,
             advanced=True,
         ),
