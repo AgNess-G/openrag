@@ -94,6 +94,7 @@ For better security, it is recommended to set `LANGFLOW_SUPERUSER_PASSWORD` so t
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `LANGFLOW_DATA_PATH` | `./langflow-data` | The path where OpenRAG persists the Langflow database (flows, credentials, settings) across container restarts. |
 | `LANGFLOW_AUTO_LOGIN` | Determined by `LANGFLOW_SUPERUSER_PASSWORD` | Whether to enable [auto-login mode](https://docs.langflow.org/api-keys-and-authentication#langflow-auto-login) for the Langflow visual editor and CLI. If `LANGFLOW_SUPERUSER_PASSWORD` isn't set, then `LANGFLOW_AUTO_LOGIN` is `True` and auto-login mode is enabled. If `LANGFLOW_SUPERUSER_PASSWORD` is set, then `LANGFLOW_AUTO_LOGIN` is `False` and auto-login mode is disabled. Langflow API calls always require authentication with a Langflow API key regardless of the auto-login setting. |
 | `LANGFLOW_ENABLE_SUPERUSER_CLI` | Determined by `LANGFLOW_SUPERUSER_PASSWORD` | Whether to enable the [Langflow CLI `langflow superuser` command](https://docs.langflow.org/api-keys-and-authentication#langflow-enable-superuser-cli). If `LANGFLOW_SUPERUSER_PASSWORD` isn't set, then `LANGFLOW_ENABLE_SUPERUSER_CLI` is `True` and superuser accounts can be created with the Langflow CLI. If `LANGFLOW_SUPERUSER_PASSWORD` is set, then `LANGFLOW_ENABLE_SUPERUSER_CLI` is `False` and the `langflow superuser` command is disabled. |
 | `LANGFLOW_NEW_USER_IS_ACTIVE` | Determined by `LANGFLOW_SUPERUSER_PASSWORD` | Whether new [Langflow user accounts are active by default](https://docs.langflow.org/api-keys-and-authentication#langflow-new-user-is-active). If `LANGFLOW_SUPERUSER_PASSWORD` isn't set, then `LANGFLOW_NEW_USER_IS_ACTIVE` is `True` and new user accounts are active by default. If `LANGFLOW_SUPERUSER_PASSWORD` is set, then `LANGFLOW_NEW_USER_IS_ACTIVE` is `False` and new user accounts are inactive by default. |
@@ -129,6 +130,16 @@ For more information, see [Configure connectors](/knowledge-connectors).
 | `GOOGLE_OAUTH_CLIENT_ID`<br/>`GOOGLE_OAUTH_CLIENT_SECRET` | Not set | Enable OAuth mode _and_ the Google Drive cloud storage connector with the [Google OAuth client](https://developers.google.com/identity/protocols/oauth2) integration. You can generate these values in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). |
 | `MICROSOFT_GRAPH_OAUTH_CLIENT_ID`<br/>`MICROSOFT_GRAPH_OAUTH_CLIENT_SECRET` | Not set | Enable the [Microsoft Graph OAuth client](https://learn.microsoft.com/en-us/onedrive/developer/rest-api/getting-started/graph-oauth) integration by providing [Azure application registration credentials for SharePoint and OneDrive](https://learn.microsoft.com/en-us/onedrive/developer/rest-api/getting-started/app-registration?view=odsp-graph-online). |
 | `WEBHOOK_BASE_URL` | Not set | Optional base URL for OAuth connector webhook endpoints. If not set, a default base URL is used. This variable is required to enable automatic cloud storage ingestion. |
+
+## Security and Encryption settings
+
+Configure cryptographic parameters and connection data isolation protocols.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENRAG_ENCRYPTION_KEY` | Not set | 32-byte Base64 AES-256-GCM master key locking all database index payloads. Automatically generated when you run the TUI or CLI configuration wizard. If left completely unset, the master encryption wrapper remains inactive and credentials remain in plaintext matrices. Warning: Cannot be lost or rotated without risking data-loss. |
+| `OPENRAG_TENANT_ID` | `openrag` | Identifier for AAD (Additional Authenticated Data) tenant binding. Ensures that encrypted files are correctly associated with the expected tenant environment. |
+| `IBM_AUTH_ENABLED` | `false` | Enabling this feature queries the IBM Secrets Manager API for your decryption keys natively. If the IBM API request is unauthorized, misconfigured, or fails, the system automatically falls back to evaluating your local `OPENRAG_ENCRYPTION_KEY`. |
 
 ## OpenSearch settings
 

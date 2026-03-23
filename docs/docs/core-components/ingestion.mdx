@@ -21,6 +21,24 @@ The chunks, embeddings, and associated metadata (which connect chunks of the sam
 
 To modify chunking behavior, embedding model, and other ingestion settings, see [Configure ingestion](/ingestion-configure).
 
+## Supported file types {#supported-file-types}
+
+OpenRAG has verified (tested) support for the following file types:
+
+* .asc
+* .asciidoc
+* .adoc
+* .csv
+* .docx
+* .htm
+* .html
+* .md
+* .pdf
+* .txt
+
+You can attempt to ingest any other file type supported by Docling, but the ingestion might fail or produce suboptimal results.
+You can submit an [OpenRAG GitHub issue](https://github.com/langflow-ai/openrag/issues) to request support for specific file types or report ingestion errors.
+
 ## Ingest local files and folders
 
 You can upload files and folders from your local machine to your knowledge base:
@@ -40,35 +58,6 @@ The selected files are processed in the background through the **OpenSearch Inge
 
 You can [monitor ingestion](#monitor-ingestion) to see the progress of the uploads and check for failed uploads.
 
-### Supported file types {#supported-file-types}
-
-When ingesting from the local file system or cloud storage connectors, OpenRAG supports the following file types:
-
-* .adoc
-* .asciidoc
-* .bmp
-* .csv
-* .doc
-* .docx
-* .gif
-* .htm
-* .html
-* .jpeg
-* .jpg
-* .md
-* .odt
-* .pdf
-* .png
-* .ppt
-* .pptx
-* .rtf
-* .tiff
-* .txt
-* .webp
-* .xls
-* .xlsx
-
-<!-- TBD: .vtt, .mdx supported? -->
 
 ### Ingest local files temporarily
 
@@ -80,19 +69,23 @@ To ingest knowledge from cloud storage using an OpenRAG cloud storage connector,
 
 1. [Configure a cloud storage connector](/knowledge-connectors).
 
-2. Click <Icon name="Library" aria-hidden="true"/> **Knowledge** to view your OpenSearch knowledge base.
+2. On the <Icon name="Library" aria-hidden="true"/> **Knowledge** or <Icon name="Settings2" aria-hidden="true"/> **Settings** page, click **Add Knowledge** to ingest files and folders from your connected cloud storage.
 
-3. Click **Add Knowledge**, and then select a storage provider.
-
-4. On the **Add Cloud Knowledge** page, click **Add Files**, and then select the files and folders to ingest from the connected storage.
-
-5. Click **Ingest Files**.
-
-The selected files are processed in the background through the **OpenSearch Ingestion** flow.
+After triggering ingestion, the selected files are processed in the background through the **OpenSearch Ingestion** flow.
 
 <PartialIngestionFlow />
 
 You can [monitor ingestion](#monitor-ingestion) to see the progress of the uploads and check for failed uploads.
+
+### Sync cloud storage
+
+:::info
+If you have a lot of files in cloud storage, be aware that synchronization can trigger a large number of ingestions.
+This can take a long time to complete, and timeouts can occur.
+For more information, see [Troubleshoot document ingestion or similarity search issues](/support/troubleshoot#document-ingestion-or-similarity-search-issues).
+:::
+
+On the <Icon name="Library" aria-hidden="true"/> **Knowledge** or <Icon name="Settings2" aria-hidden="true"/> **Settings** page, click <Icon name="Settings2" aria-hidden="true"/> **Sync** to synchronize your cloud storage and your OpenRAG knowledge base.
 
 ## Ingest knowledge from URLs {#url-flow}
 
@@ -140,6 +133,7 @@ Tasks are separated into multiple sections:
    Check the **Success** and **Failed** counts for each completed task to determine the overall success rate.
 
    **Failed** means [something went wrong during ingestion](/support/troubleshoot#document-ingestion-or-similarity-search-issues), or the task was manually canceled.
+   You can inspect the failed task to learn more.
 
 For each task, depending on its state, you can find the task ID, start time, duration, number of files processed successfully, number of files that failed, and the number of files enqueued for processing.
 

@@ -15,9 +15,6 @@ OpenRAG uses OAuth credentials to authorize access to cloud storage services so 
 
 If you provide Google OAuth credentials, these credentials are also used to enable OAuth mode for OpenRAG and your OpenSearch knowledge base.
 
-<!-- TBD: separation of pure OAuth from cloud storage connector OAuth apps -->
-<!-- TBD: Disconnect/reconnect connectors -->
-
 ## OAuth credentials and OpenSearch authentication modes {#auth}
 
 <PartialOpensearchAuthModes />
@@ -128,12 +125,11 @@ You can do this during [initial set up](/docker#setup), or you can add the crede
 
 ## Ingest documents with cloud connectors
 
-See [Ingest files from cloud storage](/ingestion#oauth-ingestion).
+For more information, see [Ingest files from cloud storage](/ingestion#oauth-ingestion).
 
-## Disconnect and reconnect cloud storage connectors
+## Manage cloud storage connectors
 
-In OpenRAG, click <Icon name="Settings2" aria-hidden="true"/> **Settings** to manage cloud storage connections.
-You can connect, disconnect, reconnect, and trigger ingestion for each configured connector.
+In OpenRAG, click <Icon name="Settings2" aria-hidden="true"/> **Settings** to connect, disconnect, reconnect, and edit connector configuration details for each cloud storage connector.
 
 ## See also
 

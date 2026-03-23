@@ -605,6 +605,12 @@ async def update_settings(
                 logger.error(f"Failed to update docling settings in flow: {str(e)}")
 
         if body.chunk_size is not None:
+            effective_overlap = body.chunk_overlap if body.chunk_overlap is not None else current_config.knowledge.chunk_overlap
+            if effective_overlap >= body.chunk_size:
+                raise HTTPException(
+                    status_code=422,
+                    detail="chunk_overlap must be less than chunk_size"
+                )
             current_config.knowledge.chunk_size = body.chunk_size
             config_updated = True
             await TelemetryClient.send_event(
@@ -625,6 +631,12 @@ async def update_settings(
                 # The config will still be saved
 
         if body.chunk_overlap is not None:
+            effective_chunk_size = body.chunk_size if body.chunk_size is not None else current_config.knowledge.chunk_size
+            if body.chunk_overlap >= effective_chunk_size:
+                raise HTTPException(
+                    status_code=422,
+                    detail="chunk_overlap must be less than chunk_size"
+                )
             current_config.knowledge.chunk_overlap = body.chunk_overlap
             config_updated = True
             await TelemetryClient.send_event(
