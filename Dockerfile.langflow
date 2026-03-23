@@ -6,6 +6,10 @@ FROM langflowai/langflow:1.8.0
 RUN pip install uv \
     && mkdir -p /app/langflow-data
 
+# OpenSearch component imports OpenRAG utils (e.g. ``apply_chat_filter_expression_to_search_body``).
+COPY src /app/openrag-src
+ENV PYTHONPATH=/app/openrag-src
+
 EXPOSE 7860
 
 CMD ["langflow", "run", "--host", "0.0.0.0", "--port", "7860"]
