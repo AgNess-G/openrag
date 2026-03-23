@@ -160,10 +160,14 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             if connections:
                 lh_credentials = connections[0].config.get("basic_credentials")
         if not lh_credentials or not lh_credentials.startswith("Basic "):
-            raise HTTPException(
-                status_code=401,
-                detail="IBM credentials not found. Please ensure the X-IBM-LH-Credentials header is sent at least once.",
-            )
+            if required:
+                raise HTTPException(
+                    status_code=401,
+                    detail="IBM credentials not found. Please ensure the X-IBM-LH-Credentials header is sent at least once.",
+                )
+            logger.warning("IBM credentials not found. Please ensure the X-IBM-LH-Credentials header is sent at least once.")
+            request.state.user = None
+            return None
         opensearch_username, _ = extract_ibm_credentials(lh_credentials)
         user = User(
             user_id=user_id,
