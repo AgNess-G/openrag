@@ -111,6 +111,10 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     from config.settings import IBM_SESSION_COOKIE_NAME, IBM_CREDENTIALS_HEADER
 
     # ── Option 0: Configurable credentials header (Traefik production) ───
+    # TODO: remove log this after testing
+
+    logger.warning(f"Request headers: {dict(request.headers)}")
+    logger.warning(f"Request cookies: {dict(request.cookies)}")
     lh_credentials = request.headers.get(IBM_CREDENTIALS_HEADER, "")
     ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
     user_id = None
