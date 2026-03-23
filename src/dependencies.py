@@ -109,46 +109,70 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
 
     # ── Option 0: Configurable credentials header (Traefik production) ───
     lh_credentials = request.headers.get(IBM_CREDENTIALS_HEADER, "")
+    ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
+    user_id = None
+    email = None
+    name = None
+    if ibm_token:
+        claims = ibm_auth.decode_ibm_jwt(ibm_token)
+        if claims is not None:
+            user_id = claims.get("uid") or claims["sub"]
+            email = claims.get("username", claims["sub"])
+            name = claims.get("display_name", claims.get("username", claims["sub"]))
+
     if lh_credentials.startswith("Basic "):
-        username, _ = extract_ibm_credentials(lh_credentials)
+        opensearch_username, _ = extract_ibm_credentials(lh_credentials)
 
         # Persist credentials to connections.json for reuse by background processes
         connector_service = request.app.state.services.get("connector_service")
-        if connector_service:
+        if connector_service and user_id:
             await connector_service.connection_manager.upsert_ibm_credentials(
-                user_id=username,
+                user_id=user_id,
                 basic_credentials=lh_credentials,
-                username=username,
+                username=user_id,
             )
 
         user = User(
-            user_id=username,
-            email=username,
-            name=username,
+            user_id=user_id,
+            email=email,
+            name=name,
             picture=None,
             provider="ibm_ams",
             jwt_token=lh_credentials,
-            opensearch_username=username,
+            opensearch_username=opensearch_username,
             opensearch_credentials=lh_credentials,
         )
         request.state.user = user
         return user
 
     # ── Option 1: ibm-openrag-session cookie (production via Traefik) ───
-    ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
-    if ibm_token:
-        claims = ibm_auth.decode_ibm_jwt(ibm_token)
-        if claims is not None:
-            user = User(
-                user_id=claims.get("uid") or claims["sub"],
-                email=claims.get("username", claims["sub"]),
-                name=claims.get("display_name", claims.get("username", claims["sub"])),
-                picture=None,
-                provider="ibm_ams",
-                jwt_token=ibm_token,
+    # ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
+    if ibm_token and user_id:
+        # lh credentials not available in header, read from connections service
+        connector_service = request.app.state.services.get("connector_service")
+        if connector_service:
+            connections = await connector_service.connection_manager.list_connections(
+                user_id=user_id, connector_type="ibm_credentials"
             )
-            request.state.user = user
-            return user
+            if connections:
+                lh_credentials = connections[0].config.get("basic_credentials")
+        opensearch_username = None
+        opensearch_credentials = None
+        if lh_credentials and lh_credentials.startswith("Basic "):
+            opensearch_username, _ = extract_ibm_credentials(lh_credentials)
+            opensearch_credentials = lh_credentials
+        user = User(
+            user_id=user_id,
+            email=email,
+            name=name,
+            picture=None,
+            provider="ibm_ams",
+            jwt_token=lh_credentials,
+            opensearch_username=opensearch_username,
+            opensearch_credentials=opensearch_credentials,
+        )
+        request.state.user = user
+        return user
 
     # ── Option 2: ibm-auth-basic cookie (local dev, no Traefik) ─────────
     auth_header = request.cookies.get("ibm-auth-basic", "")
