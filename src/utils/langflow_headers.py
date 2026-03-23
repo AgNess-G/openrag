@@ -66,9 +66,13 @@ async def add_provider_credentials_to_headers(
             ollama_endpoint = transform_localhost_url(config.providers.ollama.endpoint)
         headers["X-LANGFLOW-GLOBAL-VAR-OLLAMA_BASE_URL"] = str(ollama_endpoint)
 
+    # Inject OpenSearch URL so Langflow flows always use the correct endpoint
+    from config.settings import OPENSEARCH_HOST, OPENSEARCH_PORT
+    headers["X-LANGFLOW-GLOBAL-VAR-OPENSEARCH_URL"] = f"https://{OPENSEARCH_HOST}:{OPENSEARCH_PORT}"
+
     # IBM mode: inject OpenSearch Basic credentials as separate global vars
     from config.settings import IBM_AUTH_ENABLED
-    if IBM_AUTH_ENABLED and jwt_token and jwt_token.startswith("Basic "):
+    if IBM_AUTH_ENABLED and jwt_token:
         headers.update(build_ibm_opensearch_vars(jwt_token, prefix="X-LANGFLOW-GLOBAL-VAR-"))
 
 
@@ -118,9 +122,13 @@ async def build_mcp_global_vars_from_config(
     if config.knowledge.embedding_model:
         global_vars["SELECTED_EMBEDDING_MODEL"] = config.knowledge.embedding_model
 
+    # Inject OpenSearch URL so MCP servers always use the correct endpoint
+    from config.settings import OPENSEARCH_HOST, OPENSEARCH_PORT
+    global_vars["OPENSEARCH_URL"] = f"https://{OPENSEARCH_HOST}:{OPENSEARCH_PORT}"
+
     # IBM mode: inject OpenSearch Basic credentials as separate global vars
     from config.settings import IBM_AUTH_ENABLED
-    if IBM_AUTH_ENABLED and jwt_token and jwt_token.startswith("Basic "):
+    if IBM_AUTH_ENABLED and jwt_token:
         global_vars.update(build_ibm_opensearch_vars(jwt_token, prefix=""))
 
     return global_vars
