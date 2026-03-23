@@ -1198,6 +1198,20 @@ async def startup_tasks(services):
     # Update MCP servers with provider credentials (especially important for no-auth mode)
     await _update_mcp_servers_with_provider_credentials(services)
 
+    # Ensure all configured flows exist in Langflow (create-only, never overwrites).
+    # This replaces LANGFLOW_LOAD_FLOWS_PATH, which performed a blind upsert on
+    # every container start and discarded any user edits made in the Langflow UI.
+    newly_created: set[str] = set()
+    try:
+        flows_service = services["flows_service"]
+        newly_created = await flows_service.ensure_flows_exist()
+    except Exception as e:
+        logger.error(
+            "Failed to ensure Langflow flows exist at startup — "
+            "flows may be missing until the next restart",
+            error=str(e),
+        )
+
     # Check if flows were reset and reapply settings if config is edited
     try:
         config = get_openrag_config()
@@ -1205,6 +1219,9 @@ async def startup_tasks(services):
             logger.info("Checking if Langflow flows were reset")
             flows_service = services["flows_service"]
             reset_flows = await flows_service.check_flows_reset()
+            # Exclude flows that were just seeded — they match the JSON by design,
+            # not because they were externally reset.
+            reset_flows = [f for f in reset_flows if f not in newly_created]
 
             if reset_flows:
                 logger.info(
