@@ -1,6 +1,14 @@
+# syntax=docker/dockerfile:1.4
 FROM langflowai/langflow:1.8.0
 
-RUN pip install uv
+# Install uv and pre-create the Langflow data directory.
+# The base image already runs as uid=1000 and owns /app, so no root or chown needed.
+RUN pip install uv \
+    && mkdir -p /app/langflow-data
+
+# OpenSearch component imports OpenRAG utils (e.g. ``apply_chat_filter_expression_to_search_body``).
+COPY src /app/openrag-src
+ENV PYTHONPATH=/app/openrag-src
 
 EXPOSE 7860
 

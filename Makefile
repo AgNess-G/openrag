@@ -79,7 +79,8 @@ endef
        test test-unit test-integration test-ci test-ci-local test-sdk test-os-jwt lint \
        backend frontend docling docling-stop install-be install-fe build-be build-fe build-os build-lf logs-be logs-fe logs-lf logs-os \
        shell-be shell-lf shell-os restart status health db-reset clear-os-data flow-upload setup factory-reset \
-       dev-branch build-langflow-dev stop-dev clean-dev logs-dev logs-lf-dev shell-lf-dev restart-dev status-dev
+       dev-branch build-langflow-dev stop-dev clean-dev logs-dev logs-lf-dev shell-lf-dev restart-dev status-dev \
+       ensure-langflow-data
 
 all: help
 
@@ -319,7 +320,10 @@ help_utils: ## Show utility commands
 # DEVELOPMENT ENVIRONMENTS
 ######################
 
-dev: ## Start full stack with GPU support
+ensure-langflow-data: ## Create the langflow-data directory if it does not exist
+	@mkdir -p langflow-data
+
+dev: ensure-langflow-data ## Start full stack with GPU support
 	@echo "$(YELLOW)Starting OpenRAG with GPU support...$(NC)"
 	$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.gpu.yml up -d
 	@echo "$(PURPLE)Services started!$(NC)"
@@ -329,7 +333,7 @@ dev: ## Start full stack with GPU support
 	@echo "   $(CYAN)OpenSearch:$(NC) http://localhost:9200"
 	@echo "   $(CYAN)Dashboards:$(NC) http://localhost:5601"
 
-dev-cpu: ## Start full stack with CPU only
+dev-cpu: ensure-langflow-data ## Start full stack with CPU only
 	@echo "$(YELLOW)Starting OpenRAG with CPU only...$(NC)"
 	$(COMPOSE_CMD) up -d
 	@echo "$(PURPLE)Services started!$(NC)"
@@ -339,7 +343,7 @@ dev-cpu: ## Start full stack with CPU only
 	@echo "   $(CYAN)OpenSearch:$(NC) http://localhost:9200"
 	@echo "   $(CYAN)Dashboards:$(NC) http://localhost:5601"
 
-dev-local: ## Start infrastructure for local development
+dev-local: ensure-langflow-data ## Start infrastructure for local development
 	@echo "$(YELLOW)Starting infrastructure only (for local development)...$(NC)"
 	$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.gpu.yml up -d opensearch openrag-backend dashboards langflow
 	@echo "$(PURPLE)Infrastructure started!$(NC)"
@@ -350,7 +354,7 @@ dev-local: ## Start infrastructure for local development
 	@echo ""
 	@echo "$(YELLOW)Now run 'make backend' and 'make frontend' in separate terminals$(NC)"
 
-dev-local-cpu: ## Start infrastructure for local development, with CPU only
+dev-local-cpu: ensure-langflow-data ## Start infrastructure for local development, with CPU only
 	@echo "$(YELLOW)Starting infrastructure only (for local development)...$(NC)"
 	$(COMPOSE_CMD) up -d opensearch openrag-backend dashboards langflow
 	@echo "$(PURPLE)Infrastructure started!$(NC)"
@@ -361,7 +365,7 @@ dev-local-cpu: ## Start infrastructure for local development, with CPU only
 	@echo ""
 	@echo "$(YELLOW)Now run 'make backend' and 'make frontend' in separate terminals$(NC)"
 
-dev-local-build-lf: ## Start infrastructure for local development, building only Langflow image
+dev-local-build-lf: ensure-langflow-data ## Start infrastructure for local development, building only Langflow image
 	@echo "$(YELLOW)Building Langflow image...$(NC)"
 	$(COMPOSE_CMD) -f docker-compose.yml -f docker-compose.gpu.yml build langflow
 	@echo "$(YELLOW)Starting infrastructure only (for local development)...$(NC)"
@@ -374,7 +378,7 @@ dev-local-build-lf: ## Start infrastructure for local development, building only
 	@echo ""
 	@echo "$(YELLOW)Now run 'make backend' and 'make frontend' in separate terminals$(NC)"
 
-dev-local-build-lf-cpu: ## Start infrastructure for local development, building only Langflow image with CPU only
+dev-local-build-lf-cpu: ensure-langflow-data ## Start infrastructure for local development, building only Langflow image with CPU only
 	@echo "$(YELLOW)Building Langflow image (CPU)...$(NC)"
 	$(COMPOSE_CMD) build langflow
 	@echo "$(YELLOW)Starting infrastructure only (for local development)...$(NC)"
@@ -393,7 +397,7 @@ dev-local-build-lf-cpu: ## Start infrastructure for local development, building 
 # Usage: make dev-branch BRANCH=test-openai-responses
 #        make dev-branch BRANCH=feature-x REPO=https://github.com/myorg/langflow.git
 
-dev-branch: ## Build & run full stack with custom Langflow branch
+dev-branch: ensure-langflow-data ## Build & run full stack with custom Langflow branch
 	@echo "$(YELLOW)Building Langflow from branch: $(BRANCH)$(NC)"
 	@echo "   $(CYAN)Repository:$(NC) $(REPO)"
 	@echo ""
@@ -409,7 +413,7 @@ dev-branch: ## Build & run full stack with custom Langflow branch
 	@echo "   $(CYAN)OpenSearch:$(NC)            http://localhost:9200"
 	@echo "   $(CYAN)Dashboards:$(NC)            http://localhost:5601"
 
-dev-branch-cpu: ## Build & run full stack with custom Langflow branch and CPU only mode
+dev-branch-cpu: ensure-langflow-data ## Build & run full stack with custom Langflow branch and CPU only mode
 	@echo "$(YELLOW)Building Langflow from branch: $(BRANCH)$(NC)"
 	@echo "   $(CYAN)Repository:$(NC) $(REPO)"
 	@echo ""
@@ -436,7 +440,7 @@ stop-dev: ## Stop dev environment containers
 	$(COMPOSE_CMD) -f docker-compose.dev.yml down
 	@echo "$(PURPLE)Dev environment stopped.$(NC)"
 
-restart-dev: ## Restart dev environment
+restart-dev: ensure-langflow-data ## Restart dev environment
 	@echo "$(YELLOW)Restarting dev environment with branch: $(BRANCH)$(NC)"
 	$(COMPOSE_CMD) -f docker-compose.dev.yml down
 	GIT_BRANCH=$(BRANCH) GIT_REPO=$(REPO) $(COMPOSE_CMD) -f docker-compose.dev.yml up -d
@@ -502,6 +506,7 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 	echo "  - Stop all containers"; \
 	echo "  - Remove all volumes"; \
 	echo "  - Delete opensearch-data directory"; \
+	echo "  - Delete langflow-data directory"; \
 	echo "  - Delete config directory"; \
 	echo "  - Delete JWT keys (private_key.pem, public_key.pem)"; \
 	echo "  - Remove OpenRAG images"; \
@@ -516,7 +521,7 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 	fi; \
 	echo ""; \
 	echo "$(YELLOW)Stopping all services and removing volumes...$(NC)"; \
-	$(COMPOSE_CMD) down -v --remove-orphans --rmi local || true; \
+	$(COMPOSE_CMD) down -v --remove-orphans || true; \
 	echo "$(YELLOW)Removing local data directories...$(NC)"; \
 	if [ -d "opensearch-data" ]; then \
 		echo "Removing opensearch-data..."; \
@@ -524,6 +529,11 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 		$(CONTAINER_RUNTIME) run --rm -v "$$(pwd)/opensearch-data:/data" alpine sh -c "rm -rf /data/*" 2>/dev/null || \
 		rm -rf opensearch-data/* 2>/dev/null || true; \
 		echo "$(PURPLE)opensearch-data removed$(NC)"; \
+	fi; \
+	if [ -d "langflow-data" ]; then \
+		echo "Removing langflow-data..."; \
+		rm -rf langflow-data; \
+		echo "$(PURPLE)langflow-data removed$(NC)"; \
 	fi; \
 	if [ -d "config" ]; then \
 		echo "Removing config..."; \
@@ -671,7 +681,8 @@ test-integration: ## Run integration tests (requires infrastructure)
 	@echo "$(YELLOW)Make sure to run 'make dev-local' first!$(NC)"
 	uv run pytest tests/integration/core/ -v
 
-test-ci: ## Start infra, run integration + SDK tests, tear down (uses DockerHub images)
+test-ci: ensure-langflow-data ## Start infra, run integration + SDK tests, tear down (uses DockerHub images)
+	@chmod 777 langflow-data
 	@set -e; \
 	echo "$(YELLOW)Installing test dependencies...$(NC)"; \
 	uv sync --group dev; \
@@ -800,7 +811,8 @@ test-ci: ## Start infra, run integration + SDK tests, tear down (uses DockerHub 
 	$(COMPOSE_CMD) down -v 2>/dev/null || true; \
 	exit $$TEST_RESULT
 
-test-ci-local: ## Same as test-ci but builds all images locally
+test-ci-local: ensure-langflow-data ## Same as test-ci but builds all images locally
+	@chmod 777 langflow-data
 	@set -e; \
 	echo "$(YELLOW)Installing test dependencies...$(NC)"; \
 	uv sync --group dev; \
