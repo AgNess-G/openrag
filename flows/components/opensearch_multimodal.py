@@ -280,7 +280,7 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
         DropdownInput(
             name="auth_mode",
             display_name="Authentication Mode",
-            value="basic",
+            value="jwt",
             options=["basic", "jwt"],
             info=(
                 "Authentication method: 'basic' for username/password authentication, "
