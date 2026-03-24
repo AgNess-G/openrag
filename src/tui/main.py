@@ -64,17 +64,17 @@ class OpenRAGTUI(App):
         min-width: 20;
         border: solid #3f3f46;
     }
-    
+
     #config-header {
         text-align: center;
         margin-bottom: 2;
     }
-    
+
     #config-scroll {
         height: 1fr;
         overflow-y: auto;
     }
-    
+
     #config-form {
         width: 80%;
         max-width: 100;
@@ -82,7 +82,7 @@ class OpenRAGTUI(App):
         padding: 1;
         height: auto;
     }
-    
+
     #config-form Input {
         margin-bottom: 1;
         width: 100%;
@@ -99,7 +99,7 @@ class OpenRAGTUI(App):
         width: auto;
         min-width: 12;
     }
-    
+
     #config-form Label {
         margin-bottom: 0;
         padding-left: 1;
@@ -145,18 +145,18 @@ class OpenRAGTUI(App):
     }
 
     /* Docs path actions row */
-    
+
     #services-content {
         height: 100%;
     }
-    
+
     #runtime-status {
         background: $panel;
         border: solid $primary;
         padding: 1;
         margin-bottom: 1;
     }
-    
+
     #services-table {
         height: auto;
         max-height: 12;
@@ -169,52 +169,52 @@ class OpenRAGTUI(App):
         margin-bottom: 1;
     }
 
-    
-    
+
+
     #logs-scroll {
         height: 1fr;
         border: solid $primary;
         background: $surface;
     }
-    
+
     .controls-row {
         align: left middle;
         height: auto;
         margin: 1 0;
     }
-    
+
     .controls-row > * {
         margin-right: 1;
     }
-    
+
     .label {
         width: auto;
         margin-right: 1;
         text-style: bold;
     }
-    
+
     #system-info {
         background: $panel;
         border: solid $primary;
         padding: 2;
         height: 1fr;
     }
-    
+
     TabbedContent {
         height: 1fr;
     }
-    
+
     TabPane {
         padding: 1;
         height: 1fr;
     }
-    
+
     .tab-header {
         text-style: bold;
         color: $accent;
         margin-bottom: 1;
     }
-    
+
     TabPane ScrollableContainer {
         height: 100%;
         padding: 1;
@@ -367,7 +367,7 @@ class OpenRAGTUI(App):
         self.container_manager = ContainerManager()
         self.env_manager = EnvManager()
         self.docling_manager = DoclingManager()  # Initialize singleton instance
-    
+
     def notify(
         self,
         message: str,
@@ -457,17 +457,17 @@ def _copy_assets(resource_tree, destination: Path, allowed_suffixes: Optional[It
 
 def copy_sample_documents(*, force: bool = False) -> None:
     """Copy sample documents from package to host directory.
-    
+
     Uses the first path from OPENRAG_DOCUMENTS_PATHS env var.
     Defaults to ~/.openrag/documents if not configured.
     """
     from .managers.env_manager import EnvManager
     from pathlib import Path
-    
+
     # Get the configured documents path from env
     env_manager = EnvManager()
     env_manager.load_existing_env()
-    
+
     # Parse the first path from the documents paths config
     documents_path_str = env_manager.config.openrag_documents_paths
     if documents_path_str:
@@ -478,7 +478,7 @@ def copy_sample_documents(*, force: bool = False) -> None:
     else:
         # Default fallback
         documents_dir = Path.home() / ".openrag" / "documents"
-    
+
     documents_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -504,11 +504,11 @@ def copy_sample_documents(*, force: bool = False) -> None:
 
 def copy_sample_flows(*, force: bool = False) -> None:
     """Copy sample flows from package to host directory.
-    
+
     Flows are placed in ~/.openrag/flows/ which will be volume-mounted to containers.
     """
     from pathlib import Path
-    
+
     # Flows always go to ~/.openrag/flows/ - this will be volume-mounted
     flows_dir = Path.home() / ".openrag" / "flows"
     flows_dir.mkdir(parents=True, exist_ok=True)
@@ -524,7 +524,7 @@ def copy_sample_flows(*, force: bool = False) -> None:
 def copy_compose_files(*, force: bool = False) -> None:
     """Copy docker-compose templates into the TUI workspace if they are missing."""
     from utils.paths import get_tui_compose_file
-    
+
     try:
         assets_root = files("tui._assets")
     except Exception as e:
@@ -534,7 +534,7 @@ def copy_compose_files(*, force: bool = False) -> None:
     for filename in ("docker-compose.yml", "docker-compose.gpu.yml"):
         is_gpu = "gpu" in filename
         destination = get_tui_compose_file(gpu=is_gpu)
-        
+
         if destination.exists() and not force:
             continue
 
@@ -610,7 +610,7 @@ def migrate_legacy_data_directories():
             env_manager.config.openrag_data_path = f"{home}/.openrag/data"
             env_manager.config.opensearch_data_path = f"{home}/.openrag/data/opensearch-data"
             env_manager.config.langflow_data_path = f"{home}/.openrag/data/langflow-data"
-            env_manager.save_env()
+            env_manager.save_env_file()
             logger.info("Updated .env file with centralized paths")
         except Exception as e:
             logger.warning(f"Failed to update .env paths: {e}")
@@ -690,7 +690,7 @@ def migrate_legacy_data_directories():
         env_manager.config.openrag_data_path = f"{home}/.openrag/data"
         env_manager.config.opensearch_data_path = f"{home}/.openrag/data/opensearch-data"
         env_manager.config.langflow_data_path = f"{home}/.openrag/data/langflow-data"
-        env_manager.save_env()
+        env_manager.save_env_file()
         print("  Updated .env with centralized paths")
         logger.info("Updated .env file with centralized paths")
     except Exception as e:
@@ -810,12 +810,18 @@ def _resolve_langflow_data_path(base_dir: Path) -> Path:
         if not resolved.is_absolute():
             logger.warning(
                 f"LANGFLOW_DATA_PATH='{raw}' is a relative path, which is not supported "
-                f"in the TUI. Using default: {default}"
+                f"in the TUI. Resetting to default: {default}"
             )
+            try:
+                env_manager.config.langflow_data_path = str(default)
+                env_manager.save_env_file()
+                logger.info(f"Updated LANGFLOW_DATA_PATH to {default} in {env_manager.env_file}")
+            except Exception as write_err:
+                logger.error(f"Could not update LANGFLOW_DATA_PATH in env file: {write_err}")
             return default
         return resolved
     except Exception as e:
-        logger.debug(f"Could not read LANGFLOW_DATA_PATH from env, using default: {e}")
+        logger.error(f"Could not read LANGFLOW_DATA_PATH from env, using default: {e}")
         return default
 
 
