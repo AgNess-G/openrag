@@ -10,6 +10,7 @@ inside the container after the mount is established.
 """
 import os
 import pathlib
+import pwd
 import sys
 
 data_dir = pathlib.Path("/app/langflow-data")
@@ -19,8 +20,24 @@ try:
 except OSError:
     pass
 
+# Look up uid 1000's passwd entry so we can restore HOME and USER correctly
+# after dropping privileges.  Running as root (USER root in Dockerfile) sets
+# HOME=/root; leaving it unchanged causes uv to try /root/.cache/uv, which
+# uid 1000 cannot write to.
+try:
+    pw = pwd.getpwuid(1000)
+    home = pw.pw_dir
+    user = pw.pw_name
+except KeyError:
+    home = "/app"
+    user = "langflow"
+
 # Drop from root to langflow (uid=1000, gid=1000).
 os.setgid(1000)
 os.setuid(1000)
+
+# Restore environment variables to reflect the unprivileged user.
+os.environ["HOME"] = home
+os.environ["USER"] = user
 
 os.execvp(sys.argv[1], sys.argv[1:])
