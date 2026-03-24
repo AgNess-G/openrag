@@ -1,6 +1,7 @@
 FROM langflowai/langflow:1.8.0
 
-RUN pip install uv
+RUN pip install uv \
+    && pip uninstall -y litellm
 
 EXPOSE 7860
 
