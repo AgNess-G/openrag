@@ -322,6 +322,7 @@ help_utils: ## Show utility commands
 
 ensure-langflow-data: ## Create the langflow-data directory if it does not exist
 	@mkdir -p langflow-data
+	@chmod 777 langflow-data
 
 dev: ensure-langflow-data ## Start full stack with GPU support
 	@echo "$(YELLOW)Starting OpenRAG with GPU support...$(NC)"
