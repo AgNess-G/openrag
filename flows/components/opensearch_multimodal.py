@@ -27,6 +27,184 @@ from lfx.io import (
 from lfx.log import logger
 from lfx.schema.data import Data
 
+# Chat filter merge (inline; keep in sync with flows/components/opensearch_filter_merge_standalone.py).
+
+
+def _is_placeholder_term(term_obj: dict) -> bool:
+    return any(v == "__IMPOSSIBLE_VALUE__" for v in term_obj.values())
+
+
+def coerce_filter_clauses_from_filter_obj(filter_obj: dict | str | None) -> list[dict]:
+    """Convert chat ``filter_expression`` JSON into OpenSearch filter clauses (term/terms).
+
+    Format A — explicit filters:
+        {"filter": [{"term": {...}}, {"terms": {...}}], "limit": ..., "score_threshold": ...}
+
+    Format B — context-style keys (aligned with ``chat_service`` field mapping):
+        data_sources → filename, document_types → mimetype, owners → owner,
+        connector_types → connector_type.
+    """
+    if not filter_obj:
+        return []
+
+    if isinstance(filter_obj, str):
+        try:
+            filter_obj = json.loads(filter_obj)
+        except json.JSONDecodeError:
+            return []
+
+    if not isinstance(filter_obj, dict):
+        return []
+
+    if "filter" in filter_obj:
+        raw = filter_obj["filter"]
+        if isinstance(raw, dict):
+            raw = [raw]
+        explicit_clauses: list[dict] = []
+        for f in raw or []:
+            if "term" in f and isinstance(f["term"], dict) and not _is_placeholder_term(f["term"]):
+                explicit_clauses.append(f)
+            elif "terms" in f and isinstance(f["terms"], dict):
+                terms_map = f["terms"]
+                if not terms_map:
+                    continue
+                field, vals = next(iter(terms_map.items()))
+                if isinstance(vals, list) and len(vals) > 0:
+                    explicit_clauses.append(f)
+        return explicit_clauses
+
+    field_mapping = {
+        "data_sources": "filename",
+        "document_types": "mimetype",
+        "owners": "owner",
+        "connector_types": "connector_type",
+    }
+    context_clauses: list[dict] = []
+    for k, values in filter_obj.items():
+        if not isinstance(values, list):
+            continue
+        field = field_mapping.get(k, k)
+        if len(values) == 0:
+            context_clauses.append({"term": {field: "__IMPOSSIBLE_VALUE__"}})
+        elif len(values) == 1:
+            if values[0] != "__IMPOSSIBLE_VALUE__":
+                context_clauses.append({"term": {field: values[0]}})
+        else:
+            context_clauses.append({"terms": {field: values}})
+    return context_clauses
+
+
+def _append_to_bool_filter(bool_q: dict[str, Any], filter_clauses: list[dict]) -> None:
+    existing = bool_q.get("filter")
+    if existing is None:
+        bool_q["filter"] = list(filter_clauses)
+    elif isinstance(existing, list):
+        bool_q["filter"] = [*existing, *filter_clauses]
+    else:
+        bool_q["filter"] = [existing, *filter_clauses]
+
+
+def _inject_filter_into_top_level_knn(
+    knn_payload: dict[str, Any], filter_clauses: list[dict]
+) -> dict[str, Any]:
+    """Add OpenSearch kNN ``filter`` to each vector field in a top-level ``knn`` block."""
+    out = copy.deepcopy(knn_payload)
+    scope = {"bool": {"filter": list(filter_clauses)}}
+    for _field, spec in out.items():
+        if not isinstance(spec, dict):
+            continue
+        existing = spec.get("filter")
+        if existing is None:
+            spec["filter"] = scope
+        else:
+            spec["filter"] = {"bool": {"must": [existing, scope]}}
+    return out
+
+
+def merge_filter_clauses_into_search_body(
+    body: dict[str, Any], filter_clauses: list[dict]
+) -> dict[str, Any]:
+    """AND filter clauses into a search body. Does not mutate ``body``.
+
+    - If there is no top-level ``query``, uses ``{"bool": {"filter": clauses}}`` — unless
+      the body only has a top-level ``knn`` block (see below).
+    - If ``query`` is already a ``bool`` query, appends to ``bool.filter`` (or wraps
+      a single existing filter in a list).
+    - Otherwise wraps the existing ``query`` as ``bool.must`` and sets ``bool.filter``.
+
+    OpenSearch allows a **top-level** ``knn`` block (sibling of ``query``). Filters on
+    ``query`` alone do not constrain that kNN execution; we inject the same clauses
+    into each field's ``filter`` in the top-level ``knn`` map (see OpenSearch kNN docs).
+    """
+    if not filter_clauses:
+        return copy.deepcopy(body)
+    merged = copy.deepcopy(body)
+
+    knn_block = merged.get("knn")
+    if isinstance(knn_block, dict) and knn_block:
+        merged["knn"] = _inject_filter_into_top_level_knn(knn_block, filter_clauses)
+
+    q = merged.get("query")
+    if q is None:
+        # Avoid adding query={bool:filter} alone when kNN is already scoped above —
+        # that combination can leave top-level kNN unscoped relative to the filter query.
+        if isinstance(merged.get("knn"), dict) and merged["knn"]:
+            return merged
+        merged["query"] = {"bool": {"filter": filter_clauses}}
+        return merged
+    if isinstance(q, dict) and "bool" in q:
+        _append_to_bool_filter(q["bool"], filter_clauses)
+        return merged
+    merged["query"] = {"bool": {"must": [q], "filter": filter_clauses}}
+    return merged
+
+
+def apply_chat_filter_limits_to_body(
+    body: dict[str, Any], filter_obj: dict | None
+) -> dict[str, Any]:
+    """Apply ``limit`` / ``score_threshold`` from chat filter JSON when ``size`` / ``min_score`` are absent."""
+    if not filter_obj:
+        return copy.deepcopy(body)
+    out = copy.deepcopy(body)
+    if filter_obj.get("limit") is not None and "size" not in out:
+        out["size"] = filter_obj["limit"]
+    st = filter_obj.get("score_threshold")
+    if isinstance(st, (int, float)) and st > 0 and "min_score" not in out:
+        out["min_score"] = st
+    return out
+
+
+def _filter_expression_dict_for_limits(filter_expression: dict | str | None) -> dict | None:
+    """Normalize ``filter_expression`` to a dict for :func:`apply_chat_filter_limits_to_body`, or ``None``."""
+    if filter_expression is None:
+        return None
+    if isinstance(filter_expression, str):
+        if not filter_expression.strip():
+            return None
+        try:
+            parsed = json.loads(filter_expression)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    if isinstance(filter_expression, dict):
+        return filter_expression
+    return None
+
+
+def apply_chat_filter_expression_to_search_body(
+    raw_body: dict[str, Any],
+    filter_expression: dict | str | None,
+) -> dict[str, Any]:
+    """Apply chat ``filter_expression`` to an OpenSearch request body (``raw_search`` pipeline).
+
+    Order: coerce clauses → merge into ``query`` → apply ``limit`` / ``score_threshold``.
+    Does not mutate ``raw_body``.
+    """
+    clauses = coerce_filter_clauses_from_filter_obj(filter_expression)
+    merged = merge_filter_clauses_into_search_body(raw_body, clauses)
+    limits_src = _filter_expression_dict_for_limits(filter_expression)
+    return apply_chat_filter_limits_to_body(merged, limits_src)
+
 
 def normalize_model_name(model_name: str) -> str:
     """Normalize embedding model name for use as field suffix.
@@ -353,6 +531,10 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
     def raw_search(self, query: str | None = None) -> Data:
         """Execute a raw OpenSearch query against the target index.
 
+        When ``filter_expression`` is set (e.g. chat knowledge scope), the same filter
+        clauses and optional ``limit`` / ``score_threshold`` as ``search_documents`` are
+        applied via :func:`apply_chat_filter_expression_to_search_body`.
+
         Args:
             query (dict[str, Any]): The OpenSearch query DSL dictionary.
 
@@ -360,16 +542,35 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
             Data: Search results as a Data object.
 
         Raises:
-            ValueError: If 'query' is not a valid OpenSearch query (must be a non-empty dict).
+            ValueError: If the query string is invalid JSON, the parsed body is not a JSON object,
+                or ``filter_expression`` is invalid JSON.
         """
         raw_query = query if query is not None else self.search_query
         if isinstance(raw_query, str):
-            raw_query = json.loads(raw_query)
+            try:
+                raw_query = json.loads(raw_query)
+            except json.JSONDecodeError as e:
+                msg = f"Invalid raw_search query JSON: {e}"
+                raise ValueError(msg) from e
+        if not isinstance(raw_query, dict):
+            msg = "raw_search query must be a JSON object (OpenSearch request body)."
+            raise ValueError(msg)
+
+        filter_obj = None
+        if getattr(self, "filter_expression", "") and self.filter_expression.strip():
+            try:
+                filter_obj = json.loads(self.filter_expression)
+            except json.JSONDecodeError as e:
+                msg = f"Invalid filter_expression JSON: {e}"
+                raise ValueError(msg) from e
+
+        body = apply_chat_filter_expression_to_search_body(raw_query, filter_obj)
+
         client = self.build_client()
-        logger.info(f"query: {raw_query}")
+        logger.info(f"query (after chat filter merge): {body}")
         resp = client.search(
             index=self.index_name,
-            body=raw_query,
+            body=body,
             params={"terminate_after": 0},
         )
         # Remove any _source keys whose value is a list of floats (embedding vectors)
@@ -1147,76 +1348,9 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
         self.log(f"Successfully indexed {len(return_ids)} documents with model {embedding_model}.")
 
     # ---------- helpers for filters ----------
-    def _is_placeholder_term(self, term_obj: dict) -> bool:
-        # term_obj like {"filename": "__IMPOSSIBLE_VALUE__"}
-        return any(v == "__IMPOSSIBLE_VALUE__" for v in term_obj.values())
-
-    def _coerce_filter_clauses(self, filter_obj: dict | None) -> list[dict]:
-        """Convert filter expressions into OpenSearch-compatible filter clauses.
-
-        This method accepts two filter formats and converts them to standardized
-        OpenSearch query clauses:
-
-        Format A - Explicit filters:
-        {"filter": [{"term": {"field": "value"}}, {"terms": {"field": ["val1", "val2"]}}],
-         "limit": 10, "score_threshold": 1.5}
-
-        Format B - Context-style mapping:
-        {"data_sources": ["file1.pdf"], "document_types": ["pdf"], "owners": ["user1"]}
-
-        Args:
-            filter_obj: Filter configuration dictionary or None
-
-        Returns:
-            List of OpenSearch filter clauses (term/terms objects)
-            Placeholder values with "__IMPOSSIBLE_VALUE__" are ignored
-        """
-        if not filter_obj:
-            return []
-
-        # If it is a string, try to parse it once
-        if isinstance(filter_obj, str):
-            try:
-                filter_obj = json.loads(filter_obj)
-            except json.JSONDecodeError:
-                # Not valid JSON - treat as no filters
-                return []
-
-        # Case A: already an explicit list/dict under "filter"
-        if "filter" in filter_obj:
-            raw = filter_obj["filter"]
-            if isinstance(raw, dict):
-                raw = [raw]
-            explicit_clauses: list[dict] = []
-            for f in raw or []:
-                if "term" in f and isinstance(f["term"], dict) and not self._is_placeholder_term(f["term"]):
-                    explicit_clauses.append(f)
-                elif "terms" in f and isinstance(f["terms"], dict):
-                    field, vals = next(iter(f["terms"].items()))
-                    if isinstance(vals, list) and len(vals) > 0:
-                        explicit_clauses.append(f)
-            return explicit_clauses
-
-        # Case B: convert context-style maps into clauses
-        field_mapping = {
-            "data_sources": "filename",
-            "document_types": "mimetype",
-            "owners": "owner",
-        }
-        context_clauses: list[dict] = []
-        for k, values in filter_obj.items():
-            if not isinstance(values, list):
-                continue
-            field = field_mapping.get(k, k)
-            if len(values) == 0:
-                # Match-nothing placeholder (kept to mirror your tool semantics)
-                context_clauses.append({"term": {field: "__IMPOSSIBLE_VALUE__"}})
-            elif len(values) == 1:
-                if values[0] != "__IMPOSSIBLE_VALUE__":
-                    context_clauses.append({"term": {field: values[0]}})
-            else:
-                context_clauses.append({"terms": {field: values}})
-        return context_clauses
+    def _coerce_filter_clauses(self, filter_obj: dict | str | None) -> list[dict]:
+        """Delegate to :func:`coerce_filter_clauses_from_filter_obj` (shared with ``raw_search`` / tests)."""
+        return coerce_filter_clauses_from_filter_obj(filter_obj)
 
     def _detect_available_models(self, client: OpenSearch, filter_clauses: list[dict] | None = None) -> list[str]:
         """Detect which embedding models have documents in the index.
