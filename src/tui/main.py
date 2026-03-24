@@ -562,7 +562,7 @@ def migrate_legacy_data_directories():
     """Migrate data from CWD-based directories to ~/.openrag/.
 
     This is a one-time migration for users upgrading from the old layout.
-    Migrates: documents, flows, keys, config, opensearch-data
+    Migrates: documents, flows, keys, config, opensearch-data, langflow-data
 
     Prompts user for confirmation before migrating. If user declines,
     exits with a message to downgrade to v1.52 or earlier.
@@ -585,6 +585,7 @@ def migrate_legacy_data_directories():
         (cwd / "keys", target_base / "keys", "keys"),
         (cwd / "config", target_base / "config", "config"),
         (cwd / "opensearch-data", target_base / "data" / "opensearch-data", "OpenSearch data"),
+        (cwd / "langflow-data", target_base / "data" / "langflow-data", "Langflow data"),
     ]
 
     # Check which sources exist and need migration
@@ -608,6 +609,7 @@ def migrate_legacy_data_directories():
             env_manager.config.openrag_config_path = f"{home}/.openrag/config"
             env_manager.config.openrag_data_path = f"{home}/.openrag/data"
             env_manager.config.opensearch_data_path = f"{home}/.openrag/data/opensearch-data"
+            env_manager.config.langflow_data_path = f"{home}/.openrag/data/langflow-data"
             env_manager.save_env()
             logger.info("Updated .env file with centralized paths")
         except Exception as e:
@@ -687,6 +689,7 @@ def migrate_legacy_data_directories():
         env_manager.config.openrag_config_path = f"{home}/.openrag/config"
         env_manager.config.openrag_data_path = f"{home}/.openrag/data"
         env_manager.config.opensearch_data_path = f"{home}/.openrag/data/opensearch-data"
+        env_manager.config.langflow_data_path = f"{home}/.openrag/data/langflow-data"
         env_manager.save_env()
         print("  Updated .env with centralized paths")
         logger.info("Updated .env file with centralized paths")
@@ -753,6 +756,7 @@ def setup_host_directories():
     - ~/.openrag/config/ (for configuration)
     - ~/.openrag/data/ (for backend data: conversations, OAuth tokens, etc.)
     - ~/.openrag/data/opensearch-data/ (for OpenSearch index)
+    - LANGFLOW_DATA_PATH (for Langflow database and state)
     """
     base_dir = Path.home() / ".openrag"
     directories = [
@@ -768,8 +772,51 @@ def setup_host_directories():
         directory.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Ensured directory exists: {directory}")
 
+    # Resolve the configured LANGFLOW_DATA_PATH so we pre-create the exact
+    # directory that Docker/Podman will mount, regardless of user customisation.
+    langflow_data_dir = _resolve_langflow_data_path(base_dir)
+    langflow_data_dir.mkdir(parents=True, exist_ok=True)
+    logger.debug(f"Ensured directory exists: {langflow_data_dir}")
+
+    # langflow-data must be world-writable so the Langflow container user (uid 1000)
+    # can write into it on macOS where Podman's :U uid-remapping does not reliably
+    # update host directory ownership through the VM layer.
+    os.chmod(langflow_data_dir, 0o777)
+
     # Generate JWT keys on host to avoid container permission issues
     generate_jwt_keys(base_dir / "keys")
+
+
+def _resolve_langflow_data_path(base_dir: Path) -> Path:
+    """Return the absolute path for the Langflow data directory.
+
+    Reads LANGFLOW_DATA_PATH from the TUI .env file when available; falls back
+    to the default location (~/.openrag/data/langflow-data).
+
+    Relative paths are not valid in the TUI context because the process working
+    directory is unpredictable.  If a relative path is found the default is used
+    and a warning is logged so the user can correct their configuration.
+    """
+    default = base_dir / "data" / "langflow-data"
+    try:
+        from .managers.env_manager import EnvManager
+        env_manager = EnvManager()
+        env_manager.load_existing_env()
+        raw = env_manager.config.langflow_data_path
+        if not raw:
+            return default
+        expanded = raw.replace("$HOME", str(Path.home()))
+        resolved = Path(expanded).expanduser()
+        if not resolved.is_absolute():
+            logger.warning(
+                f"LANGFLOW_DATA_PATH='{raw}' is a relative path, which is not supported "
+                f"in the TUI. Using default: {default}"
+            )
+            return default
+        return resolved
+    except Exception as e:
+        logger.debug(f"Could not read LANGFLOW_DATA_PATH from env, using default: {e}")
+        return default
 
 
 def _run_tui_app():
