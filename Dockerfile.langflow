@@ -4,6 +4,7 @@ FROM langflowai/langflow:1.8.0
 # Install uv and pre-create the Langflow data directory.
 # The base image already runs as uid=1000 and owns /app, so no root or chown needed.
 RUN pip install uv \
+    && pip uninstall -y litellm \
     && mkdir -p /app/langflow-data
 
 # OpenSearch component imports OpenRAG utils (e.g. ``apply_chat_filter_expression_to_search_body``).
