@@ -10,11 +10,6 @@ from typing import Any
 from opensearchpy import OpenSearch, helpers
 from opensearchpy.exceptions import OpenSearchException, RequestError
 
-from utils.opensearch_filter_merge import (
-    apply_chat_filter_expression_to_search_body,
-    coerce_filter_clauses_from_filter_obj,
-)
-
 from lfx.base.vectorstores.model import LCVectorStoreComponent, check_cached_vector_store
 from lfx.base.vectorstores.vector_store_connection_decorator import vector_store_connection
 
@@ -358,10 +353,6 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
     def raw_search(self, query: str | None = None) -> Data:
         """Execute a raw OpenSearch query against the target index.
 
-        When ``filter_expression`` is set (e.g. chat knowledge scope), the same filter
-        clauses and optional ``limit`` / ``score_threshold`` as ``search_documents`` are
-        applied via :func:`apply_chat_filter_expression_to_search_body`.
-
         Args:
             query (dict[str, Any]): The OpenSearch query DSL dictionary.
 
@@ -369,35 +360,16 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
             Data: Search results as a Data object.
 
         Raises:
-            ValueError: If the query string is invalid JSON, the parsed body is not a JSON object,
-                or ``filter_expression`` is invalid JSON.
+            ValueError: If 'query' is not a valid OpenSearch query (must be a non-empty dict).
         """
         raw_query = query if query is not None else self.search_query
         if isinstance(raw_query, str):
-            try:
-                raw_query = json.loads(raw_query)
-            except json.JSONDecodeError as e:
-                msg = f"Invalid raw_search query JSON: {e}"
-                raise ValueError(msg) from e
-        if not isinstance(raw_query, dict):
-            msg = "raw_search query must be a JSON object (OpenSearch request body)."
-            raise ValueError(msg)
-
-        filter_obj = None
-        if getattr(self, "filter_expression", "") and self.filter_expression.strip():
-            try:
-                filter_obj = json.loads(self.filter_expression)
-            except json.JSONDecodeError as e:
-                msg = f"Invalid filter_expression JSON: {e}"
-                raise ValueError(msg) from e
-
-        body = apply_chat_filter_expression_to_search_body(raw_query, filter_obj)
-
+            raw_query = json.loads(raw_query)
         client = self.build_client()
-        logger.info(f"query (after chat filter merge): {body}")
+        logger.info(f"query: {raw_query}")
         resp = client.search(
             index=self.index_name,
-            body=body,
+            body=raw_query,
             params={"terminate_after": 0},
         )
         # Remove any _source keys whose value is a list of floats (embedding vectors)
@@ -1175,9 +1147,76 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
         self.log(f"Successfully indexed {len(return_ids)} documents with model {embedding_model}.")
 
     # ---------- helpers for filters ----------
-    def _coerce_filter_clauses(self, filter_obj: dict | str | None) -> list[dict]:
-        """Delegate to :func:`coerce_filter_clauses_from_filter_obj` (shared with ``raw_search`` / tests)."""
-        return coerce_filter_clauses_from_filter_obj(filter_obj)
+    def _is_placeholder_term(self, term_obj: dict) -> bool:
+        # term_obj like {"filename": "__IMPOSSIBLE_VALUE__"}
+        return any(v == "__IMPOSSIBLE_VALUE__" for v in term_obj.values())
+
+    def _coerce_filter_clauses(self, filter_obj: dict | None) -> list[dict]:
+        """Convert filter expressions into OpenSearch-compatible filter clauses.
+
+        This method accepts two filter formats and converts them to standardized
+        OpenSearch query clauses:
+
+        Format A - Explicit filters:
+        {"filter": [{"term": {"field": "value"}}, {"terms": {"field": ["val1", "val2"]}}],
+         "limit": 10, "score_threshold": 1.5}
+
+        Format B - Context-style mapping:
+        {"data_sources": ["file1.pdf"], "document_types": ["pdf"], "owners": ["user1"]}
+
+        Args:
+            filter_obj: Filter configuration dictionary or None
+
+        Returns:
+            List of OpenSearch filter clauses (term/terms objects)
+            Placeholder values with "__IMPOSSIBLE_VALUE__" are ignored
+        """
+        if not filter_obj:
+            return []
+
+        # If it is a string, try to parse it once
+        if isinstance(filter_obj, str):
+            try:
+                filter_obj = json.loads(filter_obj)
+            except json.JSONDecodeError:
+                # Not valid JSON - treat as no filters
+                return []
+
+        # Case A: already an explicit list/dict under "filter"
+        if "filter" in filter_obj:
+            raw = filter_obj["filter"]
+            if isinstance(raw, dict):
+                raw = [raw]
+            explicit_clauses: list[dict] = []
+            for f in raw or []:
+                if "term" in f and isinstance(f["term"], dict) and not self._is_placeholder_term(f["term"]):
+                    explicit_clauses.append(f)
+                elif "terms" in f and isinstance(f["terms"], dict):
+                    field, vals = next(iter(f["terms"].items()))
+                    if isinstance(vals, list) and len(vals) > 0:
+                        explicit_clauses.append(f)
+            return explicit_clauses
+
+        # Case B: convert context-style maps into clauses
+        field_mapping = {
+            "data_sources": "filename",
+            "document_types": "mimetype",
+            "owners": "owner",
+        }
+        context_clauses: list[dict] = []
+        for k, values in filter_obj.items():
+            if not isinstance(values, list):
+                continue
+            field = field_mapping.get(k, k)
+            if len(values) == 0:
+                # Match-nothing placeholder (kept to mirror your tool semantics)
+                context_clauses.append({"term": {field: "__IMPOSSIBLE_VALUE__"}})
+            elif len(values) == 1:
+                if values[0] != "__IMPOSSIBLE_VALUE__":
+                    context_clauses.append({"term": {field: values[0]}})
+            else:
+                context_clauses.append({"terms": {field: values}})
+        return context_clauses
 
     def _detect_available_models(self, client: OpenSearch, filter_clauses: list[dict] | None = None) -> list[str]:
         """Detect which embedding models have documents in the index.
