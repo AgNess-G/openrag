@@ -50,15 +50,15 @@ async def fetch_ibm_public_key(url: str):
 
 
 def extract_ibm_credentials(basic_credentials: str) -> tuple[str, str]:
-    """Decode a 'Basic <base64>' string and return (username, password).
+    """Decode a Basic credential string and return (username, password).
 
-    Returns ("unknown", "") if the string is not a valid Basic credential.
+    Accepts either ``'Basic <base64>'`` or raw ``'<base64>'`` (no prefix).
+    Returns ("unknown", "") if decoding fails.
     """
     import base64
-    if not basic_credentials.startswith("Basic "):
-        return ("unknown", "")
     try:
-        decoded = base64.b64decode(basic_credentials[6:]).decode("utf-8")
+        raw = basic_credentials[6:] if basic_credentials.startswith("Basic ") else basic_credentials
+        decoded = base64.b64decode(raw).decode("utf-8")
         username, _, password = decoded.partition(":")
         return (username, password)
     except Exception:

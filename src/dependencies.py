@@ -127,7 +127,7 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             email = claims.get("username", claims["sub"])
             name = claims.get("display_name", claims.get("username", claims["sub"]))
 
-    if lh_credentials.startswith("Basic "):
+    if lh_credentials and lh_credentials.strip() != "":
         opensearch_username, _ = extract_ibm_credentials(lh_credentials)
 
         # Persist credentials to connections.json for reuse by background processes
@@ -145,7 +145,7 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             name=name,
             picture=None,
             provider="ibm_ams",
-            jwt_token=lh_credentials,
+            jwt_token=f"Basic {lh_credentials}",
             opensearch_username=opensearch_username,
             opensearch_credentials=lh_credentials,
         )
@@ -166,10 +166,10 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
         opensearch_username = None
         opensearch_credentials = None
         jwt_token = f"Bearer {ibm_token}"
-        if lh_credentials and lh_credentials.startswith("Basic "):
+        if lh_credentials and lh_credentials.strip() != "":
             opensearch_username, _ = extract_ibm_credentials(lh_credentials)
             opensearch_credentials = lh_credentials
-            jwt_token = lh_credentials
+            jwt_token = f"Basic {lh_credentials}"
         else:
             logger.warning("IBM LH credentials not found in header or connections store.Using JWT token instead.")
         user = User(

@@ -24,7 +24,7 @@ class User:
     last_login: datetime = None
     jwt_token: Optional[str] = None
     opensearch_username: Optional[str] = None
-    opensearch_credentials: Optional[str] = None  # Full "Basic <base64>" string
+    opensearch_credentials: Optional[str] = None  # Raw base64 credentials (without "Basic " prefix)
 
     def __post_init__(self):
         if self.created_at is None:

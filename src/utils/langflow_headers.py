@@ -5,26 +5,23 @@ from utils.container_utils import transform_localhost_url
 
 
 def build_ibm_opensearch_vars(
-    basic_credentials: str,
+    credentials: str,
     prefix: str = "X-LANGFLOW-GLOBAL-VAR-",
 ) -> Dict[str, str]:
-    """Build IBM OpenSearch auth vars from a Basic credential string.
+    """Build IBM OpenSearch auth vars from a credential string.
 
-    Returns a dict with three keys (using the given prefix):
-      - {prefix}OPENSEARCH_USERNAME  — decoded username
-      - {prefix}OPENSEARCH_PASSWORD  — decoded password
-      - {prefix}JWT                  — the full "Basic <b64>" string, used by Langflow
-                                        components that authenticate OpenSearch via JWT header
+    Supports both ``'Basic <b64>'`` (extracts username/password + JWT) and
+    ``'Bearer <token>'`` (JWT only, no username/password).
 
     Pass prefix="X-LANGFLOW-GLOBAL-VAR-" for HTTP headers, or prefix="" for MCP global vars.
     """
-    from auth.ibm_auth import extract_ibm_credentials
-    username, password = extract_ibm_credentials(basic_credentials)
-    return {
-        f"{prefix}OPENSEARCH_USERNAME": username,
-        f"{prefix}OPENSEARCH_PASSWORD": password,
-        f"{prefix}JWT": basic_credentials,
-    }
+    result = {f"{prefix}JWT": credentials}
+    if credentials.startswith("Basic "):
+        from auth.ibm_auth import extract_ibm_credentials
+        username, password = extract_ibm_credentials(credentials)
+        result[f"{prefix}OPENSEARCH_USERNAME"] = username
+        result[f"{prefix}OPENSEARCH_PASSWORD"] = password
+    return result
 
 
 async def add_provider_credentials_to_headers(
@@ -39,9 +36,9 @@ async def add_provider_credentials_to_headers(
         headers: Dictionary of headers to add credentials to
         config: OpenRAGConfig object containing provider configurations
         flows_service: Optional FlowsService instance to resolve Ollama URLs.
-        jwt_token: Optional JWT / Basic credential string. When IBM_AUTH_ENABLED and this
-                   is a "Basic ..." string, OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD, and
-                   JWT are injected as Langflow global variables.
+        jwt_token: Optional credential string (``'Basic <b64>'`` or ``'Bearer <jwt>'``).
+                   When IBM_AUTH_ENABLED, injected as Langflow global variables. Basic
+                   credentials additionally provide OPENSEARCH_USERNAME and OPENSEARCH_PASSWORD.
     """
     # Add OpenAI credentials
     if config.providers.openai.api_key:
@@ -86,9 +83,9 @@ async def build_mcp_global_vars_from_config(
     Args:
         config: OpenRAGConfig object containing provider configurations
         flows_service: Optional FlowsService instance to resolve Ollama URLs.
-        jwt_token: Optional JWT / Basic credential string. When IBM_AUTH_ENABLED and this
-                   is a "Basic ..." string, OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD, and
-                   JWT are injected as global variables.
+        jwt_token: Optional credential string (``'Basic <b64>'`` or ``'Bearer <jwt>'``).
+                   When IBM_AUTH_ENABLED, injected as global variables. Basic credentials
+                   additionally provide OPENSEARCH_USERNAME and OPENSEARCH_PASSWORD.
 
     Returns:
         Dictionary of global variables for MCP servers (without X-Langflow-Global-Var prefix)
