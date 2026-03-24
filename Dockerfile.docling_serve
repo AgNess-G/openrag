@@ -1,0 +1,30 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps (needed for OCR + OpenCV)
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libgl1 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast package runner)
+RUN pip install --no-cache-dir uv
+
+# Install docling-serve with all extras
+RUN uv pip install \
+    "docling-serve[ui]==1.5.0" \
+    onnxruntime \
+    easyocr \
+    "docling[easyocr,rapidocr,vlm]" \
+    "docling-core==2.48.1" \
+    opencv-python-headless
+
+# Expose port
+EXPOSE 8000
+
+# Start server
+CMD ["docling-serve", "run", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
