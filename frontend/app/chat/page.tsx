@@ -7,9 +7,9 @@ import { ProtectedRoute } from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { type EndpointType, useChat } from "@/contexts/chat-context";
 import { useTask } from "@/contexts/task-context";
-import { useChatStreaming } from "@/hooks/useChatStreaming";
 import { FILE_CONFIRMATION, FILES_REGEX } from "@/lib/constants";
 import { buildSearchPayloadFilters } from "@/lib/filter-normalization";
+import { useChatStreamStore } from "@/stores/chatStreamStore";
 import { useLoadingStore } from "@/stores/loadingStore";
 import { useGetConversationsQuery } from "../api/queries/useGetConversationsQuery";
 import { useGetNudgesQuery } from "../api/queries/useGetNudgesQuery";
@@ -97,59 +97,13 @@ function ChatPage() {
 
   // Use the chat streaming hook
   const apiEndpoint = endpoint === "chat" ? "/api/chat" : "/api/langflow";
-  const {
-    streamingMessage,
-    sendMessage: sendStreamingMessage,
-    abortStream,
-    isLoading: isStreamLoading,
-  } = useChatStreaming({
-    endpoint: apiEndpoint,
-    onComplete: (message, responseId) => {
-      setMessages((prev) => [...prev, message]);
-      setLoading(false);
-      setWaitingTooLong(false);
-      if (responseId) {
-        cancelNudges();
-        setPreviousResponseIds((prev) => ({
-          ...prev,
-          [endpoint]: responseId,
-        }));
-
-        if (!currentConversationId) {
-          setCurrentConversationId(responseId);
-          refreshConversations(true);
-        } else {
-          refreshConversationsSilent();
-        }
-
-        // Save filter association for this response
-        if (conversationFilter && typeof window !== "undefined") {
-          const newKey = `conversation_filter_${responseId}`;
-          localStorage.setItem(newKey, conversationFilter.id);
-          console.log(
-            "[CHAT] Saved filter association:",
-            newKey,
-            "=",
-            conversationFilter.id,
-          );
-        }
-      }
-    },
-    onError: (error) => {
-      console.error("Streaming error:", error);
-      setLoading(false);
-      setWaitingTooLong(false);
-      // Set chat error flag to trigger test_completion=true on health checks
-      setChatError(true);
-      const errorMessage: Message = {
-        role: "assistant",
-        content:
-          "Sorry, I couldn't connect to the chat service. Please try again.",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    },
-  });
+  const streamingMessage = useChatStreamStore(
+    (state) => state.streamingMessage,
+  );
+  const sendStoreMessage = useChatStreamStore((state) => state.sendMessage);
+  const abortStream = useChatStreamStore((state) => state.abortStream);
+  const isStreamLoading = useChatStreamStore((state) => state.isLoading);
+  const setCallbacks = useChatStreamStore((state) => state.setCallbacks);
 
   // Show warning if waiting too long (20 seconds)
   useEffect(() => {
@@ -682,6 +636,83 @@ function ChatPage() {
     },
   );
 
+  useEffect(() => {
+    setCallbacks({
+      onComplete: (message, responseId) => {
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          // If the last message is an assistant message, we likely loaded a placeholder from the DB
+          // during a remount while streaming. We should replace it instead of appending.
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [...prev.slice(0, -1), message];
+          }
+          return [...prev, message];
+        });
+        setLoading(false);
+        setWaitingTooLong(false);
+        if (responseId) {
+          cancelNudges();
+          setPreviousResponseIds((prev) => ({
+            ...prev,
+            [endpoint]: responseId,
+          }));
+
+          if (!currentConversationId) {
+            setCurrentConversationId(responseId);
+            refreshConversations(true);
+          } else {
+            refreshConversationsSilent();
+          }
+
+          // Save filter association for this response
+          if (conversationFilter && typeof window !== "undefined") {
+            const newKey = `conversation_filter_${responseId}`;
+            localStorage.setItem(newKey, conversationFilter.id);
+            console.log(
+              "[CHAT] Saved filter association:",
+              newKey,
+              "=",
+              conversationFilter.id,
+            );
+          }
+        }
+      },
+      onError: (error) => {
+        console.error("Streaming error:", error);
+        setLoading(false);
+        setWaitingTooLong(false);
+        // Set chat error flag to trigger test_completion=true on health checks
+        setChatError(true);
+        const errorMessage: Message = {
+          role: "assistant",
+          content:
+            "Sorry, I couldn't connect to the chat service. Please try again.",
+          timestamp: new Date(),
+          error: true,
+        };
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [...prev.slice(0, -1), errorMessage];
+          }
+          return [...prev, errorMessage];
+        });
+      },
+    });
+  }, [
+    setCallbacks,
+    endpoint,
+    currentConversationId,
+    conversationFilter,
+    cancelNudges,
+    setPreviousResponseIds,
+    setCurrentConversationId,
+    refreshConversations,
+    refreshConversationsSilent,
+    setChatError,
+    setLoading,
+  ]);
+
   const handleSSEStream = async (
     userMessage: Message,
     previousResponseId?: string,
@@ -702,9 +733,10 @@ function ChatPage() {
       responseIdToUse,
     });
 
-    // Use the hook to send the message
-    await sendStreamingMessage({
+    // Use the store to send the message
+    await sendStoreMessage({
       prompt: userMessage.content,
+      endpoint: apiEndpoint,
       previousResponseId: responseIdToUse || undefined,
       filters: processedFilters,
       filter_id: conversationFilter?.id, // ✅ Add filter_id for this conversation
@@ -1055,79 +1087,91 @@ function ChatPage() {
             </div>
           ) : (
             <>
-              {messages.map((message, index) =>
-                message.role === "user"
-                  ? (messages[index]?.content.match(FILES_REGEX)?.[0] ??
-                      null) === null && (
-                      <div
-                        key={`${
-                          message.role
-                        }-${index}-${message.timestamp?.getTime()}`}
-                        className="space-y-6 group"
-                      >
-                        <UserMessage
-                          animate={
-                            message.source
-                              ? message.source !== "langflow"
-                              : false
-                          }
-                          content={
-                            index >= 2 &&
-                            (messages[index - 2]?.content.match(
-                              FILES_REGEX,
-                            )?.[0] ??
-                              undefined) &&
-                            message.content === FILE_CONFIRMATION
-                              ? undefined
-                              : message.content
-                          }
-                          files={
-                            index >= 2
-                              ? (messages[index - 2]?.content.match(
-                                  FILES_REGEX,
-                                )?.[0] ?? undefined)
-                              : undefined
-                          }
-                        />
-                      </div>
-                    )
-                  : message.role === "assistant" &&
-                    (index < 1 ||
-                      (messages[index - 1]?.content.match(FILES_REGEX)?.[0] ??
-                        null) === null) && (
-                      <div
-                        key={`${
-                          message.role
-                        }-${index}-${message.timestamp?.getTime()}`}
-                        className="space-y-6 group"
-                      >
-                        {message.error ? (
-                          <ErrorMessage
-                            content={message.content}
-                            animate={false}
-                          />
-                        ) : (
-                          <AssistantMessage
-                            content={message.content}
-                            functionCalls={message.functionCalls}
-                            messageIndex={index}
-                            expandedFunctionCalls={expandedFunctionCalls}
-                            onToggle={toggleFunctionCall}
-                            showForkButton={endpoint === "chat"}
-                            onFork={(e) => handleForkConversation(index, e)}
-                            animate={false}
-                            isInactive={index < messages.length - 1}
-                            isInitialGreeting={
-                              index === 0 &&
-                              messages.length === 1 &&
-                              message.content === "How can I assist?"
-                            }
-                            usage={message.usage}
-                          />
-                        )}
-                      </div>
+              {messages
+                .filter(
+                  (message, index) =>
+                    !(
+                      isStreamLoading &&
+                      index === messages.length - 1 &&
+                      message.role === "assistant" &&
+                      (!message.content || message.content.trim() === "") &&
+                      (!message.functionCalls ||
+                        message.functionCalls.length === 0)
                     ),
-              )}
+                )
+                .map((message, index) =>
+                  message.role === "user"
+                    ? (messages[index]?.content.match(FILES_REGEX)?.[0] ??
+                        null) === null && (
+                        <div
+                          key={`${
+                            message.role
+                          }-${index}-${message.timestamp?.getTime()}`}
+                          className="space-y-6 group"
+                        >
+                          <UserMessage
+                            animate={
+                              message.source
+                                ? message.source !== "langflow"
+                                : false
+                            }
+                            content={
+                              index >= 2 &&
+                              (messages[index - 2]?.content.match(
+                                FILES_REGEX,
+                              )?.[0] ??
+                                undefined) &&
+                              message.content === FILE_CONFIRMATION
+                                ? undefined
+                                : message.content
+                            }
+                            files={
+                              index >= 2
+                                ? (messages[index - 2]?.content.match(
+                                    FILES_REGEX,
+                                  )?.[0] ?? undefined)
+                                : undefined
+                            }
+                          />
+                        </div>
+                      )
+                    : message.role === "assistant" &&
+                      (index < 1 ||
+                        (messages[index - 1]?.content.match(FILES_REGEX)?.[0] ??
+                          null) === null) && (
+                        <div
+                          key={`${
+                            message.role
+                          }-${index}-${message.timestamp?.getTime()}`}
+                          className="space-y-6 group"
+                        >
+                          {message.error ? (
+                            <ErrorMessage
+                              content={message.content}
+                              animate={false}
+                            />
+                          ) : (
+                            <AssistantMessage
+                              content={message.content}
+                              functionCalls={message.functionCalls}
+                              messageIndex={index}
+                              expandedFunctionCalls={expandedFunctionCalls}
+                              onToggle={toggleFunctionCall}
+                              showForkButton={endpoint === "chat"}
+                              onFork={(e) => handleForkConversation(index, e)}
+                              animate={false}
+                              isInactive={index < messages.length - 1}
+                              isInitialGreeting={
+                                index === 0 &&
+                                messages.length === 1 &&
+                                message.content === "How can I assist?"
+                              }
+                              usage={message.usage}
+                            />
+                          )}
+                        </div>
+                      ),
+                )}
 
               {/* Streaming Message Display */}
               {streamingMessage && (
