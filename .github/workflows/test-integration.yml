@@ -21,7 +21,7 @@ on:
 jobs:
   tests:
     runs-on:
-      labels: ["self-hosted", "linux", "ARM64", "langflow-ai-arm64-40gb-ephemeral"]
+      labels: ["self-hosted", "linux", "ARM64", "langflow-ai-arm64-40gb-ephemeral-sudo"]
     env:
       # Prefer repository/environment variable first, then secret, then a sane fallback
       OPENSEARCH_PASSWORD: ${{ vars.OPENSEARCH_PASSWORD || secrets.OPENSEARCH_PASSWORD || 'OpenRag#2025!' }}
