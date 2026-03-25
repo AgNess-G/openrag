@@ -42,7 +42,7 @@ export const DuplicateHandlingDialog: React.FC<
         ? "1 duplicate document already exists. Overwriting will replace the existing document version. This can't be undone."
         : `${duplicateCount} duplicate documents already exist. Overwriting will replace the existing document versions. This can't be undone.`
       : duplicateLabel
-        ? `A document with "${duplicateLabel}" already exists. Overwriting will replace the existing document version. This can't be undone.`
+        ? `A document named "${duplicateLabel}" already exists. Overwriting will replace the existing document version. This can't be undone.`
         : "Overwriting will replace the existing document with another version. This can't be undone.";
   const overwriteLabel =
     typeof duplicateCount === "number" ? "Overwrite duplicates" : "Overwrite";
