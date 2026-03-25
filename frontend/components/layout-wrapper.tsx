@@ -43,18 +43,28 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
     }
   }, [isMenuOpen, closePanelOnly]);
 
-  const { isLoading, isAuthenticated, isNoAuthMode } = useAuth();
+  const { isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode } = useAuth();
   const { isOnboardingComplete } = useChat();
 
-  const authPaths = ["/login", "/auth/callback"];
+  const authPaths = ["/login", "/auth/callback", "/unauthorized"];
   const isAuthPage = authPaths.includes(pathname);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated && !isNoAuthMode && !isAuthPage) {
-      const redirectUrl = `/login?redirect=${encodeURIComponent(pathname)}`;
-      router.push(redirectUrl);
+    if (isLoading || isAuthenticated || isNoAuthMode || isAuthPage) return;
+    if (isIbmAuthMode) {
+      router.push("/unauthorized");
+      return;
     }
-  }, [isLoading, isAuthenticated, isNoAuthMode, isAuthPage, pathname, router]);
+    router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
+  }, [
+    isLoading,
+    isAuthenticated,
+    isNoAuthMode,
+    isIbmAuthMode,
+    isAuthPage,
+    pathname,
+    router,
+  ]);
 
   const { data: settings, isLoading: isSettingsLoading } = useGetSettingsQuery({
     enabled: !isAuthPage && (isAuthenticated || isNoAuthMode),

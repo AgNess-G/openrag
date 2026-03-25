@@ -25,6 +25,7 @@ interface AuthContextType {
   isNoAuthMode: boolean;
   isIbmAuthMode: boolean;
   login: () => void;
+  loginWithIbm: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
 }
@@ -50,6 +51,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isIbmAuthMode, setIsIbmAuthMode] = useState(false);
 
   const checkAuth = useCallback(async () => {
+    setIsLoading(true);
     try {
       const response = await fetch("/api/auth/me");
 
@@ -61,22 +63,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const data = await response.json();
+      console.log("[checkAuth] /api/auth/me response:", data);
 
-      setIsIbmAuthMode(!!data.ibm_auth_mode);
-
-      // Check if we're in no-auth mode
-      if (data.no_auth_mode) {
+      // Check auth mode flags
+      if (data.ibm_auth_mode) {
+        setIsIbmAuthMode(true);
+        setIsNoAuthMode(false);
+        setUser(data.authenticated && data.user ? data.user : null);
+        console.log(
+          "[checkAuth] IBM auth mode — authenticated:",
+          data.authenticated,
+          "user:",
+          data.user,
+        );
+      } else if (data.no_auth_mode) {
         setIsNoAuthMode(true);
+        setIsIbmAuthMode(false);
         setUser(null);
       } else if (data.authenticated && data.user) {
         setIsNoAuthMode(false);
+        setIsIbmAuthMode(false);
         setUser(data.user);
       } else {
         setIsNoAuthMode(false);
+        setIsIbmAuthMode(false);
         setUser(null);
       }
 
       setIsLoading(false);
+      console.log("[checkAuth] done — isLoading: false");
     } catch (error) {
       console.error("Auth check failed:", error);
       // Network error - backend not ready, keep loading and retry
@@ -86,9 +101,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const login = () => {
-    // Don't allow login in no-auth mode
+    // Don't allow login in no-auth mode or IBM auth mode
     if (isNoAuthMode) {
       console.log("Login attempted in no-auth mode - ignored");
+      return;
+    }
+    if (isIbmAuthMode) {
+      console.log(
+        "Login attempted in IBM auth mode - ignored (auth managed by IBM Watsonx Data)",
+      );
       return;
     }
 
@@ -150,10 +171,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
   };
 
+  const loginWithIbm = async (username: string, password: string) => {
+    console.log("[loginWithIbm] posting to /api/auth/ibm/login");
+    const response = await fetch("/api/auth/ibm/login", {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + btoa(username + ":" + password),
+      },
+    });
+    console.log(
+      "[loginWithIbm] response status:",
+      response.status,
+      "ok:",
+      response.ok,
+    );
+    console.log(
+      "[loginWithIbm] response cookies after login:",
+      document.cookie,
+    );
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Login failed");
+    }
+    await checkAuth();
+  };
+
   const logout = async () => {
-    // Don't allow logout in no-auth mode
-    if (isNoAuthMode) {
-      console.log("Logout attempted in no-auth mode - ignored");
+    // Don't allow logout in no-auth mode or IBM auth mode
+    if (isNoAuthMode || isIbmAuthMode) {
+      console.log("Logout attempted in no-auth/IBM auth mode - ignored");
       return;
     }
 
@@ -182,6 +228,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isNoAuthMode,
     isIbmAuthMode,
     login,
+    loginWithIbm,
     logout,
     refreshAuth,
   };

@@ -14,6 +14,7 @@ Usage:
     ):
         ...
 """
+
 import dataclasses
 from typing import Optional
 
@@ -28,6 +29,7 @@ logger = get_logger(__name__)
 # ─────────────────────────────────────────────
 # Service dependencies
 # ─────────────────────────────────────────────
+
 
 def get_services(request: Request) -> dict:
     return request.app.state.services
@@ -86,10 +88,156 @@ def get_flows_service(services: dict = Depends(get_services)):
 
 
 # ─────────────────────────────────────────────
+# IBM AMS authentication helper
+# ─────────────────────────────────────────────
+
+
+async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
+    """Authenticate via IBM AMS.
+
+    0. X-IBM-LH-Credentials header (configurable via IBM_CREDENTIALS_HEADER) —
+       injected by Traefik on every forwarded request. Contains Basic credentials
+       for OpenSearch. Decoded and persisted to connections.json per user.
+    1. ibm-openrag-session cookie — set by Traefik after validating credentials
+       with AMS. JWT is decoded without re-validation (Traefik already validated).
+    2. ibm-auth-basic cookie — local dev fallback set by our ibm_login endpoint
+       when Traefik is not present.
+
+    If *required* is True, raises HTTP 401 when none is present.
+    If *required* is False, returns None instead of raising.
+    """
+    import auth.ibm_auth as ibm_auth
+    from auth.ibm_auth import extract_ibm_credentials
+    from config.settings import IBM_SESSION_COOKIE_NAME, IBM_CREDENTIALS_HEADER
+
+    # ── Option 0: Configurable credentials header (Traefik production) ───
+
+    lh_credentials = request.headers.get(IBM_CREDENTIALS_HEADER, "")
+    ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
+    user_id = None
+    email = None
+    name = None
+    if ibm_token:
+        logger.debug("[IBM Auth] IBM JWT token found in request cookies")
+        claims = ibm_auth.decode_ibm_jwt(ibm_token)
+        if claims is not None:
+            logger.debug("[IBM Auth] IBM JWT claims decoded successfully")
+            sub = claims.get("sub")
+            if not sub:
+                logger.warning("IBM JWT is missing required 'sub' claim; treating as unauthenticated")
+            else:
+                user_id = claims.get("uid") or sub
+                email = claims.get("username", sub)
+                name = claims.get("display_name", claims.get("username", sub))
+
+
+    if lh_credentials and lh_credentials.strip() != "":
+        logger.debug("[IBM Auth] IBM LH credentials found in request headers")
+        opensearch_username, _ = extract_ibm_credentials(lh_credentials)
+        logger.debug("[IBM Auth] IBM LH credentials extracted successfully")
+
+        # Persist credentials to connections.json for reuse by background processes
+        connector_service = request.app.state.services.get("connector_service")
+        if connector_service and user_id:
+            logger.debug("[IBM Auth] Upserting IBM LH credentials to connections.json")
+            await connector_service.connection_manager.upsert_ibm_credentials(
+                user_id=user_id,
+                basic_credentials=lh_credentials,
+                username=user_id,
+            )
+            logger.debug("[IBM Auth] IBM LH credentials upserted successfully")
+
+        user = User(
+            user_id=user_id,
+            email=email,
+            name=name,
+            picture=None,
+            provider="ibm_ams",
+            jwt_token=f"Basic {lh_credentials}",
+            opensearch_username=opensearch_username,
+            opensearch_credentials=lh_credentials,
+        )
+        logger.debug("[IBM Auth] User created successfully")
+        request.state.user = user
+        return user
+
+    # ── Option 1: ibm-openrag-session cookie (production via Traefik) ───
+    # ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
+    if ibm_token and user_id:
+        logger.debug("[IBM Auth] IBM JWT cookie present and user_id found")
+        logger.debug("[IBM Auth] LH credentials not available in header, reading from connections.json")
+        # lh credentials not available in header, read from connections service
+        connector_service = request.app.state.services.get("connector_service")
+        if connector_service:
+            connections = await connector_service.connection_manager.list_connections(
+                user_id=user_id, connector_type="ibm_credentials"
+            )
+            if connections:
+                lh_credentials = connections[0].config.get("basic_credentials")
+        opensearch_username = None
+        opensearch_credentials = None
+        jwt_token = f"Bearer {ibm_token}"
+        if lh_credentials and lh_credentials.strip() != "":
+            logger.debug("[IBM Auth] IBM LH credentials found in connections.json")
+            opensearch_username, _ = extract_ibm_credentials(lh_credentials)
+            logger.debug("[IBM Auth] IBM LH credentials extracted successfully")
+            opensearch_credentials = lh_credentials
+            logger.debug("[IBM Auth] IBM LH credentials set successfully")
+            jwt_token = f"Basic {lh_credentials}"
+        else:
+            logger.warning("[IBM Auth] IBM LH credentials not found in header or connections store. Using JWT token instead.")
+        user = User(
+            user_id=user_id,
+            email=email,
+            name=name,
+            picture=None,
+            provider="ibm_ams",
+            jwt_token=jwt_token,
+            opensearch_username=opensearch_username,
+            opensearch_credentials=opensearch_credentials,
+        )
+        logger.debug("[IBM Auth] User created successfully")
+        request.state.user = user
+        return user
+
+    if ibm_token and not user_id:
+        logger.warning("IBM JWT cookie present but could not extract user_id from claims.")
+        request.state.user = None
+        return None
+
+    # ── Option 2: ibm-auth-basic cookie (local dev, no Traefik) ─────────
+    auth_header = request.cookies.get("ibm-auth-basic", "")
+    if auth_header.startswith("Basic "):
+        logger.debug("[IBM Auth] Debug mode enabled, extracting IBM LH credentials from cookie")
+        username, _ = extract_ibm_credentials(auth_header)
+        logger.debug("[IBM Auth] IBM LH credentials extracted successfully")
+        user = User(
+            user_id=username,
+            email=username,
+            name=username,
+            picture=None,
+            provider="ibm_ams_basic",
+            jwt_token=auth_header,
+            opensearch_username=username,
+            opensearch_credentials=auth_header,
+        )
+        logger.debug("[IBM Auth] User created successfully")
+        request.state.user = user
+        return user
+
+    # ── Neither present ──────────────────────────────────────────────────
+    if required:
+        raise HTTPException(status_code=401, detail="IBM authentication required")
+    request.state.user = None
+    return None
+
+
+# ─────────────────────────────────────────────
 # Authentication dependencies
 # ─────────────────────────────────────────────
 
-def get_current_user(
+
+async def get_current_user(
     request: Request,
     session_manager=Depends(get_session_manager),
 ) -> User:
@@ -99,8 +247,13 @@ def get_current_user(
     Sets request.state.user.
     Raises HTTP 401 if the user is not authenticated.
     """
-    from config.settings import is_no_auth_mode
+    from config.settings import IBM_AUTH_ENABLED, is_no_auth_mode
     from session_manager import AnonymousUser
+
+    # IBM AMS cookie auth takes priority when enabled
+    if IBM_AUTH_ENABLED:
+        logger.debug("[IBM Auth] IBM auth mode enabled, getting current user")
+        return await _get_ibm_user(request, required=True)
 
     if is_no_auth_mode():
         user = AnonymousUser()
@@ -125,7 +278,7 @@ def get_current_user(
     return user_with_token
 
 
-def get_optional_user(
+async def get_optional_user(
     request: Request,
     session_manager=Depends(get_session_manager),
 ) -> Optional[User]:
@@ -135,8 +288,13 @@ def get_optional_user(
     Sets request.state.user (may be None).
     Never raises — returns None if unauthenticated.
     """
-    from config.settings import is_no_auth_mode
+    from config.settings import IBM_AUTH_ENABLED, is_no_auth_mode
     from session_manager import AnonymousUser
+
+    # IBM AMS cookie auth takes priority when enabled
+    if IBM_AUTH_ENABLED:
+        logger.debug("[IBM Auth] IBM auth mode enabled, getting optional user")
+        return await _get_ibm_user(request, required=False)
 
     if is_no_auth_mode():
         user = AnonymousUser()
@@ -152,8 +310,14 @@ def get_optional_user(
 
     user = session_manager.get_user_from_token(auth_token)
     # get_effective_jwt_token handles anonymous JWT creation if needed
-    effective_token = session_manager.get_effective_jwt_token(user.user_id, auth_token) if user else None
-    user_with_token = dataclasses.replace(user, jwt_token=effective_token) if user else None
+    effective_token = (
+        session_manager.get_effective_jwt_token(user.user_id, auth_token)
+        if user
+        else None
+    )
+    user_with_token = (
+        dataclasses.replace(user, jwt_token=effective_token) if user else None
+    )
 
     request.state.user = user_with_token
     return user_with_token

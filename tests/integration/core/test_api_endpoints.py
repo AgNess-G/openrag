@@ -52,14 +52,14 @@ async def wait_for_service_ready(client: httpx.AsyncClient, timeout_s: float = 3
     import jwt as jwt_lib
     sm = SessionManager("test")
     test_token = sm.create_jwt_token(AnonymousUser())
+    raw_token = test_token.removeprefix("Bearer ")
     token_hash = hashlib.sha256(test_token.encode()).hexdigest()[:16]
     print(f"[DEBUG] Generated test JWT token hash: {token_hash}")
     print(f"[DEBUG] Using key paths: private={sm.private_key_path}, public={sm.public_key_path}")
     with open(sm.public_key_path, 'rb') as f:
         pub_key_hash = hashlib.sha256(f.read()).hexdigest()[:16]
     print(f"[DEBUG] Public key hash: {pub_key_hash}")
-    # Decode token to see claims
-    decoded = jwt_lib.decode(test_token, options={"verify_signature": False})
+    decoded = jwt_lib.decode(raw_token, options={"verify_signature": False})
     print(f"[DEBUG] JWT claims: iss={decoded.get('iss')}, sub={decoded.get('sub')}, aud={decoded.get('aud')}, roles={decoded.get('roles')}")
 
     # Test OpenSearch JWT auth directly
@@ -68,7 +68,7 @@ async def wait_for_service_ready(client: httpx.AsyncClient, timeout_s: float = 3
     async with httpx.AsyncClient(verify=False) as os_client:
         r_os = await os_client.post(
             f"{opensearch_url}/documents/_search",
-            headers={"Authorization": f"Bearer {test_token}"},
+            headers={"Authorization": f"Bearer {raw_token}"},
             json={"query": {"match_all": {}}, "size": 0}
         )
         print(f"[DEBUG] Direct OpenSearch JWT test: status={r_os.status_code}, body={r_os.text[:500]}")

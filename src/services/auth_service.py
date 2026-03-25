@@ -8,6 +8,7 @@ from typing import Optional
 import asyncio
 
 from config.settings import WEBHOOK_BASE_URL, is_no_auth_mode
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 from session_manager import SessionManager
@@ -24,7 +25,13 @@ _DIRECT_AUTH_CONNECTORS = {"ibm_cos"}
 
 
 class AuthService:
-    def __init__(self, session_manager: SessionManager, connector_service=None, flows_service=None, langflow_mcp_service: LangflowMCPService | None = None):
+    def __init__(
+        self,
+        session_manager: SessionManager,
+        connector_service=None,
+        flows_service=None,
+        langflow_mcp_service: LangflowMCPService | None = None,
+    ):
         self.session_manager = session_manager
         self.connector_service = connector_service
         self.used_auth_codes = set()  # Track used authorization codes
@@ -41,6 +48,15 @@ class AuthService:
         user_id: str = None,
     ) -> dict:
         """Initialize OAuth flow for authentication or data source connection"""
+        from config.settings import IBM_AUTH_ENABLED
+
+        # IBM auth mode — Google OAuth login is not used
+        if IBM_AUTH_ENABLED and purpose == "app_auth":
+            raise HTTPException(
+                status_code=409,
+                detail="IBM AMS authentication is active. Login is handled via the IBM Watsonx Data session cookie."
+            )
+
         # Check if we're in no-auth mode
         if is_no_auth_mode():
             if purpose == "app_auth":
@@ -360,7 +376,11 @@ class AuthService:
 
             # Best-effort: update Langflow MCP servers to include user's JWT and owner headers
             try:
-                if self.langflow_mcp_service and isinstance(jwt_token, str) and jwt_token.strip():
+                if (
+                    self.langflow_mcp_service
+                    and isinstance(jwt_token, str)
+                    and jwt_token.strip()
+                ):
                     global_vars = {"JWT": jwt_token}
                     global_vars["CONNECTOR_TYPE_URL"] = "url"
                     if user_info:
@@ -371,23 +391,27 @@ class AuthService:
                             # Alternative: URL-encode the owner name to preserve spaces and special characters.
                             owner_name = user_info.get("name")
                             if owner_name:
-                                global_vars["OWNER_NAME"] = str(f"\"{owner_name}\"")
+                                global_vars["OWNER_NAME"] = str(f'"{owner_name}"')
                         if user_info.get("email"):
                             global_vars["OWNER_EMAIL"] = user_info.get("email")
-                    
+
                     # Add provider credentials to MCP servers using utility function
                     from config.settings import get_openrag_config
                     from utils.langflow_headers import build_mcp_global_vars_from_config
-                    
+
                     config = get_openrag_config()
-                    provider_vars = await build_mcp_global_vars_from_config(config, flows_service=self.flows_service)
-                    
+                    provider_vars = await build_mcp_global_vars_from_config(
+                        config, flows_service=self.flows_service
+                    )
+
                     # Merge provider credentials with user info
                     global_vars.update(provider_vars)
 
                     # Run in background to avoid delaying login flow
                     task = asyncio.create_task(
-                        self.langflow_mcp_service.update_mcp_servers_with_global_vars(global_vars)
+                        self.langflow_mcp_service.update_mcp_servers_with_global_vars(
+                            global_vars
+                        )
                     )
                     # Keep reference until done to avoid premature GC
                     self._background_tasks.add(task)
@@ -395,7 +419,7 @@ class AuthService:
             except Exception:
                 # Do not block login on MCP update issues
                 pass
-            
+
             response_data = {
                 "status": "authenticated",
                 "purpose": "app_auth",
@@ -448,52 +472,102 @@ class AuthService:
             "purpose": "data_source",
             "connector_type": connection_config.connector_type,
         }
-        
+
         # For SharePoint/OneDrive, auto-detect the base URL after authentication
         if connection_config.connector_type in ("sharepoint", "onedrive"):
-            logger.info(f"_handle_data_source_auth: Starting base URL detection for {connection_config.connector_type}")
+            logger.info(
+                f"_handle_data_source_auth: Starting base URL detection for {connection_config.connector_type}"
+            )
             try:
                 # Get the connector to detect base URL
-                logger.info(f"_handle_data_source_auth: Getting connector for connection_id: {connection_id}")
-                connector = await self.connector_service.connection_manager.get_connector(
-                    connection_id
+                logger.info(
+                    f"_handle_data_source_auth: Getting connector for connection_id: {connection_id}"
                 )
-                logger.info(f"_handle_data_source_auth: Got connector: {connector is not None}, has _detect_base_url: {hasattr(connector, '_detect_base_url') if connector else False}")
-                
-                if connector and hasattr(connector, '_detect_base_url'):
+                connector = (
+                    await self.connector_service.connection_manager.get_connector(
+                        connection_id
+                    )
+                )
+                logger.info(
+                    f"_handle_data_source_auth: Got connector: {connector is not None}, has _detect_base_url: {hasattr(connector, '_detect_base_url') if connector else False}"
+                )
+
+                if connector and hasattr(connector, "_detect_base_url"):
                     logger.info("_handle_data_source_auth: Calling _detect_base_url()")
                     detected_url = await connector._detect_base_url()
-                    logger.info(f"_handle_data_source_auth: _detect_base_url returned: {detected_url}")
-                    
+                    logger.info(
+                        f"_handle_data_source_auth: _detect_base_url returned: {detected_url}"
+                    )
+
                     if detected_url:
                         # Update connection config with detected URL (generic field name)
                         connection_config.config["base_url"] = detected_url
                         # Also update the connector instance's base_url property
                         connector.base_url = detected_url
-                        logger.info(f"_handle_data_source_auth: Updated connector.base_url to: {connector.base_url}")
-                        await self.connector_service.connection_manager.save_connections()
+                        logger.info(
+                            f"_handle_data_source_auth: Updated connector.base_url to: {connector.base_url}"
+                        )
+                        await (
+                            self.connector_service.connection_manager.save_connections()
+                        )
                         result["base_url"] = detected_url
-                        logger.info(f"_handle_data_source_auth: Auto-detected and saved base URL: {detected_url}")
+                        logger.info(
+                            f"_handle_data_source_auth: Auto-detected and saved base URL: {detected_url}"
+                        )
                     else:
-                        logger.warning("_handle_data_source_auth: _detect_base_url returned None")
+                        logger.warning(
+                            "_handle_data_source_auth: _detect_base_url returned None"
+                        )
                 else:
-                    logger.warning("_handle_data_source_auth: Connector not available or doesn't have _detect_base_url")
-                
+                    logger.warning(
+                        f"_handle_data_source_auth: Connector not available or doesn't have _detect_base_url"
+                    )
+
                 # Clear the cached connector so next get_connector() creates a fresh instance
                 # with the updated config (including base_url)
-                if connection_id in self.connector_service.connection_manager.active_connectors:
-                    logger.info(f"_handle_data_source_auth: Clearing cached connector for {connection_id}")
-                    del self.connector_service.connection_manager.active_connectors[connection_id]
+                if (
+                    connection_id
+                    in self.connector_service.connection_manager.active_connectors
+                ):
+                    logger.info(
+                        f"_handle_data_source_auth: Clearing cached connector for {connection_id}"
+                    )
+                    del self.connector_service.connection_manager.active_connectors[
+                        connection_id
+                    ]
             except Exception as e:
-                logger.error(f"_handle_data_source_auth: Failed to auto-detect base URL: {e}")
+                logger.error(
+                    f"_handle_data_source_auth: Failed to auto-detect base URL: {e}"
+                )
                 import traceback
+
                 traceback.print_exc()
-        
+
         return result
 
     async def get_user_info(self, request) -> Optional[dict]:
         """Get current user information from request"""
         from config.settings import IBM_AUTH_ENABLED
+
+        # IBM auth mode: user is set by get_optional_user from IBM cookie
+        if IBM_AUTH_ENABLED:
+            user = getattr(request.state, "user", None)
+            if user and user.provider in ("ibm_ams", "ibm_ams_basic"):
+                return {
+                    "authenticated": True,
+                    "ibm_auth_mode": True,
+                    "user": {
+                        "user_id": user.user_id,
+                        "email": user.email,
+                        "name": user.name,
+                        "picture": user.picture,
+                        "provider": user.provider,
+                        "last_login": user.last_login.isoformat()
+                        if user.last_login
+                        else None,
+                    },
+                }
+            return {"authenticated": False, "ibm_auth_mode": True, "user": None}
 
         # In no-auth mode, return a consistent response
         if is_no_auth_mode():

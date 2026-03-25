@@ -55,7 +55,7 @@ class ConnectionManager:
         secret_keys = {
             "api_key", "hmac_secret_key", "secret_key", "client_secret",
             "aws_secret_access_key", "ibm_api_key", "access_token", "refresh_token",
-            "access_key", "hmac_access_key", "service_instance_id"
+            "access_key", "hmac_access_key", "service_instance_id","basic_credentials"
         }
         
         if self.connections_file.exists():
@@ -150,6 +150,37 @@ class ConnectionManager:
             ):
                 return connection
         return None
+
+    async def upsert_ibm_credentials(
+        self, user_id: str, basic_credentials: str, username: str
+    ) -> str:
+        """Store or update IBM OpenSearch credentials for a user in connections.json.
+
+        Uses connector_type='ibm_credentials' — this entry is a credentials store only
+        and is never passed to _create_connector.
+        """
+        for conn in self.connections.values():
+            if (
+                conn.connector_type == "ibm_credentials"
+                and conn.user_id == user_id
+                and conn.is_active
+            ):
+                conn.config["basic_credentials"] = basic_credentials
+                conn.config["username"] = username
+                await self.save_connections()
+                return conn.connection_id
+
+        conn_id = str(uuid.uuid4())
+        new_conn = ConnectionConfig(
+            connection_id=conn_id,
+            connector_type="ibm_credentials",
+            name=f"IBM Credentials ({username})",
+            config={"basic_credentials": basic_credentials, "username": username},
+            user_id=user_id,
+        )
+        self.connections[conn_id] = new_conn
+        await self.save_connections()
+        return conn_id
 
     async def cleanup_duplicate_connections(self, remove_duplicates=False):
         """

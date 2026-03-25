@@ -1122,13 +1122,17 @@ async def onboarding(
         # Initialize the OpenSearch index if embedding model is configured
         if body.embedding_model or body.embedding_provider:
             try:
-                # Import here to avoid circular imports
                 from main import init_index_when_ready
+                from config.settings import IBM_AUTH_ENABLED, clients as app_clients
+
+                opensearch_client = None
+                if IBM_AUTH_ENABLED and user and user.jwt_token:
+                    opensearch_client = app_clients.create_user_opensearch_client(user.jwt_token)
 
                 logger.info(
                     "Initializing OpenSearch index after onboarding configuration"
                 )
-                await init_index_when_ready()
+                await init_index_when_ready(opensearch_client)
                 logger.info("OpenSearch index initialization completed successfully")
             except Exception as e:
                 logger.error(
@@ -1148,11 +1152,14 @@ async def onboarding(
                     # Import the function here to avoid circular imports
                     from main import ingest_default_documents_when_ready
 
+                    ingestion_jwt = user.jwt_token if IBM_AUTH_ENABLED and user and user.jwt_token else None
+
                     task_id = await ingest_default_documents_when_ready(
                         document_service,
                         task_service,
                         langflow_file_service,
                         session_manager,
+                        jwt_token=ingestion_jwt,
                     )
                     current_config.onboarding.openrag_docs_ingested_version = OPENRAG_VERSION
                     from main import (

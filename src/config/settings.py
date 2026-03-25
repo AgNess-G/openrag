@@ -48,6 +48,12 @@ LANGFLOW_KEY = os.getenv("LANGFLOW_KEY")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "your-secret-key-change-in-production")
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+
+# IBM AMS authentication (Watsonx Data embedded mode)
+IBM_AUTH_ENABLED = os.getenv("IBM_AUTH_ENABLED", "false").lower() in ("true", "1", "yes")
+IBM_JWT_PUBLIC_KEY_URL = os.getenv("IBM_JWT_PUBLIC_KEY_URL", "")
+IBM_SESSION_COOKIE_NAME = os.getenv("IBM_SESSION_COOKIE_NAME", "ibm-openrag-session")
+IBM_CREDENTIALS_HEADER = os.getenv("IBM_CREDENTIALS_HEADER", "X-IBM-LH-Credentials")
 DOCLING_OCR_ENGINE = os.getenv("DOCLING_OCR_ENGINE")
 
 IBM_AUTH_ENABLED = os.getenv("IBM_AUTH_ENABLED", "false").lower() in ("true", "1", "yes")
@@ -93,6 +99,8 @@ INGESTION_TIMEOUT = get_env_int("INGESTION_TIMEOUT", 3600)
 
 def is_no_auth_mode():
     """Check if we're running in no-auth mode (OAuth credentials missing)"""
+    if IBM_AUTH_ENABLED:
+        return False  # IBM cookie auth is a valid auth mode
     result = not (GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET)
     return result
 
@@ -323,7 +331,8 @@ class AppClients:
         self.docling_http_client = None
 
     async def initialize(self):
-        # Initialize OpenSearch client
+        os_auth = None if IBM_AUTH_ENABLED else (OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD)
+
         self.opensearch = AsyncOpenSearch(
             hosts=[{"host": OPENSEARCH_HOST, "port": OPENSEARCH_PORT}],
             connection_class=AIOHttpConnection,
@@ -331,7 +340,7 @@ class AppClients:
             use_ssl=True,
             verify_certs=False,
             ssl_assert_fingerprint=None,
-            http_auth=(OPENSEARCH_USERNAME, OPENSEARCH_PASSWORD),
+            http_auth=os_auth,
             http_compress=True,
         )
 
@@ -385,7 +394,7 @@ class AppClients:
         # Initialize Langflow client with generated/provided API key
         if LANGFLOW_KEY and self.langflow_client is None:
             try:
-                if not OPENSEARCH_PASSWORD:
+                if not OPENSEARCH_PASSWORD and not IBM_AUTH_ENABLED:
                     raise ValueError("OPENSEARCH_PASSWORD is not set")
                 else:
                     await self.ensure_langflow_client()
@@ -625,6 +634,10 @@ class AppClients:
             finally:
                 self.langflow_client = None
 
+    async def close(self):
+        """Alias for cleanup() for convenience."""
+        await self.cleanup()
+
     async def langflow_request(self, method: str, endpoint: str, **kwargs):
         """Central method for all Langflow API requests.
 
@@ -779,8 +792,18 @@ class AppClients:
             )
 
     def create_user_opensearch_client(self, jwt_token: str):
-        """Create OpenSearch client with user's JWT token for OIDC auth"""
-        headers = {"Authorization": f"Bearer {jwt_token}"}
+        """Create OpenSearch client with user's auth token.
+
+        If jwt_token already contains an auth scheme (e.g. "Basic ..." or "Bearer ..."),
+        it is used verbatim. Otherwise it is wrapped as a Bearer token.
+        """
+        headers = {}
+        if isinstance(jwt_token, str) and jwt_token:
+            if jwt_token.startswith(("Basic ", "Bearer ")):
+                auth_header = jwt_token
+            else:
+                auth_header = f"Bearer {jwt_token}"
+            headers["Authorization"] = auth_header
 
         return AsyncOpenSearch(
             hosts=[{"host": OPENSEARCH_HOST, "port": OPENSEARCH_PORT}],

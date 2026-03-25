@@ -49,7 +49,7 @@ define test_jwt_opensearch
 	TEST_TOKEN=$$(uv run python -c 'from utils.logging_config import configure_logging; configure_logging(log_level="CRITICAL"); \
 	    from src.session_manager import SessionManager, AnonymousUser; \
 	    sm = SessionManager("test"); \
-	    print(sm.create_jwt_token(AnonymousUser()))' 2>/dev/null); \
+	    print(sm.create_jwt_token(AnonymousUser()).removeprefix("Bearer "))' 2>/dev/null); \
 	if [ -z "$$TEST_TOKEN" ]; then \
 	    echo "$(RED)Failed to generate JWT token$(NC)"; \
 	    exit 1; \

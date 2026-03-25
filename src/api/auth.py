@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from utils.telemetry import TelemetryClient, Category, MessageId
 
@@ -18,6 +18,8 @@ class AuthInitBody(BaseModel):
     purpose: str = "data_source"
     name: Optional[str] = None
     redirect_uri: Optional[str] = None
+
+
 
 
 class AuthCallbackBody(BaseModel):
@@ -108,8 +110,28 @@ async def auth_logout(
     auth_service=Depends(get_auth_service),
     user: User = Depends(get_current_user),
 ):
-    """Logout user by clearing auth cookie"""
+    """Logout user by clearing auth cookie(s)"""
+    from config.settings import IBM_AUTH_ENABLED, IBM_SESSION_COOKIE_NAME
+
     await TelemetryClient.send_event(Category.AUTHENTICATION, MessageId.ORB_AUTH_LOGOUT)
+
+    if IBM_AUTH_ENABLED:
+        # Best-effort: clear cookies from the browser, but warn that the
+        # server-side AMS session is NOT terminated. The IBM session cookie
+        # is owned by Traefik/AMS — it may be re-injected on the next
+        # proxied request if AMS still considers the session active.
+        response = JSONResponse(
+            {
+                "status": "partial_logout",
+                "message": "Browser cookies cleared, but the IBM session is "
+                "managed by the identity provider and may still be active. "
+                "Please log out through IBM Watsonx Data for full session termination.",
+            }
+        )
+        response.delete_cookie(key=IBM_SESSION_COOKIE_NAME, httponly=True, samesite="lax")
+        response.delete_cookie(key="ibm-auth-basic", httponly=True, samesite="lax")
+        return response
+
     response = JSONResponse(
         {"status": "logged_out", "message": "Successfully logged out"}
     )
@@ -118,5 +140,37 @@ async def auth_logout(
     response.delete_cookie(
         key="auth_token", httponly=True, secure=False, samesite="lax"
     )
+
+    return response
+
+
+async def ibm_login(request: Request):
+    """IBM login endpoint.
+
+    Production: Traefik intercepts the request, validates Basic credentials
+    with AMS, and sets the ibm-openrag-session cookie before forwarding here.
+    This handler just returns 200 — no cookie work needed.
+
+    Local dev (no Traefik): stores the Basic Auth header in ibm-auth-basic
+    cookie so subsequent requests can be authenticated by _get_ibm_user.
+    """
+    from config.settings import IBM_AUTH_ENABLED, IBM_SESSION_COOKIE_NAME
+
+    if not IBM_AUTH_ENABLED:
+        raise HTTPException(status_code=404, detail="IBM auth is not enabled")
+
+    response = JSONResponse({"status": "ok"})
+
+    # Local dev fallback only — in production Traefik sets the session cookie.
+    if not request.cookies.get(IBM_SESSION_COOKIE_NAME):
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            # secure =True not needed for local development
+            response.set_cookie(
+                "ibm-auth-basic",
+                auth_header,
+                httponly=True,
+                samesite="lax",
+            )
 
     return response
