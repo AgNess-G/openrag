@@ -1,4 +1,4 @@
-name: 🧪 test invoke ephemeral runner sudo   
+name: 🧪 test invoke ephemeral runner sudo    
 on:
   push: 
     branches: [test-ephemeral-runner-sudo]
