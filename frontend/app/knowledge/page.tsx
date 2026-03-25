@@ -592,6 +592,7 @@ function SearchPage() {
           ? error.message
           : "Failed to delete some documents",
       );
+      setShowBulkDeleteDialog(false);
     }
   };
 
