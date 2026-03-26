@@ -25,7 +25,6 @@ from typing import List, Optional, Any, Dict
 
 from api.docling import DOCLING_SERVICE_URL
 from api.provider_validation import validate_provider_setup
-from utils.container_utils import transform_localhost_url
 from utils.langflow_utils import LangflowNotReadyError, wait_for_langflow
 from dependencies import (
     get_session_manager,
@@ -433,7 +432,7 @@ async def update_settings(
             "watsonx_project_id",
             "ollama_endpoint",
         ]
-        
+
         should_validate = any(getattr(body, field) is not None for field in provider_fields)
 
         if should_validate:
@@ -1408,11 +1407,10 @@ async def _update_langflow_global_variables(config, flows_service=None):
 
     # Docling global variable — always set regardless of provider config
     try:
-        docling_url = transform_localhost_url(DOCLING_SERVICE_URL)
         await clients._create_langflow_global_variable(
-            "DOCLING_SERVE_URL", docling_url, modify=True
+            "DOCLING_SERVE_URL", DOCLING_SERVICE_URL, modify=True
         )
-        logger.info(f"Set DOCLING_SERVE_URL global variable in Langflow to {docling_url}")
+        logger.info(f"Set DOCLING_SERVE_URL global variable in Langflow to {DOCLING_SERVICE_URL}")
     except Exception as e:
         logger.error(f"Failed to set DOCLING_SERVE_URL global variable: {str(e)}")
         raise
@@ -1713,7 +1711,7 @@ async def rollback_onboarding(
             if getattr(current_config.onboarding, 'openrag_docs_filter_id', None):
                 await remove_filter(current_config.onboarding.openrag_docs_filter_id)
                 current_config.onboarding.openrag_docs_filter_id = None
-                
+
             if getattr(current_config.onboarding, 'user_doc_filter_id', None):
                 await remove_filter(current_config.onboarding.user_doc_filter_id)
                 current_config.onboarding.user_doc_filter_id = None
@@ -1738,7 +1736,7 @@ async def rollback_onboarding(
                 except Exception as e:
                     logger.error(f"Failed to cancel task {task_id}: {str(e)}")
 
-            # Delete all files associated with any task, regardless of whether 
+            # Delete all files associated with any task, regardless of whether
             # the task failed or completed, to ensure no partial chunks remain in OpenSearch.
             files = task_data.get("files", {})
             if isinstance(files, dict):

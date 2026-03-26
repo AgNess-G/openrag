@@ -65,7 +65,7 @@ async def add_provider_credentials_to_headers(
 
     # Inject OpenSearch URL so Langflow flows always use the correct endpoint
     from config.settings import OPENSEARCH_HOST, OPENSEARCH_PORT
-    headers["X-LANGFLOW-GLOBAL-VAR-OPENSEARCH_URL"] = transform_localhost_url(f"https://{OPENSEARCH_HOST}:{OPENSEARCH_PORT}")
+    headers["X-LANGFLOW-GLOBAL-VAR-OPENSEARCH_URL"] = f"https://{OPENSEARCH_HOST}:{OPENSEARCH_PORT}"
 
     # IBM mode: inject OpenSearch Basic credentials as separate global vars
     from config.settings import IBM_AUTH_ENABLED
@@ -121,7 +121,7 @@ async def build_mcp_global_vars_from_config(
 
     # Inject OpenSearch URL so MCP servers always use the correct endpoint
     from config.settings import OPENSEARCH_HOST, OPENSEARCH_PORT
-    global_vars["OPENSEARCH_URL"] = transform_localhost_url(f"https://{OPENSEARCH_HOST}:{OPENSEARCH_PORT}")
+    global_vars["OPENSEARCH_URL"] = f"https://{OPENSEARCH_HOST}:{OPENSEARCH_PORT}"
 
     # IBM mode: inject OpenSearch Basic credentials as separate global vars
     from config.settings import IBM_AUTH_ENABLED

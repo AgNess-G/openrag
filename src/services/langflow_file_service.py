@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 
 from api.docling import DOCLING_SERVICE_URL
 from config.settings import LANGFLOW_INGEST_FLOW_ID, LANGFLOW_URL_INGEST_FLOW_ID, clients
-from utils.container_utils import transform_localhost_url
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -171,7 +170,7 @@ class LangflowFileService:
             "X-Langflow-Global-Var-SELECTED_EMBEDDING_MODEL": str(embedding_model),
             "X-Langflow-Global-Var-DOCUMENT_ID": str(document_id) if document_id else "",
             "X-Langflow-Global-Var-SOURCE_URL": str(source_url) if source_url else "",
-            "X-Langflow-Global-Var-DOCLING_SERVE_URL": transform_localhost_url(DOCLING_SERVICE_URL),
+            "X-Langflow-Global-Var-DOCLING_SERVE_URL": DOCLING_SERVICE_URL,
         }
 
         # Serialize ACL lists as JSON strings for Langflow global vars
@@ -184,7 +183,7 @@ class LangflowFileService:
             headers["X-Langflow-Global-Var-ALLOWED_GROUPS"] = json.dumps(
                 allowed_groups or []
             )
-        
+
         # Add provider credentials as global variables for ingestion
         await add_provider_credentials_to_headers(headers, config, flows_service=self.flows_service, jwt_token=jwt_token)
         logger.info(f"[LF] Headers {headers}")
@@ -205,7 +204,7 @@ class LangflowFileService:
                 reason=resp.reason_phrase,
                 body=resp.text[:1000],
             )
-            
+
             # Extract error message from Langflow response
             error_message = f"Server error '{resp.status_code} {resp.reason_phrase}'"
             try:
@@ -225,9 +224,9 @@ class LangflowFileService:
                         error_message = detail["message"]
             except Exception:
                 pass
-            
+
             raise Exception(error_message)
-        
+
         # Check if response is actually JSON before parsing
         content_type = resp.headers.get("content-type", "")
         if "application/json" not in content_type:
@@ -242,7 +241,7 @@ class LangflowFileService:
                 f"This may indicate the ingestion flow failed or the endpoint is incorrect. "
                 f"Response preview: {resp.text[:500]}"
             )
-        
+
         try:
             resp_json = resp.json()
         except Exception as e:
@@ -297,7 +296,7 @@ class LangflowFileService:
             "X-Langflow-Global-Var-SOURCE_URL": str(docs_url),
             "X-Langflow-Global-Var-ALLOWED_USERS": json.dumps( []),
             "X-Langflow-Global-Var-ALLOWED_GROUPS": json.dumps( []),
-            "X-Langflow-Global-Var-DOCLING_SERVE_URL": transform_localhost_url(DOCLING_SERVICE_URL),
+            "X-Langflow-Global-Var-DOCLING_SERVE_URL": DOCLING_SERVICE_URL,
         }
         await add_provider_credentials_to_headers(headers, config, flows_service=self.flows_service, jwt_token=jwt_token)
 
@@ -477,7 +476,7 @@ class LangflowFileService:
         owner: Optional[str] = None,
         owner_name: Optional[str] = None,
         owner_email: Optional[str] = None,
-        connector_type: Optional[str] = None,   
+        connector_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Combined upload, ingest, and delete operation.
