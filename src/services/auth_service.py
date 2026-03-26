@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import asyncio
 import os
-from config.settings import BROKER_URL, WEBHOOK_BASE_URL, is_no_auth_mode
+from config.settings import OAUTH_BROKER_URL, WEBHOOK_BASE_URL, is_no_auth_mode
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ class AuthService:
 
         # Create connection configuration - use data/ directory for persistence
         token_file = f"data/{connector_type}_{purpose}_{uuid.uuid4().hex[:8]}.json"
-        effective_redirect_uri = BROKER_URL or redirect_uri
+        effective_redirect_uri = OAUTH_BROKER_URL or redirect_uri
         config = {
             "token_file": token_file,
             "connector_type": connector_type,

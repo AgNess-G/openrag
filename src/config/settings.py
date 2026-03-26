@@ -113,7 +113,7 @@ WEBHOOK_BASE_URL = os.getenv(
 # OAuth callback broker URL -- when set, Google (and other providers) redirect
 # here instead of directly to the frontend.  The broker then forwards to the
 # actual frontend origin that is carried in the OAuth state parameter.
-BROKER_URL = os.getenv("BROKER_URL")
+OAUTH_BROKER_URL = os.getenv("OAUTH_BROKER_URL")
 
 # OpenSearch configuration
 VECTOR_DIM = 1536
