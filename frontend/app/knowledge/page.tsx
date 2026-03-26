@@ -29,6 +29,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  buildKnowledgeTableRows,
+  getKnowledgeFileIdentity,
+} from "@/lib/knowledge-table-state";
 import { parseTimestampMs } from "@/lib/time-utils";
 import {
   DeleteConfirmationDialog,
@@ -208,21 +212,7 @@ function SearchPage() {
   }, []);
 
   const getFileIdentity = useCallback((file?: File) => {
-    if (!file) {
-      return "";
-    }
-
-    const normalizedFilename = file.filename?.trim();
-    if (normalizedFilename) {
-      return normalizedFilename;
-    }
-
-    const normalizedSourceUrl = file.source_url?.trim();
-    if (normalizedSourceUrl) {
-      return normalizedSourceUrl;
-    }
-
-    return "";
+    return getKnowledgeFileIdentity(file);
   }, []);
 
   const hasOpenragRefreshCueFromTasks = tasks.some((task) => {
@@ -262,68 +252,7 @@ function SearchPage() {
       lastErrorRef.current = null;
     }
   }, [isError, error]);
-  // Convert TaskFiles to File format and merge with backend results
-  const taskFilesAsFiles: File[] = taskFiles.map((taskFile) => {
-    const normalizedFilename =
-      taskFile.filename?.trim() ||
-      taskFile.source_url?.trim() ||
-      "Untitled source";
-
-    return {
-      filename: normalizedFilename,
-      mimetype: taskFile.mimetype,
-      source_url: taskFile.source_url || "",
-      size: taskFile.size,
-      connector_type: taskFile.connector_type,
-      status: taskFile.status,
-      error: taskFile.error,
-      embedding_model: taskFile.embedding_model,
-      embedding_dimensions: taskFile.embedding_dimensions,
-    };
-  });
-  // Create a map of task files by filename for quick lookup
-  const taskFileMap = new Map(
-    taskFilesAsFiles.map((file) => [getFileIdentity(file), file]),
-  );
-  // Override backend files with task file status if they exist.
-  // Keep openrag_docs rows sourced from indexed search results so
-  // OpenRAG docs do not appear as pending in the table.
-  const backendFiles = (searchData as File[]).map((file) => {
-    if (file.connector_type === "openrag_docs") {
-      return file;
-    }
-    const taskFile = taskFileMap.get(getFileIdentity(file));
-    if (taskFile) {
-      // Override backend file with task file data (includes status)
-      return { ...file, ...taskFile };
-    }
-    return file;
-  });
-
-  const filteredTaskFiles = taskFilesAsFiles.filter((taskFile) => {
-    // Ignore the synthetic refresh task row from docs URL ingestion.
-    // The table should only show indexed docs, not orchestration task labels.
-    if (
-      taskFile.filename === "OpenRAG docs refresh" ||
-      taskFile.source_url.includes("openr.ag")
-    ) {
-      return false;
-    }
-    // Do not render task-only openrag_docs placeholder rows in the table.
-    // OpenRAG default docs should be represented only by indexed search results.
-    if (taskFile.connector_type === "openrag_docs") {
-      return false;
-    }
-    return (
-      taskFile.status !== "active" &&
-      !backendFiles.some(
-        (backendFile) =>
-          getFileIdentity(backendFile) === getFileIdentity(taskFile),
-      )
-    );
-  });
-  // Combine task files first, then backend files
-  const fileResults = [...backendFiles, ...filteredTaskFiles];
+  const fileResults = buildKnowledgeTableRows(searchData as File[], taskFiles);
 
   const gridRows = fileResults;
   const gridRef = useRef<AgGridReact>(null);
