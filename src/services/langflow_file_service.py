@@ -4,7 +4,9 @@ import httpx
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from api.docling import DOCLING_SERVICE_URL
 from config.settings import LANGFLOW_INGEST_FLOW_ID, LANGFLOW_URL_INGEST_FLOW_ID, clients
+from utils.container_utils import transform_localhost_url
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -153,7 +155,7 @@ class LangflowFileService:
         # Get the current embedding model and provider credentials from config
         from config.settings import get_openrag_config
         from utils.langflow_headers import add_provider_credentials_to_headers
-        
+
         config = get_openrag_config()
         embedding_model = config.knowledge.embedding_model
 
@@ -169,6 +171,7 @@ class LangflowFileService:
             "X-Langflow-Global-Var-SELECTED_EMBEDDING_MODEL": str(embedding_model),
             "X-Langflow-Global-Var-DOCUMENT_ID": str(document_id) if document_id else "",
             "X-Langflow-Global-Var-SOURCE_URL": str(source_url) if source_url else "",
+            "X-Langflow-Global-Var-DOCLING_SERVE_URL": transform_localhost_url(DOCLING_SERVICE_URL),
         }
 
         # Serialize ACL lists as JSON strings for Langflow global vars
@@ -282,6 +285,7 @@ class LangflowFileService:
 
         config = get_openrag_config()
         embedding_model = config.knowledge.embedding_model
+
         headers = {
             "X-Langflow-Global-Var-JWT": str(jwt_token),
             "X-Langflow-Global-Var-OWNER": str(owner),
@@ -289,12 +293,11 @@ class LangflowFileService:
             "X-Langflow-Global-Var-OWNER_EMAIL": str(owner_email),
             "X-Langflow-Global-Var-CONNECTOR_TYPE": str(connector_type),
             "X-Langflow-Global-Var-SELECTED_EMBEDDING_MODEL": str(embedding_model),
-
             "X-Langflow-Global-Var-DOCUMENT_ID":"",
             "X-Langflow-Global-Var-SOURCE_URL": str(docs_url),
-    
             "X-Langflow-Global-Var-ALLOWED_USERS": json.dumps( []),
             "X-Langflow-Global-Var-ALLOWED_GROUPS": json.dumps( []),
+            "X-Langflow-Global-Var-DOCLING_SERVE_URL": transform_localhost_url(DOCLING_SERVICE_URL),
         }
         await add_provider_credentials_to_headers(headers, config, flows_service=self.flows_service, jwt_token=jwt_token)
 

@@ -23,7 +23,9 @@ from config.settings import (
 )
 from typing import List, Optional, Any, Dict
 
+from api.docling import DOCLING_SERVICE_URL
 from api.provider_validation import validate_provider_setup
+from utils.container_utils import transform_localhost_url
 from utils.langflow_utils import LangflowNotReadyError, wait_for_langflow
 from dependencies import (
     get_session_manager,
@@ -1402,6 +1404,17 @@ async def _update_langflow_global_variables(config, flows_service=None):
 
     except Exception as e:
         logger.error(f"Failed to update Langflow global variables: {str(e)}")
+        raise
+
+    # Docling global variable — always set regardless of provider config
+    try:
+        docling_url = transform_localhost_url(DOCLING_SERVICE_URL)
+        await clients._create_langflow_global_variable(
+            "DOCLING_SERVE_URL", docling_url, modify=True
+        )
+        logger.info(f"Set DOCLING_SERVE_URL global variable in Langflow to {docling_url}")
+    except Exception as e:
+        logger.error(f"Failed to set DOCLING_SERVE_URL global variable: {str(e)}")
         raise
 
 
