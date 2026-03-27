@@ -774,13 +774,13 @@ test-ci: ensure-langflow-data ## Start infra, run integration + SDK tests, tear 
 	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	echo "$(PURPLE) Core Integration Tests$(NC)"; \
 	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
-	LOG_LEVEL=$${LOG_LEVEL:-INFO} \
+	LOG_LEVEL=$${LOG_LEVEL:-DEBUG} \
 	GOOGLE_OAUTH_CLIENT_ID="" \
 	GOOGLE_OAUTH_CLIENT_SECRET="" \
 	OPENSEARCH_HOST=localhost OPENSEARCH_PORT=9200 \
 	OPENSEARCH_USERNAME=admin OPENSEARCH_PASSWORD=$${OPENSEARCH_PASSWORD} \
 	DISABLE_STARTUP_INGEST=$${DISABLE_STARTUP_INGEST:-true} \
-	uv run pytest tests/integration/core -vv -s -o log_cli=true --log-cli-level=INFO; \
+	uv run pytest tests/integration/core -vv -s -o log_cli=true --log-cli-level=DEBUG; \
 	TEST_RESULT=$$?; \
 	echo "::endgroup::"; \
 	echo ""; \
@@ -905,13 +905,13 @@ test-ci-local: ensure-langflow-data ## Same as test-ci but builds all images loc
 	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
 	echo "$(PURPLE) Core Integration Tests$(NC)"; \
 	echo "$(CYAN)════════════════════════════════════════$(NC)"; \
-	LOG_LEVEL=$${LOG_LEVEL:-INFO} \
+	LOG_LEVEL=$${LOG_LEVEL:-DEBUG} \
 	GOOGLE_OAUTH_CLIENT_ID="" \
 	GOOGLE_OAUTH_CLIENT_SECRET="" \
 	OPENSEARCH_HOST=localhost OPENSEARCH_PORT=9200 \
 	OPENSEARCH_USERNAME=admin OPENSEARCH_PASSWORD=$${OPENSEARCH_PASSWORD} \
 	DISABLE_STARTUP_INGEST=$${DISABLE_STARTUP_INGEST:-true} \
-	uv run pytest tests/integration/core -vv -s -o log_cli=true --log-cli-level=INFO; \
+	uv run pytest tests/integration/core -vv -s -o log_cli=true --log-cli-level=DEBUG; \
 	TEST_RESULT=$$?; \
 	echo "::endgroup::"; \
 	echo ""; \
