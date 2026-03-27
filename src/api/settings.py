@@ -25,6 +25,7 @@ from typing import List, Optional, Any, Dict
 
 from api.docling import DOCLING_SERVICE_URL
 from api.provider_validation import validate_provider_setup
+from utils.container_utils import transform_localhost_url
 from utils.langflow_utils import LangflowNotReadyError, wait_for_langflow
 from dependencies import (
     get_session_manager,
@@ -1114,6 +1115,9 @@ async def onboarding(
             if body.llm_provider or body.llm_model or body.embedding_provider or body.embedding_model:
                 await _update_langflow_model_values(current_config, flows_service)
 
+            # Update Docling serve URL
+            await _update_langflow_docling_serve_url()
+
         except Exception as e:
             logger.error(
                 "Failed to set Langflow global variables and model values",
@@ -1405,16 +1409,6 @@ async def _update_langflow_global_variables(config, flows_service=None):
         logger.error(f"Failed to update Langflow global variables: {str(e)}")
         raise
 
-    # Docling global variable — always set regardless of provider config
-    try:
-        await clients._create_langflow_global_variable(
-            "DOCLING_SERVE_URL", DOCLING_SERVICE_URL, modify=True
-        )
-        logger.info(f"Set DOCLING_SERVE_URL global variable in Langflow to {DOCLING_SERVICE_URL}")
-    except Exception as e:
-        logger.error(f"Failed to set DOCLING_SERVE_URL global variable: {str(e)}")
-        raise
-
 
 async def _run_async_post_save_langflow_updates(
     session_manager,
@@ -1440,6 +1434,9 @@ async def _run_async_post_save_langflow_updates(
         # Update model values if provider/model changed (including removals/fallbacks)
         if update_model_values:
             await _update_langflow_model_values(current_config, flows_service)
+
+        # Update Docling serve URL
+        await _update_langflow_docling_serve_url()
 
         logger.info("Completed asynchronous Langflow post-save sync")
     except Exception as e:
@@ -1540,6 +1537,19 @@ async def _update_langflow_system_prompt(config, flows_service):
         logger.info("Successfully updated chat flow system prompt")
     except Exception as e:
         logger.error(f"Failed to update chat flow system prompt: {str(e)}")
+        raise
+
+
+async def _update_langflow_docling_serve_url():
+    """Update docling serve URL in Langflow"""
+    try:
+        docling_url = transform_localhost_url(DOCLING_SERVICE_URL)
+        await clients._create_langflow_global_variable(
+            "DOCLING_SERVE_URL", docling_url, modify=True
+        )
+        logger.info(f"Set DOCLING_SERVE_URL global variable in Langflow to {docling_url}")
+    except Exception as e:
+        logger.error(f"Failed to set DOCLING_SERVE_URL global variable: {str(e)}")
         raise
 
 
@@ -1649,6 +1659,11 @@ async def reapply_all_settings(session_manager = None):
             await _update_langflow_chunk_settings(config, flows_service)
         except Exception as e:
             logger.error(f"Failed to update Langflow chunk settings: {str(e)}")
+
+        try:
+            await _update_langflow_docling_serve_url()
+        except Exception as e:
+            logger.error(f"Failed to update Langflow Docling serve URL: {str(e)}")
 
         logger.info("Successfully reapplied all settings to Langflow flows")
 
