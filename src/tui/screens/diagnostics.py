@@ -400,7 +400,7 @@ class DiagnosticsScreen(Screen):
         # Get OpenSearch host and port from environment
         opensearch_host = os.getenv("OPENSEARCH_HOST", "localhost")
         opensearch_port = os.getenv("OPENSEARCH_PORT", "9200")
-        opensearch_url = f"https://{opensearch_host}:{opensearch_port}"
+        opensearch_url = f"http://{opensearch_host}:{opensearch_port}"
 
         # Test basic authentication
         log.write("Testing basic authentication...")
