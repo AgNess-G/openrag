@@ -197,9 +197,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const logout = async () => {
-    // Don't allow logout in no-auth mode or IBM auth mode
-    if (isNoAuthMode || isIbmAuthMode) {
-      console.log("Logout attempted in no-auth/IBM auth mode - ignored");
+    if (isNoAuthMode) {
       return;
     }
 
