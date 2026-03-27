@@ -53,10 +53,7 @@ import {
   DEFAULT_KNOWLEDGE_SETTINGS,
   UI_CONSTANTS,
 } from "@/lib/constants";
-import {
-  deriveCloudLangflowUrl,
-  deriveIbmSaasLangflowUrl,
-} from "@/lib/url-utils";
+import { deriveCloudLangflowUrl } from "@/lib/url-utils";
 import { useUpdateSettingsMutation } from "../api/mutations/useUpdateSettingsMutation";
 import { ModelSelector } from "../onboarding/_components/model-selector";
 import ConnectorCards from "./_components/connector-cards";
