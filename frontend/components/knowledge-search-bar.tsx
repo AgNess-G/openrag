@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { useRefreshOpenragDocs } from "@/app/api/mutations/useRefreshOpenragDocs";
 import { useSyncAllConnectors } from "@/app/api/mutations/useSyncConnector";
 import { Button } from "@/components/ui/button";
 import { useKnowledgeFilter } from "@/contexts/knowledge-filter-context";
@@ -43,6 +44,7 @@ export const KnowledgeSearchBar = () => {
   }, [queryOverride]);
 
   const syncAllConnectorsMutation = useSyncAllConnectors();
+  const refreshOpenragDocsMutation = useRefreshOpenragDocs();
 
   return (
     <form
@@ -143,6 +145,29 @@ export const KnowledgeSearchBar = () => {
           }}
         >
           <RefreshCw className="h-4 w-4 m-4 text-[var(--icon-primary)]" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={refreshOpenragDocsMutation.isPending}
+          className="h-auto flex-shrink-0 rounded-none px-3 text-sm hover:bg-accent hover:text-foreground"
+          onClick={async () => {
+            try {
+              toast.info("Refreshing OpenRAG docs...");
+              const result = await refreshOpenragDocsMutation.mutateAsync();
+              toast.success(result.message);
+            } catch (error) {
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to refresh OpenRAG docs",
+              );
+            }
+          }}
+        >
+          {refreshOpenragDocsMutation.isPending
+            ? "Refreshing docs..."
+            : "Fetch latest docs"}
         </Button>
         <div className="ml-auto">
           <KnowledgeDropdown />
