@@ -544,6 +544,7 @@ class AuthService:
 
                 traceback.print_exc()
 
+        await self.connector_service.connection_manager.save_connections()
         return result
 
     async def get_user_info(self, request) -> Optional[dict]:
