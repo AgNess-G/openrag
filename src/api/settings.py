@@ -1115,9 +1115,6 @@ async def onboarding(
             if body.llm_provider or body.llm_model or body.embedding_provider or body.embedding_model:
                 await _update_langflow_model_values(current_config, flows_service)
 
-            # Update Docling serve URL
-            await _update_langflow_docling_serve_url()
-
         except Exception as e:
             logger.error(
                 "Failed to set Langflow global variables and model values",
@@ -1435,9 +1432,6 @@ async def _run_async_post_save_langflow_updates(
         if update_model_values:
             await _update_langflow_model_values(current_config, flows_service)
 
-        # Update Docling serve URL
-        await _update_langflow_docling_serve_url()
-
         logger.info("Completed asynchronous Langflow post-save sync")
     except Exception as e:
         # Do not fail user request if async sync fails; keep parity with existing behavior.
@@ -1659,11 +1653,6 @@ async def reapply_all_settings(session_manager = None):
             await _update_langflow_chunk_settings(config, flows_service)
         except Exception as e:
             logger.error(f"Failed to update Langflow chunk settings: {str(e)}")
-
-        try:
-            await _update_langflow_docling_serve_url()
-        except Exception as e:
-            logger.error(f"Failed to update Langflow Docling serve URL: {str(e)}")
 
         logger.info("Successfully reapplied all settings to Langflow flows")
 
