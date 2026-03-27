@@ -1306,6 +1306,16 @@ async def startup_tasks(services):
     # Update MCP servers with provider credentials (especially important for no-auth mode)
     await _update_mcp_servers_with_provider_credentials(services)
 
+    # Sync Langflow global variables (OPENSEARCH_URL, OPENSEARCH_PASSWORD, provider keys)
+    # so they are always DB-backed and available to flow components via load_from_db.
+    try:
+        config = get_openrag_config()
+        from api.settings import _update_langflow_global_variables
+        flows_service = services.get("flows_service")
+        await _update_langflow_global_variables(config, flows_service=flows_service)
+    except Exception as e:
+        logger.error("Failed to sync Langflow global variables at startup", error=str(e))
+
     # Ensure all configured flows exist in Langflow (create-only, never overwrites).
     # This replaces LANGFLOW_LOAD_FLOWS_PATH, which performed a blind upsert on
     # every container start and discarded any user edits made in the Langflow UI.

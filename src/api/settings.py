@@ -1400,6 +1400,20 @@ async def _update_langflow_global_variables(config, flows_service=None):
                 f"Set SELECTED_EMBEDDING_MODEL global variable to {config.knowledge.embedding_model}"
             )
 
+        # OpenSearch connection variables (critical for flows after factory-reset)
+        from config.settings import OPENSEARCH_URL, OPENSEARCH_PASSWORD
+        if OPENSEARCH_URL:
+            await clients._create_langflow_global_variable(
+                "OPENSEARCH_URL", OPENSEARCH_URL, modify=True
+            )
+            logger.info("Set OPENSEARCH_URL global variable in Langflow")
+
+        if OPENSEARCH_PASSWORD:
+            await clients._create_langflow_global_variable(
+                "OPENSEARCH_PASSWORD", OPENSEARCH_PASSWORD, modify=True
+            )
+            logger.info("Set OPENSEARCH_PASSWORD global variable in Langflow")
+
     except Exception as e:
         logger.error(f"Failed to update Langflow global variables: {str(e)}")
         raise
