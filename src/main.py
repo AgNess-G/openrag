@@ -326,13 +326,6 @@ async def init_index(opensearch_client=None):
             ) from e
         raise e
 
-
-async def init_index_when_ready(opensearch_client=None):
-    """Wait for the OpenSearch service to be ready and then initialize the OpenSearch index."""
-    await wait_for_opensearch(opensearch_client)
-    await init_index(opensearch_client)
-
-
 def generate_jwt_keys():
     """Generate RSA keys for JWT signing if they don't exist"""
     keys_dir = "keys"
