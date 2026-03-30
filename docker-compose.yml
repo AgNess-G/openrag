@@ -1,9 +1,9 @@
 services:
   opensearch:
     image: langflowai/openrag-opensearch:${OPENRAG_VERSION:-latest}
-    #build:
-    #context: .
-    #dockerfile: Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: os
     depends_on:
       - openrag-backend
