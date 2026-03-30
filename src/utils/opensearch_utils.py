@@ -3,6 +3,7 @@ import os
 import random
 import yaml
 from opensearchpy import AsyncOpenSearch
+from config.settings import get_index_name
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -165,7 +166,22 @@ async def setup_opensearch_security(opensearch_client: AsyncOpenSearch) -> None:
         # 3. Create openrag_user_role
         if "openrag_user_role" in roles_config:
             role_body = roles_config["openrag_user_role"]
-            logger.info("[OpenSearch Security] Creating 'openrag_user_role' role...")
+
+            # Dynamically add the current index name to the index_patterns
+            current_index = get_index_name()
+            if "index_permissions" in role_body:
+                for permission in role_body["index_permissions"]:
+                    if "index_patterns" in permission:
+                        # Ensure we have a set to avoid duplicates and add the dynamic patterns
+                        patterns = set(permission["index_patterns"])
+                        patterns.add(current_index)
+                        patterns.add(f"{current_index}*")
+                        # Add knowledge_filters as well if not present
+                        patterns.add("knowledge_filters")
+                        patterns.add("knowledge_filters*")
+                        permission["index_patterns"] = sorted(list(patterns))
+
+            logger.info(f"[OpenSearch Security] Creating 'openrag_user_role' role with patterns: {role_body['index_permissions'][0]['index_patterns'] if 'index_permissions' in role_body else 'default'}...")
             resp = await opensearch_client.transport.perform_request(
                 "PUT",
                 "/_plugins/_security/api/roles/openrag_user_role",
