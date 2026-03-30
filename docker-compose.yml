@@ -1,16 +1,16 @@
 services:
   opensearch:
     image: langflowai/openrag-opensearch:${OPENRAG_VERSION:-latest}
-    #build:
-    #context: .
-    #dockerfile: Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: os
     depends_on:
       - openrag-backend
     environment:
       - discovery.type=single-node
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD}
-    # Run security setup in background after OpenSearch starts
+        # Run security setup in background after OpenSearch starts
     command: >
       bash -c "
         # Ensure data directory has correct permissions

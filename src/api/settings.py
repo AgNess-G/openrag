@@ -1125,7 +1125,7 @@ async def onboarding(
         # Initialize the OpenSearch index if embedding model is configured
         if body.embedding_model or body.embedding_provider:
             try:
-                from main import init_index_when_ready
+                from main import init_index
                 from config.settings import IBM_AUTH_ENABLED, clients as app_clients
 
                 opensearch_client = None
@@ -1135,7 +1135,7 @@ async def onboarding(
                 logger.info(
                     "Initializing OpenSearch index after onboarding configuration"
                 )
-                await init_index_when_ready(opensearch_client)
+                await init_index(opensearch_client)
                 logger.info("OpenSearch index initialization completed successfully")
             except Exception as e:
                 logger.error(
