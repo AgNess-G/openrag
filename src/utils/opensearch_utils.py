@@ -125,8 +125,8 @@ async def wait_for_opensearch(
     raise OpenSearchNotReadyError(message)
 
 
-async def setup_opensearch_security_ibm(opensearch_client: AsyncOpenSearch) -> None:
-    """Setup OpenSearch roles and roles mapping for IBM Auth mode.
+async def setup_opensearch_security(opensearch_client: AsyncOpenSearch) -> None:
+    """Setup OpenSearch roles and roles mapping.
 
     The setup involves:
     1. GET /_plugins/_security/api/rolesmapping (check existing)
@@ -136,9 +136,9 @@ async def setup_opensearch_security_ibm(opensearch_client: AsyncOpenSearch) -> N
     5. PUT /_plugins/_security/api/rolesmapping/all_access (merge admin mapping)
     6. Verify with final GETs.
 
-    This should be called during initial setup when user credentials are available.
+    This should be called during initial setup.
     """
-    logger.info("Initializing OpenSearch security configuration for IBM Auth...")
+    logger.info("Initializing OpenSearch security configuration...")
 
     # Define base security config directory relative to src root or current file
     # We'll use the project root if it exists, or look for securityconfig in the parent of src
@@ -150,13 +150,13 @@ async def setup_opensearch_security_ibm(opensearch_client: AsyncOpenSearch) -> N
 
     try:
         # 1. & 2. Readiness checks
-        logger.debug("[IBM Security] Performing readiness checks...")
+        logger.debug("[OpenSearch Security] Performing readiness checks...")
         await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/rolesmapping")
         await opensearch_client.cluster.health()
 
         # Load role definitions from YAML
         if not os.path.exists(roles_file):
-            logger.error(f"[IBM Security] Roles configuration file not found: {roles_file}")
+            logger.error(f"[OpenSearch Security] Roles configuration file not found: {roles_file}")
             raise FileNotFoundError(f"Roles configuration file not found: {roles_file}")
 
         with open(roles_file, "r") as f:
@@ -165,20 +165,20 @@ async def setup_opensearch_security_ibm(opensearch_client: AsyncOpenSearch) -> N
         # 3. Create openrag_user_role
         if "openrag_user_role" in roles_config:
             role_body = roles_config["openrag_user_role"]
-            logger.info("[IBM Security] Creating 'openrag_user_role' role...")
+            logger.info("[OpenSearch Security] Creating 'openrag_user_role' role...")
             resp = await opensearch_client.transport.perform_request(
                 "PUT",
                 "/_plugins/_security/api/roles/openrag_user_role",
                 body=role_body,
                 headers={"Content-Type": "application/json"}
             )
-            logger.debug("[IBM Security] Role creation response", status=resp.get("status"), message=resp.get("message"))
+            logger.debug("[OpenSearch Security] Role creation response", status=resp.get("status"), message=resp.get("message"))
         else:
-            logger.warning("[IBM Security] 'openrag_user_role' not found in roles.yml")
+            logger.warning("[OpenSearch Security] 'openrag_user_role' not found in roles.yml")
 
         # Load roles mapping from YAML
         if not os.path.exists(roles_mapping_file):
-            logger.error(f"[IBM Security] Roles mapping file not found: {roles_mapping_file}")
+            logger.error(f"[OpenSearch Security] Roles mapping file not found: {roles_mapping_file}")
             raise FileNotFoundError(f"Roles mapping file not found: {roles_mapping_file}")
 
         with open(roles_mapping_file, "r") as f:
@@ -187,14 +187,14 @@ async def setup_opensearch_security_ibm(opensearch_client: AsyncOpenSearch) -> N
         # 4. Create openrag_user_role mapping
         if "openrag_user_role" in mapping_config:
             mapping_body = mapping_config["openrag_user_role"]
-            logger.info("[IBM Security] Creating 'openrag_user_role' mapping...")
+            logger.info("[OpenSearch Security] Creating 'openrag_user_role' mapping...")
             resp = await opensearch_client.transport.perform_request(
                 "PUT",
                 "/_plugins/_security/api/rolesmapping/openrag_user_role",
                 body=mapping_body,
                 headers={"Content-Type": "application/json"}
             )
-            logger.debug("[IBM Security] Role mapping update response", status=resp.get("status"), message=resp.get("message"))
+            logger.debug("[OpenSearch Security] Role mapping update response", status=resp.get("status"), message=resp.get("message"))
 
         # 5. Create all_access mapping (merges with existing admin user)
         if "all_access" in mapping_config:
@@ -206,23 +206,33 @@ async def setup_opensearch_security_ibm(opensearch_client: AsyncOpenSearch) -> N
             if "description" not in all_access_body:
                 all_access_body["description"] = "Maps admin to all_access"
 
-            logger.info("[IBM Security] Updating 'all_access' mapping...")
+            logger.info("[OpenSearch Security] Updating 'all_access' mapping...")
             resp = await opensearch_client.transport.perform_request(
                 "PUT",
                 "/_plugins/_security/api/rolesmapping/all_access",
                 body=all_access_body,
                 headers={"Content-Type": "application/json"}
             )
-            logger.debug("[IBM Security] All access mapping update response", status=resp.get("status"), message=resp.get("message"))
+            logger.debug("[OpenSearch Security] All access mapping update response", status=resp.get("status"), message=resp.get("message"))
 
         # 6. Final verification
-        logger.info("[IBM Security] Verifying security configuration...")
+        logger.info("[OpenSearch Security] Verifying security configuration...")
         await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/roles/openrag_user_role")
         await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/rolesmapping/openrag_user_role")
 
-        logger.info("Successfully completed OpenSearch security configuration for IBM Auth.")
+        logger.info("Successfully completed OpenSearch security configuration.")
 
     except Exception as e:
+        # Check for authentication errors or if the security plugin is missing
+        error_str = str(e).lower()
+        if any(code in error_str for code in ["401", "403", "404", "security_exception", "not_found"]):
+            logger.warning(
+                "Skipping OpenSearch security configuration: "
+                "The cluster may not have the security plugin enabled or "
+                "the provided credentials do not have administrative permissions."
+            )
+            return
+
         logger.error("Failed to setup OpenSearch security configuration", error=str(e))
-        # Re-raise to ensure the setup process is considered failed
+        # Re-raise for non-auth/non-security errors to ensure visibility
         raise
