@@ -985,7 +985,13 @@ health: ## Check health of all services
 	@echo "$(PURPLE)Health check:$(NC)"
 	@echo "$(CYAN)Backend:$(NC)    $$(curl -s http://localhost:8000/health 2>/dev/null || echo '$(RED)Not responding$(NC)')"
 	@echo "$(CYAN)Langflow:$(NC)   $$(curl -s http://localhost:7860/health 2>/dev/null || echo '$(RED)Not responding$(NC)')"
-	@echo "$(CYAN)OpenSearch:$(NC) $$(curl -s -k -u admin:$${OPENSEARCH_PASSWORD} https://localhost:9200 2>/dev/null | jq -r .tagline 2>/dev/null || echo '$(RED)Not responding$(NC)')"
+	@echo "$(CYAN)OpenSearch:$(NC) $$( \
+		curl -s -k -u ${OPENSEARCH_USERNAME}:${OPENSEARCH_PASSWORD} \
+		https://localhost:9200/_cluster/health 2>/dev/null \
+		| jq -c '{status: (.status // "Not responding")}' 2>/dev/null \
+		|| echo '{"status":"Not responding"}' \
+	)"
+	@echo "$(CYAN)Docling:$(NC)    $$(curl -s http://localhost:5001/health 2>/dev/null || echo '$(RED)Not responding$(NC)')"
 
 ######################
 # DATABASE OPERATIONS
