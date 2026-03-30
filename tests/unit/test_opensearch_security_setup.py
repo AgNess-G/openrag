@@ -25,7 +25,8 @@ async def test_setup_opensearch_security_success():
     # Mock file existence and content
     with patch("os.path.exists", return_value=True), \
          patch("builtins.open", MagicMock()), \
-         patch("yaml.safe_load") as mock_yaml:
+         patch("yaml.safe_load") as mock_yaml, \
+         patch("utils.opensearch_utils.get_index_name", return_value="dynamic_index"):
         
         mock_yaml.side_effect = [roles_data, mapping_data]
 
@@ -34,6 +35,15 @@ async def test_setup_opensearch_security_success():
         # Verify calls
         assert mock_client.transport.perform_request.call_count == 6
         mock_client.cluster.health.assert_called_once()
+
+        # Check the role creation body for dynamic patterns
+        role_put_call = mock_client.transport.perform_request.call_args_list[1]
+        role_body = role_put_call[1]['body']
+        patterns = role_body['index_permissions'][0]['index_patterns']
+        assert "dynamic_index" in patterns
+        assert "dynamic_index*" in patterns
+        assert "knowledge_filters" in patterns
+        assert "knowledge_filters*" in patterns
 
 @pytest.mark.asyncio
 async def test_setup_opensearch_security_graceful_auth_error():
@@ -53,6 +63,7 @@ async def test_setup_opensearch_security_missing_files():
     mock_client.transport.perform_request = AsyncMock()
     mock_client.cluster.health = AsyncMock()
     
-    with patch("os.path.exists", return_value=False):
+    with patch("os.path.exists", return_value=False), \
+         patch("utils.opensearch_utils.get_index_name", return_value="docs"):
         with pytest.raises(FileNotFoundError):
             await setup_opensearch_security(mock_client)
