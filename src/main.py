@@ -221,6 +221,13 @@ async def init_index(opensearch_client=None):
     try:
         await wait_for_opensearch(opensearch_client)
 
+        # In IBM Auth mode, we perform additional security configuration (roles and mapping)
+        # using the user's authenticated client.
+        from config.settings import IBM_AUTH_ENABLED
+        if IBM_AUTH_ENABLED:
+            from utils.opensearch_utils import setup_opensearch_security_ibm
+            await setup_opensearch_security_ibm(os_client)
+
         # Get the configured embedding model from user configuration
         config = get_openrag_config()
         embedding_model = config.knowledge.embedding_model
