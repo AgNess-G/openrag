@@ -45,7 +45,7 @@ class TestEndToEnd:
             pytest.skip("Ingested document not findable via search after retries — skipping E2E RAG test")
 
         chat_response = await client.chat.create(
-            message="According to my documents, what is the name of the flamingo and on which planet does it live?"
+            message="According to the documents in my knowledge base, what is the name of the flamingo and where does it live?"
         )
         assert chat_response.response is not None
         assert len(chat_response.response) > 0
