@@ -110,6 +110,9 @@ services:
       - ${OPENRAG_FLOWS_PATH:-./flows}:/app/flows:U,z
       - ${OPENRAG_CONFIG_PATH:-./config}:/app/config:U,z
       - ${OPENRAG_DATA_PATH:-./data}:/app/data:U,z
+    # Linux: Docker Engine does not auto-inject host.docker.internal; map it to the host gateway
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   openrag-frontend:
     image: langflowai/openrag-frontend:${OPENRAG_VERSION:-latest}
@@ -125,9 +128,6 @@ services:
       - "${FRONTEND_PORT:-3000}:3000"
 
   langflow:
-    volumes:
-      - ${OPENRAG_FLOWS_PATH:-./flows}:/app/flows:U,z
-      - ${LANGFLOW_DATA_PATH:-./langflow-data}:/app/langflow-data:U,z
     image: langflowai/openrag-langflow:${OPENRAG_VERSION:-latest}
     build:
       context: .
@@ -135,6 +135,12 @@ services:
     container_name: langflow
     ports:
       - "${LANGFLOW_PORT:-7860}:7860"
+    volumes:
+      - ${OPENRAG_FLOWS_PATH:-./flows}:/app/flows:U,z
+      - ${LANGFLOW_DATA_PATH:-./langflow-data}:/app/langflow-data:U,z
+    # Linux: Docker Engine does not auto-inject host.docker.internal; map it to the host gateway
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
