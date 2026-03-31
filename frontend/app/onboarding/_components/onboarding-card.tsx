@@ -13,11 +13,6 @@ import { useOnboardingRollbackMutation } from "@/app/api/mutations/useOnboarding
 import { useGetSettingsQuery } from "@/app/api/queries/useGetSettingsQuery";
 import { useGetTasksQuery } from "@/app/api/queries/useGetTasksQuery";
 import type { ProviderHealthResponse } from "@/app/api/queries/useProviderHealthQuery";
-import {
-  CLOUD_EXCLUDED_PROVIDERS,
-  EMBEDDING_PROVIDER_ORDER,
-  LLM_PROVIDER_ORDER,
-} from "@/app/settings/_helpers/model-helpers";
 import { useDoclingHealth } from "@/components/docling-health-banner";
 import AnthropicLogo from "@/components/icons/anthropic-logo";
 import IBMLogo from "@/components/icons/ibm-logo";
@@ -30,7 +25,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useIsCloudBrand } from "@/contexts/brand-context";
 import { cn } from "@/lib/utils";
 import { AnimatedProviderSteps } from "./animated-provider-steps";
 import { AnthropicOnboarding } from "./anthropic-onboarding";
@@ -66,7 +60,6 @@ const OnboardingCard = ({
   isCompleted = false,
 }: OnboardingCardProps) => {
   const { isHealthy: isDoclingHealthy } = useDoclingHealth();
-  const isCloudBrand = useIsCloudBrand();
 
   const [modelProvider, setModelProvider] = useState<string>(
     isEmbedding ? "openai" : "anthropic",
@@ -84,12 +77,9 @@ const OnboardingCard = ({
     if (!currentSettings?.providers) return;
 
     // Define provider order based on whether it's embedding or not
-    const fullOrder = isEmbedding
-      ? EMBEDDING_PROVIDER_ORDER
-      : LLM_PROVIDER_ORDER;
-    const providerOrder = isCloudBrand
-      ? fullOrder.filter((p) => !CLOUD_EXCLUDED_PROVIDERS.includes(p))
-      : fullOrder;
+    const providerOrder = isEmbedding
+      ? ["openai", "watsonx", "ollama"]
+      : ["anthropic", "openai", "watsonx", "ollama"];
 
     // Find the first provider with an API key
     for (const provider of providerOrder) {
@@ -119,7 +109,7 @@ const OnboardingCard = ({
         return;
       }
     }
-  }, [currentSettings, isEmbedding, isCloudBrand]);
+  }, [currentSettings, isEmbedding]);
 
   const handleSetModelProvider = (provider: string) => {
     setIsLoadingModels(false);
@@ -494,7 +484,7 @@ const OnboardingCard = ({
                       >
                         <div
                           className={cn(
-                            "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
+                            "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
                             modelProvider === "anthropic"
                               ? "bg-[#D97757]"
                               : "bg-muted",
@@ -527,7 +517,7 @@ const OnboardingCard = ({
                     >
                       <div
                         className={cn(
-                          "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
+                          "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
                           modelProvider === "openai" ? "bg-white" : "bg-muted",
                         )}
                       >
@@ -557,7 +547,7 @@ const OnboardingCard = ({
                     >
                       <div
                         className={cn(
-                          "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
+                          "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
                           modelProvider === "watsonx"
                             ? "bg-[#1063FE]"
                             : "bg-muted",
@@ -575,40 +565,36 @@ const OnboardingCard = ({
                       IBM watsonx.ai
                     </TabTrigger>
                   </TabsTrigger>
-                  {!isCloudBrand && (
-                    <TabsTrigger
-                      value="ollama"
-                      className={cn(
-                        error &&
-                          modelProvider === "ollama" &&
-                          "data-[state=active]:border-destructive",
-                      )}
+                  <TabsTrigger
+                    value="ollama"
+                    className={cn(
+                      error &&
+                        modelProvider === "ollama" &&
+                        "data-[state=active]:border-destructive",
+                    )}
+                  >
+                    <TabTrigger
+                      selected={modelProvider === "ollama"}
+                      isLoading={isLoadingModels}
                     >
-                      <TabTrigger
-                        selected={modelProvider === "ollama"}
-                        isLoading={isLoadingModels}
+                      <div
+                        className={cn(
+                          "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
+                          modelProvider === "ollama" ? "bg-white" : "bg-muted",
+                        )}
                       >
-                        <div
+                        <OllamaLogo
                           className={cn(
-                            "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
+                            "w-4 h-4 shrink-0",
                             modelProvider === "ollama"
-                              ? "bg-white"
-                              : "bg-muted",
+                              ? "text-black"
+                              : "text-muted-foreground",
                           )}
-                        >
-                          <OllamaLogo
-                            className={cn(
-                              "w-4 h-4 shrink-0",
-                              modelProvider === "ollama"
-                                ? "text-black"
-                                : "text-muted-foreground",
-                            )}
-                          />
-                        </div>
-                        Ollama
-                      </TabTrigger>
-                    </TabsTrigger>
-                  )}
+                        />
+                      </div>
+                      Ollama
+                    </TabTrigger>
+                  </TabsTrigger>
                 </TabsList>
                 {!isEmbedding && (
                   <TabsContent value="anthropic">
@@ -655,21 +641,19 @@ const OnboardingCard = ({
                     }
                   />
                 </TabsContent>
-                {!isCloudBrand && (
-                  <TabsContent value="ollama">
-                    <OllamaOnboarding
-                      setSettings={setSettings}
-                      setIsLoadingModels={setIsLoadingModels}
-                      isEmbedding={isEmbedding}
-                      alreadyConfigured={
-                        providerAlreadyConfigured && modelProvider === "ollama"
-                      }
-                      existingEndpoint={
-                        currentSettings?.providers?.ollama?.endpoint
-                      }
-                    />
-                  </TabsContent>
-                )}
+                <TabsContent value="ollama">
+                  <OllamaOnboarding
+                    setSettings={setSettings}
+                    setIsLoadingModels={setIsLoadingModels}
+                    isEmbedding={isEmbedding}
+                    alreadyConfigured={
+                      providerAlreadyConfigured && modelProvider === "ollama"
+                    }
+                    existingEndpoint={
+                      currentSettings?.providers?.ollama?.endpoint
+                    }
+                  />
+                </TabsContent>
               </Tabs>
 
               <Tooltip>

@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import { Chivo, IBM_Plex_Sans, Inter, JetBrains_Mono } from "next/font/google";
+import { Chivo, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { LayoutWrapper } from "@/components/layout-wrapper";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/auth-context";
-import { BrandProvider } from "@/contexts/brand-context";
 import { ChatProvider } from "@/contexts/chat-context";
 import { KnowledgeFilterProvider } from "@/contexts/knowledge-filter-context";
 import { TaskProvider } from "@/contexts/task-context";
@@ -27,12 +26,6 @@ const chivo = Chivo({
   subsets: ["latin"],
 });
 
-const ibmPlexSans = IBM_Plex_Sans({
-  variable: "--font-ibm-plex-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
 export const metadata: Metadata = {
   title: "OpenRAG",
   description: "Open source RAG (Retrieval Augmented Generation) system",
@@ -45,7 +38,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} ${chivo.variable} ${ibmPlexSans.variable} antialiased overflow-hidden bg-white dark:bg-black`}
+        className={`${inter.variable} ${jetbrainsMono.variable} ${chivo.variable} antialiased overflow-hidden bg-white dark:bg-black`}
       >
         <ThemeProvider
           attribute="class"
@@ -56,15 +49,13 @@ export default function RootLayout({
           <Providers>
             <TooltipProvider>
               <AuthProvider>
-                <BrandProvider>
-                  <TaskProvider>
-                    <KnowledgeFilterProvider>
-                      <ChatProvider>
-                        <LayoutWrapper>{children}</LayoutWrapper>
-                      </ChatProvider>
-                    </KnowledgeFilterProvider>
-                  </TaskProvider>
-                </BrandProvider>
+                <TaskProvider>
+                  <KnowledgeFilterProvider>
+                    <ChatProvider>
+                      <LayoutWrapper>{children}</LayoutWrapper>
+                    </ChatProvider>
+                  </KnowledgeFilterProvider>
+                </TaskProvider>
               </AuthProvider>
             </TooltipProvider>
           </Providers>

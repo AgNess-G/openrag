@@ -16,7 +16,6 @@ import {
 } from "@/components/provider-health-banner";
 import { TaskNotificationMenu } from "@/components/task-notification-menu";
 import { useAuth } from "@/contexts/auth-context";
-import { useIsCloudBrand } from "@/contexts/brand-context";
 import { useChat } from "@/contexts/chat-context";
 import { useKnowledgeFilter } from "@/contexts/knowledge-filter-context";
 import { useTask } from "@/contexts/task-context";
@@ -32,7 +31,6 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { tasks, isMenuOpen } = useTask();
-  const isCloudBrand = useIsCloudBrand();
   const { isPanelOpen, panelMode, closePanelOnly } = useKnowledgeFilter();
   const failedTasks = tasks.filter(isFailureLikeTask);
 
@@ -100,12 +98,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
     isMenuOpen || (isPanelOpen && isOnKnowledgePage && !isMenuOpen);
 
   return (
-    <div
-      className={cn(
-        "h-screen w-screen flex flex-col relative",
-        isCloudBrand ? "bg-background" : "bg-muted dark:bg-black",
-      )}
-    >
+    <div className="h-screen w-screen flex flex-col bg-muted dark:bg-black relative">
       {/* Banner — full width */}
       <div className="w-full z-10 bg-background">
         <AnimatedConditional

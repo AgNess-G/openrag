@@ -1,7 +1,4 @@
-"use client";
-
 import { AnimatePresence, motion } from "motion/react";
-import { useIsCloudBrand } from "@/contexts/brand-context";
 import { cn } from "@/lib/utils";
 
 export default function Nudges({
@@ -13,8 +10,6 @@ export default function Nudges({
   onboarding?: boolean;
   handleSuggestionClick: (suggestion: string) => void;
 }) {
-  const isCloudBrand = useIsCloudBrand();
-
   return (
     <div className="flex-shrink-0 h-12 w-full overflow-hidden">
       <AnimatePresence>
@@ -36,10 +31,10 @@ export default function Nudges({
                       key={index}
                       onClick={() => handleSuggestionClick(suggestion)}
                       className={cn(
-                        onboarding || isCloudBrand
+                        onboarding
                           ? "text-foreground"
                           : "text-placeholder-foreground hover:text-foreground",
-                        "ibm-chat-bubble bg-background border hover:bg-background/50 px-2 py-1.5 rounded-lg text-sm transition-colors whitespace-nowrap",
+                        "bg-background border hover:bg-background/50 px-2 py-1.5 rounded-lg text-sm transition-colors whitespace-nowrap",
                       )}
                     >
                       {suggestion}

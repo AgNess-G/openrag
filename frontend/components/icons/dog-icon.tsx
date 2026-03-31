@@ -1,20 +1,9 @@
-import { useIsCloudBrand } from "@/contexts/brand-context";
-
-const DOG_ICON_DEFAULT_FILL = "#773EFF";
-const DOG_ICON_DISABLED_FILL = "#71717A";
-const DOG_ICON_IBM_DISABLED_FILL = "#525252";
-
 interface DogIconProps extends React.SVGProps<SVGSVGElement> {
   disabled?: boolean;
 }
 
 const DogIcon = ({ disabled = false, stroke, ...props }: DogIconProps) => {
-  const isCloudBrand = useIsCloudBrand();
-  const fillColor = disabled
-    ? isCloudBrand
-      ? DOG_ICON_IBM_DISABLED_FILL
-      : DOG_ICON_DISABLED_FILL
-    : stroke || DOG_ICON_DEFAULT_FILL;
+  const fillColor = disabled ? "#71717A" : stroke || "#773EFF";
 
   // CSS for the stepped animation states
   const animationCSS = `
