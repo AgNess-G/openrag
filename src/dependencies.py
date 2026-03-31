@@ -254,7 +254,7 @@ async def get_current_user(
     if IBM_AUTH_ENABLED:
         logger.debug("[IBM Auth] IBM auth mode enabled, getting current user")
         user = await _get_ibm_user(request, required=True)
-        if user and user.user_id not in session_manager.users:
+        if user and user.user_id and user.user_id not in session_manager.users:
             session_manager.users[user.user_id] = user
         return user
 
