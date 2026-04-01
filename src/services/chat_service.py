@@ -485,6 +485,14 @@ class ChatService:
         if not user_id:
             return {"error": "User ID is required", "conversations": []}
 
+        # In composable mode Langflow is not running — skip the remote history fetch.
+        try:
+            from pipeline.config import PipelineConfigManager
+            if PipelineConfigManager().load().ingestion_mode == "composable":
+                return {"conversations": [], "total_conversations": 0}
+        except Exception:
+            pass
+
         all_conversations = []
 
         try:

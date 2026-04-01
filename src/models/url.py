@@ -155,3 +155,88 @@ class LangflowUrlProcessor(TaskProcessor):
             file_task.updated_at = time.time()
             upload_task.failed_files += 1
             raise
+
+
+class ComposableUrlProcessor(TaskProcessor):
+    """Processes a URL by crawling it to a temp file and feeding the composable pipeline."""
+
+    def __init__(
+        self,
+        docs_url: str,
+        crawl_depth: int,
+        owner_user_id: str = None,
+        jwt_token: str = None,
+        owner_name: str = None,
+        owner_email: str = None,
+        connector_type: str = "openrag_docs",
+    ):
+        super().__init__()
+        self.docs_url = docs_url
+        self.crawl_depth = crawl_depth
+        self.owner_user_id = owner_user_id
+        self.jwt_token = jwt_token
+        self.owner_name = owner_name
+        self.owner_email = owner_email
+        self.connector_type = connector_type
+
+    async def process_item(
+        self, upload_task: UploadTask, item: str, file_task: FileTask
+    ) -> None:
+        import hashlib
+        import mimetypes
+        import time as _time
+
+        from main import _get_pipeline_service, _materialize_default_docs_url_as_text_file
+        from models.tasks import TaskStatus as _TaskStatus
+        from pipeline.types import FileMetadata
+
+        file_task.status = _TaskStatus.RUNNING
+        file_task.updated_at = _time.time()
+
+        try:
+            pipeline_service = _get_pipeline_service()
+            if pipeline_service is None:
+                raise RuntimeError("PipelineService not available in composable mode")
+
+            temp_path = await _materialize_default_docs_url_as_text_file(
+                docs_url=self.docs_url,
+                crawl_depth=self.crawl_depth,
+            )
+            try:
+                with open(temp_path, "rb") as fh:
+                    content = fh.read()
+                file_hash = hashlib.sha256(content).hexdigest()
+                mime, _ = mimetypes.guess_type(temp_path)
+
+                fm = FileMetadata(
+                    file_path=temp_path,
+                    filename=f"url-{self.connector_type}.txt",
+                    file_hash=file_hash,
+                    file_size=len(content),
+                    mimetype=mime or "text/plain",
+                    owner_user_id=self.owner_user_id,
+                    jwt_token=self.jwt_token,
+                    connector_type=self.connector_type,
+                    owner_name=self.owner_name,
+                    owner_email=self.owner_email,
+                    source_url=self.docs_url,
+                )
+
+                batch_id = await pipeline_service.run_files([fm])
+                file_task.status = _TaskStatus.COMPLETED
+                file_task.result = {"status": "indexed", "batch_id": batch_id}
+                file_task.updated_at = _time.time()
+                upload_task.successful_files += 1
+            finally:
+                try:
+                    import os as _os
+                    _os.unlink(temp_path)
+                except FileNotFoundError:
+                    pass
+
+        except Exception as exc:
+            file_task.status = _TaskStatus.FAILED
+            file_task.error = str(exc)
+            file_task.updated_at = _time.time()
+            upload_task.failed_files += 1
+            raise

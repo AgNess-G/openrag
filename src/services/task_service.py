@@ -140,24 +140,38 @@ class TaskService:
         connector_type: str = "local",
         existing_task_id: str = None,
     ) -> str:
-        """Create a new upload task for Langflow file processing with upload and ingest"""
-        # Use LangflowFileProcessor with user context
-        from models.processors import LangflowFileProcessor
+        """Create a new upload task; routes to composable pipeline when active."""
+        try:
+            from pipeline.config import PipelineConfigManager
+            _composable = PipelineConfigManager().load().ingestion_mode == "composable"
+        except Exception:
+            _composable = False
 
-        processor = LangflowFileProcessor(
-            langflow_file_service=langflow_file_service,
-            session_manager=session_manager,
-            owner_user_id=user_id,
-            jwt_token=jwt_token,
-            owner_name=owner_name,
-            owner_email=owner_email,
-            session_id=session_id,
-            tweaks=tweaks,
-            settings=settings,
-            delete_after_ingest=delete_after_ingest,
-            replace_duplicates=replace_duplicates,
-            connector_type=connector_type,
-        )
+        if _composable:
+            from models.processors import ComposableFileProcessor
+            processor = ComposableFileProcessor(
+                owner_user_id=user_id,
+                jwt_token=jwt_token,
+                owner_name=owner_name,
+                owner_email=owner_email,
+                connector_type=connector_type,
+            )
+        else:
+            from models.processors import LangflowFileProcessor
+            processor = LangflowFileProcessor(
+                langflow_file_service=langflow_file_service,
+                session_manager=session_manager,
+                owner_user_id=user_id,
+                jwt_token=jwt_token,
+                owner_name=owner_name,
+                owner_email=owner_email,
+                session_id=session_id,
+                tweaks=tweaks,
+                settings=settings,
+                delete_after_ingest=delete_after_ingest,
+                replace_duplicates=replace_duplicates,
+                connector_type=connector_type,
+            )
         return await self.create_custom_task(user_id, file_paths, processor, original_filenames, existing_task_id=existing_task_id)
 
     async def create_langflow_url_upload_task(
@@ -175,22 +189,39 @@ class TaskService:
         tweaks: dict = None,
         existing_task_id: str = None,
     ) -> str:
-        """Create a new upload task for Langflow URL ingestion."""
-        from models.url import LangflowUrlProcessor
+        """Create a new URL ingestion task; routes to composable pipeline when active."""
+        try:
+            from pipeline.config import PipelineConfigManager
+            _composable = PipelineConfigManager().load().ingestion_mode == "composable"
+        except Exception:
+            _composable = False
 
-        processor = LangflowUrlProcessor(
-            langflow_file_service=langflow_file_service,
-            session_manager=session_manager,
-            docs_url=docs_url,
-            crawl_depth=crawl_depth,
-            owner_user_id=owner_user_id,
-            jwt_token=jwt_token,
-            owner_name=owner_name,
-            owner_email=owner_email,
-            connector_type=connector_type,
-            prevent_outside=prevent_outside,
-            tweaks=tweaks,
-        )
+        if _composable:
+            from models.url import ComposableUrlProcessor
+            processor = ComposableUrlProcessor(
+                docs_url=docs_url,
+                crawl_depth=crawl_depth,
+                owner_user_id=owner_user_id,
+                jwt_token=jwt_token,
+                owner_name=owner_name,
+                owner_email=owner_email,
+                connector_type=connector_type,
+            )
+        else:
+            from models.url import LangflowUrlProcessor
+            processor = LangflowUrlProcessor(
+                langflow_file_service=langflow_file_service,
+                session_manager=session_manager,
+                docs_url=docs_url,
+                crawl_depth=crawl_depth,
+                owner_user_id=owner_user_id,
+                jwt_token=jwt_token,
+                owner_name=owner_name,
+                owner_email=owner_email,
+                connector_type=connector_type,
+                prevent_outside=prevent_outside,
+                tweaks=tweaks,
+            )
         return await self.create_custom_task(owner_user_id, [docs_url], processor, existing_task_id=existing_task_id)
 
     async def create_custom_task(self, user_id: str, items: list, processor, original_filenames: dict | None = None, existing_task_id: str = None) -> str:

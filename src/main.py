@@ -1061,6 +1061,12 @@ async def refresh_default_openrag_docs(
         metadata={"reason": reason, "force": force},
     )
     try:
+        # In composable mode the refresh is handled via the composable ingestion path;
+        # skip the Langflow/URL-ingest check that would try to connect to Langflow.
+        if _is_composable_mode() and not _should_use_url_default_docs_ingest():
+            logger.info("Composable mode: skipping Langflow-based OpenRAG docs refresh")
+            return False
+
         if not _should_use_url_default_docs_ingest():
             logger.info(
                 "Skipping OpenRAG docs refresh: URL ingestion is not active",

@@ -918,4 +918,82 @@ class LangflowFileProcessor(TaskProcessor):
             raise
 
 
-from .url import LangflowUrlProcessor
+from .url import LangflowUrlProcessor  # noqa: F401  (kept for backward compat)
+
+
+class ComposableFileProcessor(TaskProcessor):
+    """Processor that sends files through the composable IngestionPipeline.
+
+    Used by TaskService in composable mode as a drop-in replacement for
+    LangflowFileProcessor.
+    """
+
+    def __init__(
+        self,
+        owner_user_id: str = None,
+        jwt_token: str = None,
+        owner_name: str = None,
+        owner_email: str = None,
+        connector_type: str = "local",
+        is_sample_data: bool = False,
+    ):
+        super().__init__()
+        self.owner_user_id = owner_user_id
+        self.jwt_token = jwt_token
+        self.owner_name = owner_name
+        self.owner_email = owner_email
+        self.connector_type = connector_type
+        self.is_sample_data = is_sample_data
+
+    async def process_item(
+        self, upload_task: UploadTask, item: str, file_task: FileTask
+    ) -> None:
+        import hashlib
+        import mimetypes
+        import os
+        import time as _time
+
+        from main import _get_pipeline_service
+        from models.tasks import TaskStatus as _TaskStatus
+        from pipeline.types import FileMetadata
+
+        file_task.status = _TaskStatus.RUNNING
+        file_task.updated_at = _time.time()
+
+        try:
+            pipeline_service = _get_pipeline_service()
+            if pipeline_service is None:
+                raise RuntimeError("PipelineService not available in composable mode")
+
+            original_filename = file_task.filename or os.path.basename(item)
+            with open(item, "rb") as fh:
+                content = fh.read()
+            file_hash = hashlib.sha256(content).hexdigest()
+            mime, _ = mimetypes.guess_type(item)
+
+            fm = FileMetadata(
+                file_path=item,
+                filename=original_filename,
+                file_hash=file_hash,
+                file_size=len(content),
+                mimetype=mime or "application/octet-stream",
+                owner_user_id=self.owner_user_id,
+                jwt_token=self.jwt_token,
+                connector_type=self.connector_type,
+                owner_name=self.owner_name,
+                owner_email=self.owner_email,
+                is_sample_data=self.is_sample_data,
+            )
+
+            batch_id = await pipeline_service.run_files([fm])
+            file_task.status = _TaskStatus.COMPLETED
+            file_task.result = {"status": "indexed", "batch_id": batch_id}
+            file_task.updated_at = _time.time()
+            upload_task.successful_files += 1
+
+        except Exception as exc:
+            file_task.status = _TaskStatus.FAILED
+            file_task.error = str(exc)
+            file_task.updated_at = _time.time()
+            upload_task.failed_files += 1
+            raise
