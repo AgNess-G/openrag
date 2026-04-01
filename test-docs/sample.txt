@@ -1,0 +1,20 @@
+OpenRAG Composable Pipeline - Sample Document
+
+This is a sample text document used for testing the composable ingestion pipeline.
+It contains multiple paragraphs of text that can be split into chunks for embedding
+and indexing into OpenSearch.
+
+The composable pipeline architecture allows you to mix and match different components:
+parsers (Docling, MarkItDown, plain text), preprocessors (cleaning, deduplication),
+chunkers (recursive, character, semantic, page-table, docling-hybrid), embedders
+(OpenAI, Ollama, WatsonX, HuggingFace), and indexers (OpenSearch bulk).
+
+Each component implements a protocol interface, making it easy to add new
+implementations without changing the pipeline orchestration code. The pipeline
+configuration is loaded from a YAML file at boot time and validated using
+Pydantic v2 models.
+
+For scalable processing of large document collections (up to 1 million documents),
+the pipeline supports both a local asyncio-based backend and a distributed Ray
+backend. The Ray backend can scale from a single machine to a multi-node cluster
+with GPU support for embedding generation.

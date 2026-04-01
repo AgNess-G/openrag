@@ -87,6 +87,14 @@ def get_flows_service(services: dict = Depends(get_services)):
     return services["flows_service"]
 
 
+def get_pipeline_service(services: dict = Depends(get_services)):
+    return services.get("pipeline_service")
+
+
+def get_pipeline_config(services: dict = Depends(get_services)):
+    return services.get("pipeline_config")
+
+
 # ─────────────────────────────────────────────
 # IBM AMS authentication helper
 # ─────────────────────────────────────────────

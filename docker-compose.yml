@@ -105,6 +105,8 @@ services:
       - INGESTION_TIMEOUT=${INGESTION_TIMEOUT:-3600}
       - UPLOAD_BATCH_SIZE=${UPLOAD_BATCH_SIZE:-25}
       - MAX_WORKERS=${MAX_WORKERS:-4}
+      - RAY_ADDRESS=${RAY_ADDRESS:-}
+      - PIPELINE_CONFIG_FILE=${PIPELINE_CONFIG_FILE:-config/pipeline.yaml}
     volumes:
       - ${OPENRAG_DOCUMENTS_PATH:-./openrag-documents}:/app/openrag-documents:U,z
       - ${OPENRAG_KEYS_PATH:-./keys}:/app/keys:U,z
@@ -181,3 +183,23 @@ services:
       - LANGFLOW_ENABLE_SUPERUSER_CLI=${LANGFLOW_ENABLE_SUPERUSER_CLI}
       # - DEFAULT_FOLDER_NAME=OpenRAG
       - HIDE_GETTING_STARTED_PROGRESS=true
+
+  # ── Ray cluster (opt-in via --profile ray) ──────────────────────
+  ray-head:
+    image: rayproject/ray:2.44.1-py311
+    container_name: ray-head
+    ports:
+      - "6379:6379"
+      - "8265:8265"
+    command: ray start --head --port=6379 --dashboard-host=0.0.0.0 --block
+    profiles: ["ray"]
+
+  ray-worker:
+    image: rayproject/ray:2.44.1-py311
+    container_name: ray-worker
+    command: ray start --address=ray-head:6379 --block
+    depends_on:
+      - ray-head
+    deploy:
+      replicas: 2
+    profiles: ["ray"]

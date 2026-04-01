@@ -1454,6 +1454,30 @@ async def initialize_services():
     # API Key service for public API authentication
     api_key_service = APIKeyService(session_manager)
 
+    # Initialize composable pipeline (non-blocking, uses defaults if config missing)
+    pipeline_config_obj = None
+    pipeline_service = None
+    try:
+        from pipeline.config import PipelineConfigManager
+        from services.pipeline_service import PipelineService
+
+        pipeline_mgr = PipelineConfigManager()
+        pipeline_config_obj = pipeline_mgr.load()
+        if pipeline_config_obj.ingestion_mode == "composable":
+            pipeline_service = PipelineService(
+                pipeline_config=pipeline_config_obj,
+                session_manager=session_manager,
+                document_service=document_service,
+            )
+            logger.info("Composable pipeline service initialized")
+        else:
+            logger.info(
+                "Pipeline mode is not 'composable', skipping PipelineService init",
+                mode=pipeline_config_obj.ingestion_mode,
+            )
+    except Exception as e:
+        logger.warning("Failed to initialize composable pipeline", error=str(e))
+
     return {
         "document_service": document_service,
         "search_service": search_service,
@@ -1468,6 +1492,8 @@ async def initialize_services():
         "monitor_service": monitor_service,
         "session_manager": session_manager,
         "api_key_service": api_key_service,
+        "pipeline_service": pipeline_service,
+        "pipeline_config": pipeline_config_obj,
     }
 
 

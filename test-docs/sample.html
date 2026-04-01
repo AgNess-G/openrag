@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenRAG Pipeline Test</title>
+</head>
+<body>
+    <h1>OpenRAG Pipeline Test Document</h1>
+    <p>This is a sample HTML document for testing the composable ingestion pipeline.</p>
+
+    <h2>Pipeline Stages</h2>
+    <p>The pipeline processes documents through five stages: parse, preprocess, chunk, embed, and index.</p>
+
+    <table>
+        <tr>
+            <th>Stage</th>
+            <th>Protocol</th>
+            <th>Implementations</th>
+        </tr>
+        <tr>
+            <td>Parse</td>
+            <td>DocumentParser</td>
+            <td>Docling, PlainText, MarkItDown, Auto</td>
+        </tr>
+        <tr>
+            <td>Chunk</td>
+            <td>Chunker</td>
+            <td>Recursive, Character, Semantic, PageTable, DoclingHybrid</td>
+        </tr>
+        <tr>
+            <td>Embed</td>
+            <td>Embedder</td>
+            <td>OpenAI, Ollama, WatsonX, HuggingFace</td>
+        </tr>
+    </table>
+
+    <h2>Getting Started</h2>
+    <p>Configure the pipeline via <code>config/pipeline.yaml</code> or use a preset from <code>config/presets/</code>.</p>
+</body>
+</html>
