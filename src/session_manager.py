@@ -1,17 +1,13 @@
-import json
 import jwt
 import httpx
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Any
-from dataclasses import dataclass, asdict
+from typing import Dict, Optional, Any, Union
+from dataclasses import dataclass
+
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448
 
 import os
-from utils.logging_config import get_logger
-
-logger = get_logger(__name__)
-
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -26,6 +22,9 @@ class User:
     provider: str = "google"
     created_at: datetime = None
     last_login: datetime = None
+    jwt_token: Optional[str] = None
+    opensearch_username: Optional[str] = None
+    opensearch_credentials: Optional[str] = None  # Raw base64 credentials (without "Basic " prefix)
 
     def __post_init__(self):
         if self.created_at is None:
@@ -33,17 +32,15 @@ class User:
         if self.last_login is None:
             self.last_login = datetime.now()
 
+@dataclass
 class AnonymousUser(User):
     """Anonymous user"""
 
-    def __init__(self):
-        super().__init__(
-            user_id="anonymous",
-            email="anonymous@localhost",
-            name="Anonymous User",
-            picture=None,
-            provider="none",
-        )
+    user_id: str = "anonymous"
+    email: str = "anonymous@localhost"
+    name: str = "Anonymous User"
+    picture: str = None
+    provider: str = "none"
 
 
 
@@ -208,11 +205,14 @@ class SessionManager:
             "preferred_username": user.email,
             "email_verified": True,
             "roles": ["openrag_user"],  # Backend role for OpenSearch
-            "user_roles": ["openrag_user"],  # compatible with OpenSearch's roles_key
+            "user_roles": ["openrag_user", "all_access"],  # compatible with OpenSearch's roles_key
         }
 
-        token = jwt.encode(token_payload, self.private_key, algorithm=self.algorithm)
-        return token
+        # Check for token from environment variable first
+        token = os.getenv("OPENSEARCH_JWT_TOKEN")
+        if not token:
+            token = jwt.encode(token_payload, self.private_key, algorithm=self.algorithm)
+        return f"Bearer {token}"
 
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify JWT token and return user info"""
@@ -240,15 +240,25 @@ class SessionManager:
             return self.get_user(payload["user_id"])
         return None
 
-    def get_user_opensearch_client(self, user_id: str, jwt_token: str):
+    def get_user_opensearch_client(self, user_or_id: Union[User, str], jwt_token: str = None):
         """Get or create OpenSearch client for user with their JWT"""
+        if isinstance(user_or_id, User):
+            user_id = user_or_id.user_id
+            jwt_token = user_or_id.jwt_token
+        else:
+            user_id = user_or_id
+
         # Get the effective JWT token (handles anonymous JWT creation)
         jwt_token = self.get_effective_jwt_token(user_id, jwt_token)
 
+        from config.settings import IBM_AUTH_ENABLED, clients
+
+        # In IBM mode credentials may rotate per-request — always create a fresh client
+        if IBM_AUTH_ENABLED:
+            return clients.create_user_opensearch_client(jwt_token)
+
         # Check if we have a cached client for this user
         if user_id not in self.user_opensearch_clients:
-            from config.settings import clients
-
             self.user_opensearch_clients[user_id] = (
                 clients.create_user_opensearch_client(jwt_token)
             )
@@ -257,28 +267,28 @@ class SessionManager:
 
     def get_effective_jwt_token(self, user_id: str, jwt_token: str) -> str:
         """Get the effective JWT token, creating anonymous JWT if needed in no-auth mode"""
-        from config.settings import is_no_auth_mode
+        from config.settings import IBM_AUTH_ENABLED, is_no_auth_mode
 
-        logger.debug(
-            "get_effective_jwt_token",
-            user_id=user_id,
-            jwt_token_present=(jwt_token is not None),
-            no_auth_mode=is_no_auth_mode(),
-        )
+        # IBM JWT is used as-is — never override with an anonymous OpenRAG JWT
+        if IBM_AUTH_ENABLED and jwt_token:
+            return jwt_token
 
-        # In no-auth mode, create anonymous JWT if needed
-        if jwt_token is None and (is_no_auth_mode() or user_id in (None, AnonymousUser().user_id)):
+        if jwt_token is not None:
+            return jwt_token
+
+        # No token — create one
+        if is_no_auth_mode() or user_id in (None, AnonymousUser().user_id):
+            # anonymous JWT (cached)
             if not hasattr(self, "_anonymous_jwt"):
-                # Create anonymous JWT token for OpenSearch OIDC
-                logger.debug("Creating anonymous JWT")
                 self._anonymous_jwt = self._create_anonymous_jwt()
-                logger.debug(
-                    "Anonymous JWT created", jwt_prefix=self._anonymous_jwt[:50]
-                )
-            jwt_token = self._anonymous_jwt
-            logger.debug("Using anonymous JWT")
+            return self._anonymous_jwt
 
-        return jwt_token
+        # Auth mode, real user, no token — mint a JWT for them
+        user = self.get_user(user_id)
+        if user:
+            return self.create_jwt_token(user)
+
+        return None
 
     def _create_anonymous_jwt(self) -> str:
         """Create JWT token for anonymous user in no-auth mode"""

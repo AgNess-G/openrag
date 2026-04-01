@@ -1,7 +1,8 @@
 import copy
+import json
+from collections import Counter
 from typing import Any, Dict
-from agentd.tool_decorator import tool
-from config.settings import EMBED_MODEL, clients, INDEX_NAME, get_embedding_model, WATSONX_EMBEDDING_DIMENSIONS
+from config.settings import EMBED_MODEL, clients, get_embedding_model, get_index_name, WATSONX_EMBEDDING_DIMENSIONS
 from auth_context import get_auth_context
 from utils.logging_config import get_logger
 
@@ -16,7 +17,6 @@ class SearchService:
     def __init__(self, session_manager=None):
         self.session_manager = session_manager
 
-    @tool
     async def search_tool(self, query: str, embedding_model: str = None) -> Dict[str, Any]:
         """
         Use this tool to search for documents relevant to the query.
@@ -76,7 +76,7 @@ class SearchService:
                 field_mapping = {
                     "data_sources": "filename",
                     "document_types": "mimetype",
-                    "owners": "owner_name.keyword",
+                    "owners": "owner",
                     "connector_types": "connector_type",
                 }
 
@@ -120,7 +120,7 @@ class SearchService:
                     }
 
                 agg_result = await opensearch_client.search(
-                    index=INDEX_NAME, body=agg_query, params={"terminate_after": 0}
+                    index=get_index_name(), body=agg_query, params={"terminate_after": 0}
                 )
                 buckets = agg_result.get("aggregations", {}).get("embedding_models", {}).get("buckets", [])
                 available_models = [b["key"] for b in buckets if b["key"]]
@@ -235,7 +235,7 @@ class SearchService:
                 field_mapping = {
                     "data_sources": "filename",
                     "document_types": "mimetype",
-                    "owners": "owner_name.keyword",
+                    "owners": "owner",
                     "connector_types": "connector_type",
                 }
 
@@ -316,8 +316,23 @@ class SearchService:
                                 "query": query,
                                 "fields": ["text^2", "filename^1.5"],
                                 "type": "best_fields",
-                                "fuzziness": "AUTO",
+                                "operator": "or",
+                                "fuzziness": "AUTO:4,7",
                                 "boost": 0.3,  # 30% weight for keyword search
+                            }
+                        },
+                        {
+                            # Prefix fallback for partial input (e.g. "vita" -> "vitamin").
+                            # Avoid bool_prefix here because our current mappings are:
+                            # - text: standard "text" (not search_as_you_type / edge-ngram)
+                            # - filename: "keyword"
+                            # match_phrase_prefix with a bounded expansion is safer.
+                            "match_phrase_prefix": {
+                                "text": {
+                                    "query": query,
+                                    "max_expansions": 50,
+                                    "boost": 0.25,
+                                }
                             }
                         },
                     ],
@@ -331,7 +346,7 @@ class SearchService:
             "aggs": {
                 "data_sources": {"terms": {"field": "filename", "size": 20}},
                 "document_types": {"terms": {"field": "mimetype", "size": 10}},
-                "owners": {"terms": {"field": "owner_name.keyword", "size": 10}},
+                "owners": {"terms": {"field": "owner", "size": 10}},
                 "connector_types": {"terms": {"field": "connector_type", "size": 10}},
                 "embedding_models": {"terms": {"field": "embedding_model", "size": 10}},
             },
@@ -391,15 +406,24 @@ class SearchService:
         )
 
         from opensearchpy.exceptions import RequestError
+        from utils.opensearch_utils import OpenSearchDiskSpaceError, is_disk_space_error, DISK_SPACE_ERROR_MESSAGE
 
         search_params = {"terminate_after": 0}
 
         try:
+            index_name = get_index_name()
+            logger.info(f"Sending query to index '{index_name}'..")
             results = await opensearch_client.search(
-                index=INDEX_NAME, body=search_body, params=search_params
+                index=index_name, body=search_body, params=search_params
             )
         except RequestError as e:
             error_message = str(e)
+            if is_disk_space_error(e):
+                logger.error(
+                    "OpenSearch query blocked by disk space constraint",
+                    error=error_message,
+                )
+                raise OpenSearchDiskSpaceError(DISK_SPACE_ERROR_MESSAGE) from e
             if (
                 fallback_search_body is not None
                 and "unknown field [num_candidates]" in error_message.lower()
@@ -409,11 +433,17 @@ class SearchService:
                 )
                 try:
                     results = await opensearch_client.search(
-                        index=INDEX_NAME,
+                        index=get_index_name(),
                         body=fallback_search_body,
                         params=search_params,
                     )
                 except RequestError as retry_error:
+                    if is_disk_space_error(retry_error):
+                        logger.error(
+                            "OpenSearch retry blocked by disk space constraint",
+                            error=str(retry_error),
+                        )
+                        raise OpenSearchDiskSpaceError(DISK_SPACE_ERROR_MESSAGE) from retry_error
                     logger.error(
                         "OpenSearch retry without num_candidates failed",
                         error=str(retry_error),
@@ -425,7 +455,15 @@ class SearchService:
                     "OpenSearch query failed", error=error_message, search_body=search_body
                 )
                 raise
+        except OpenSearchDiskSpaceError:
+            raise
         except Exception as e:
+            if is_disk_space_error(e):
+                logger.error(
+                    "OpenSearch query blocked by disk space constraint",
+                    error=str(e),
+                )
+                raise OpenSearchDiskSpaceError(DISK_SPACE_ERROR_MESSAGE) from e
             logger.error(
                 "OpenSearch query failed", error=str(e), search_body=search_body
             )
@@ -435,33 +473,84 @@ class SearchService:
         # Transform results (keep for backward compatibility)
         chunks = []
         for hit in results["hits"]["hits"]:
+            source = hit.get("_source", {})
             chunks.append(
                 {
-                    "filename": hit["_source"].get("filename"),
-                    "mimetype": hit["_source"].get("mimetype"),
-                    "page": hit["_source"].get("page"),
-                    "text": hit["_source"].get("text"),
+                    "filename": source.get("filename"),
+                    "mimetype": source.get("mimetype"),
+                    "page": source.get("page"),
+                    "text": source.get("text"),
                     "score": hit.get("_score"),
-                    "source_url": hit["_source"].get("source_url"),
-                    "owner": hit["_source"].get("owner"),
-                    "owner_name": hit["_source"].get("owner_name"),
-                    "owner_email": hit["_source"].get("owner_email"),
-                    "file_size": hit["_source"].get("file_size"),
-                    "connector_type": hit["_source"].get("connector_type"),
-                    "embedding_model": hit["_source"].get("embedding_model"),  # Include in results
-                    "embedding_dimensions": hit["_source"].get("embedding_dimensions"),
+                    "source_url": source.get("source_url"),
+                    "owner": source.get("owner"),
+                    "owner_name": source.get("owner_name"),
+                    "owner_email": source.get("owner_email"),
+                    "file_size": source.get("file_size"),
+                    "connector_type": source.get("connector_type"),
+                    "embedding_model": source.get("embedding_model"),  # Include in results
+                    "embedding_dimensions": source.get("embedding_dimensions"),
+                    # ACL fields (may be missing for some documents)
+                    "allowed_users": source.get("allowed_users", []),
+                    "allowed_groups": source.get("allowed_groups", []),
                 }
             )
+
+        # If query text appears verbatim in one subset of files, prefer those files
+        # to avoid broad semantic spillover for unique lookups.
+        normalized_query = query.strip().lower()
+        aggregations = results.get("aggregations", {})
+        if (
+            normalized_query
+            and not is_wildcard_match_all
+            and len(normalized_query) >= 4
+        ):
+            exact_files = {
+                filename
+                for chunk in chunks
+                for filename in [chunk.get("filename")]
+                if isinstance(filename, str)
+                and (
+                    normalized_query in filename.lower()
+                    or (
+                        isinstance(chunk.get("text"), str)
+                        and normalized_query in chunk.get("text", "").lower()
+                    )
+                )
+            }
+            if exact_files:
+                chunks = [chunk for chunk in chunks if chunk.get("filename") in exact_files]
+
+                def _build_terms_agg(field: str) -> Dict[str, Any]:
+                    counts = Counter(
+                        value
+                        for chunk in chunks
+                        for value in [chunk.get(field)]
+                        if isinstance(value, str) and value
+                    )
+                    return {
+                        "doc_count_error_upper_bound": 0,
+                        "sum_other_doc_count": 0,
+                        "buckets": [
+                            {"key": key, "doc_count": count}
+                            for key, count in counts.most_common()
+                        ],
+                    }
+
+                # Keep aggregations consistent with the post-filtered result set.
+                aggregations = {
+                    **aggregations,
+                    "data_sources": _build_terms_agg("filename"),
+                    "document_types": _build_terms_agg("mimetype"),
+                    "owners": _build_terms_agg("owner"),
+                    "connector_types": _build_terms_agg("connector_type"),
+                    "embedding_models": _build_terms_agg("embedding_model"),
+                }
 
         # Return both transformed results and aggregations
         return {
             "results": chunks,
-            "aggregations": results.get("aggregations", {}),
-            "total": (
-                results.get("hits", {}).get("total", {}).get("value")
-                if isinstance(results.get("hits", {}).get("total"), dict)
-                else results.get("hits", {}).get("total")
-            ),
+            "aggregations": aggregations,
+            "total": len(chunks),
         }
 
     async def search(

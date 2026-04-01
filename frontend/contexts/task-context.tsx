@@ -12,13 +12,14 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { useCancelTaskMutation } from "@/app/api/mutations/useCancelTaskMutation";
+import { useGetSettingsQuery } from "@/app/api/queries/useGetSettingsQuery";
 import {
   type Task,
   type TaskFileEntry,
   useGetTasksQuery,
 } from "@/app/api/queries/useGetTasksQuery";
-import { useGetSettingsQuery } from "@/app/api/queries/useGetSettingsQuery";
 import { useAuth } from "@/contexts/auth-context";
+import { hasFailedFileEntries, isTerminalFailedTask } from "@/lib/task-utils";
 
 // Task interface is now imported from useGetTasksQuery
 export type { Task };
@@ -47,9 +48,15 @@ interface TaskContextType {
   isPolling: boolean;
   isFetching: boolean;
   isMenuOpen: boolean;
+  openMenu: () => void;
   toggleMenu: () => void;
+  closeMenu: () => void;
   isRecentTasksExpanded: boolean;
   setRecentTasksExpanded: (expanded: boolean) => void;
+  selectedTaskId: string | null;
+  setSelectedTaskId: (taskId: string | null) => void;
+  selectedTaskTrigger: number;
+  selectTask: (taskId: string | null) => void;
   // React Query states
   isLoading: boolean;
   error: Error | null;
@@ -61,7 +68,16 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
   const [files, setFiles] = useState<TaskFile[]>([]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isRecentTasksExpanded, setIsRecentTasksExpanded] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskTrigger, setSelectedTaskTrigger] = useState(0);
   const previousTasksRef = useRef<Task[]>([]);
+  const selectTask = useCallback((taskId: string | null) => {
+    setSelectedTaskId(taskId);
+    if (taskId) {
+      setSelectedTaskTrigger((prev) => prev + 1);
+    }
+  }, []);
+
   const { isAuthenticated, isNoAuthMode } = useAuth();
 
   const queryClient = useQueryClient();
@@ -235,9 +251,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
               setFiles((prevFiles) => {
                 const existingFileIndex = prevFiles.findIndex(
-                  (f) =>
-                    f.source_url === filePath &&
-                    f.task_id === currentTask.task_id,
+                  (f) => f.source_url === filePath,
                 );
 
                 // Detect connector type based on file path or other indicators
@@ -275,7 +289,8 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
                 };
 
                 if (existingFileIndex >= 0) {
-                  // Update existing file
+                  // Update by file identity so newer task attempts replace older
+                  // failed/success overlays for the same file.
                   const updatedFiles = [...prevFiles];
                   updatedFiles[existingFileIndex] = fileEntry;
                   return updatedFiles;
@@ -286,6 +301,32 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
               });
             }
           });
+        }
+
+        if (isTaskInProgress && previousTask?.files) {
+          const currentFileKeys = new Set(Object.keys(currentTask.files ?? {}));
+          const disappearedFilePaths = Object.keys(previousTask.files).filter(
+            (fp) => !currentFileKeys.has(fp),
+          );
+
+          if (disappearedFilePaths.length > 0) {
+            setFiles((prevFiles) => {
+              let changed = false;
+              const updated = prevFiles.map((f) => {
+                if (
+                  f.task_id === currentTask.task_id &&
+                  f.status === "processing" &&
+                  disappearedFilePaths.includes(f.source_url)
+                ) {
+                  changed = true;
+                  return { ...f, status: "active" as TaskFile["status"] };
+                }
+                return f;
+              });
+              return changed ? updated : prevFiles;
+            });
+            setTimeout(() => refetchSearch(), 500);
+          }
         }
         if (
           shouldShowToast &&
@@ -315,20 +356,25 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
               action: {
                 label: "View",
                 onClick: () => {
+                  selectTask(currentTask.task_id);
                   setIsMenuOpen(true);
                   setIsRecentTasksExpanded(true);
                 },
               },
             });
           }
+
+          const completedHasFailures = hasFailedFileEntries(currentTask);
+
           setTimeout(() => {
-            // Only remove files from THIS specific task that completed
+            // Remove overlay rows for this completed task so backend becomes
+            // source of truth. For partial-success completions, keep failed
+            // rows visible in the table.
             setFiles((prevFiles) =>
               prevFiles.filter(
                 (file) =>
                   file.task_id !== currentTask.task_id ||
-                  file.status === "active" ||
-                  file.status === "failed",
+                  (completedHasFailures && file.status === "failed"),
               ),
             );
             refetchSearch();
@@ -336,10 +382,14 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
         } else if (
           shouldShowToast &&
           previousTask &&
-          previousTask.status !== "failed" &&
-          previousTask.status !== "error" &&
-          (currentTask.status === "failed" || currentTask.status === "error")
+          !isTerminalFailedTask(previousTask) &&
+          isTerminalFailedTask(currentTask)
         ) {
+          if (!isOnboardingActive()) {
+            selectTask(currentTask.task_id);
+            setIsMenuOpen(true);
+            setIsRecentTasksExpanded(true);
+          }
           // Task just failed - show error toast
           toast.error("Task failed", {
             description: `Task ${currentTask.task_id} failed: ${
@@ -399,6 +449,15 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     setIsMenuOpen((prev) => !prev);
   }, []);
 
+  const openMenu = useCallback(() => {
+    setIsMenuOpen(true);
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    setIsMenuOpen(false);
+    setSelectedTaskId(null);
+  }, []);
+
   // Determine if we're polling based on React Query's refetch interval
   const isPolling =
     isFetching &&
@@ -419,9 +478,15 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
     isPolling,
     isFetching,
     isMenuOpen,
+    openMenu,
     toggleMenu,
+    closeMenu,
     isRecentTasksExpanded,
     setRecentTasksExpanded: setIsRecentTasksExpanded,
+    selectedTaskId,
+    setSelectedTaskId,
+    selectedTaskTrigger,
+    selectTask,
     isLoading,
     error,
   };

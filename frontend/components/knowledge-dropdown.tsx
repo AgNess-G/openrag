@@ -3,7 +3,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
-  Cloud,
   File as FileIcon,
   Folder,
   FolderOpen,
@@ -18,6 +17,7 @@ import { useGetTasksQuery } from "@/app/api/queries/useGetTasksQuery";
 import { DuplicateHandlingDialog } from "@/components/duplicate-handling-dialog";
 import AwsIcon from "@/components/icons/aws-logo";
 import GoogleDriveIcon from "@/components/icons/google-drive-logo";
+import IBMCOSIcon from "@/components/icons/ibm-cos-icon";
 import OneDriveIcon from "@/components/icons/one-drive-logo";
 import SharePointIcon from "@/components/icons/share-point-logo";
 import { Button } from "@/components/ui/button";
@@ -36,58 +36,107 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/contexts/auth-context";
+import { useIsCloudBrand } from "@/contexts/brand-context";
 import { useTask } from "@/contexts/task-context";
 import {
   duplicateCheck,
+  uploadFiles,
   uploadFile as uploadFileUtil,
 } from "@/lib/upload-utils";
 import { cn } from "@/lib/utils";
 
-// Supported file extensions - single source of truth
-const SUPPORTED_EXTENSIONS = [
-  ".pdf",
-  ".doc",
-  ".docx",
-  ".pptx",
-  ".ppt",
-  ".xlsx",
-  ".xls",
-  ".csv",
-  ".txt",
-  ".md",
-  ".html",
-  ".htm",
-  ".rtf",
-  ".odt",
-  ".asciidoc",
-  ".adoc",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".bmp",
-  ".tiff",
-  ".webp",
-];
+/**
+ * Local / chat file picker + folder ingest filter — single source of truth.
+ * Only extensions verified to ingest successfully in the Langflow pipeline.
+ * If modified, update docs (docs/docs/core-components/ingestion.mdx).
+ *
+ * documents: txt, md, html, htm, adoc, asciidoc, asc, pdf, docx
+ * spreadsheets: csv
+ *
+ * TODO: Re-add other MIME/extension groups (images, xlsx/xls/ppt, rtf/odt, etc.)
+ * once ingestion is verified end-to-end in Langflow; keep this list and ingestion.mdx in sync.
+ */
+export const SUPPORTED_FILE_TYPES = {
+  "text/plain": [".txt"],
+  "text/markdown": [".md"],
+  "text/html": [".html", ".htm"],
+  "text/asciidoc": [".adoc", ".asciidoc", ".asc"],
+  "application/pdf": [".pdf"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+    ".docx",
+  ],
+  "text/csv": [".csv"],
+};
+
+export const SUPPORTED_EXTENSIONS = Object.values(SUPPORTED_FILE_TYPES).flat();
+
+const getFilenameVariants = (filename: string): string[] => {
+  const dotIndex = filename.lastIndexOf(".");
+  if (dotIndex === -1) return [filename];
+
+  const baseName = filename.slice(0, dotIndex);
+  const extension = filename.slice(dotIndex).toLowerCase();
+
+  if (extension === ".txt") return [filename, `${baseName}.md`];
+  if (extension === ".md") return [filename, `${baseName}.txt`];
+
+  return [filename];
+};
+
+const isDuplicateFile = async (file: File): Promise<boolean> => {
+  const variants = getFilenameVariants(file.name);
+  const checks = await Promise.all(
+    variants.map(async (variantName) => {
+      const variantFile =
+        variantName === file.name
+          ? file
+          : new File([file], variantName, {
+              type: file.type,
+              lastModified: file.lastModified,
+            });
+      const checkData = await duplicateCheck(variantFile);
+      return checkData.exists;
+    }),
+  );
+  return checks.some(Boolean);
+};
+
+const FileIconWithColor = ({ className }: { className?: string }) => (
+  <FileIcon className={cn(className, "text-muted-foreground")} />
+);
+
+const FolderIconWithColor = ({ className }: { className?: string }) => (
+  <Folder className={cn(className, "text-muted-foreground")} />
+);
 
 export function KnowledgeDropdown() {
+  const { isIbmAuthMode } = useAuth();
+  const isCloudBrand = useIsCloudBrand();
   const { addTask } = useTask();
   const { refetch: refetchTasks } = useGetTasksQuery();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showFolderDialog, setShowFolderDialog] = useState(false);
-  const [showS3Dialog, setShowS3Dialog] = useState(false);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
-  const [awsEnabled, setAwsEnabled] = useState(false);
+  const [uploadBatchSize, setUploadBatchSize] = useState(25);
   const [folderPath, setFolderPath] = useState("");
-  const [bucketUrl, setBucketUrl] = useState("s3://");
   const [folderLoading, setFolderLoading] = useState(false);
-  const [s3Loading, setS3Loading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
   const [isNavigatingToCloud, setIsNavigatingToCloud] = useState(false);
+  const [ibmCosConfigured, setIbmCosConfigured] = useState(false);
+  const [s3Configured, setS3Configured] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [duplicateFilename, setDuplicateFilename] = useState<string>("");
+  const [pendingFolderUpload, setPendingFolderUpload] = useState<{
+    allFiles: File[];
+    nonDuplicateFiles: File[];
+    duplicateCount: number;
+    unsupportedCount: number;
+  } | null>(null);
+  const isFolderOverwriteConfirmedRef = useRef(false);
   const [cloudConnectors, setCloudConnectors] = useState<{
     [key: string]: {
       name: string;
@@ -99,15 +148,49 @@ export function KnowledgeDropdown() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
+  const resetDuplicateDialogState = () => {
+    setPendingFolderUpload(null);
+    setPendingFile(null);
+    setDuplicateFilename("");
+  };
+
   // Check AWS availability and cloud connectors on mount
   useEffect(() => {
     const checkAvailability = async () => {
       try {
-        // Check AWS
-        const awsRes = await fetch("/api/upload_options");
-        if (awsRes.ok) {
-          const awsData = await awsRes.json();
-          setAwsEnabled(Boolean(awsData.aws));
+        // Check upload batch size and bucket connector availability in parallel
+        const [uploadOptionsRes, ibmCosRes, s3Res] = await Promise.all([
+          fetch("/api/upload_options"),
+          fetch("/api/connectors/ibm_cos/defaults"),
+          fetch("/api/connectors/aws_s3/defaults"),
+        ]);
+
+        if (uploadOptionsRes.ok) {
+          const uploadOptionsData = await uploadOptionsRes.json();
+          if (
+            typeof uploadOptionsData.upload_batch_size === "number" &&
+            uploadOptionsData.upload_batch_size > 0
+          ) {
+            setUploadBatchSize(uploadOptionsData.upload_batch_size);
+          }
+        }
+
+        if (ibmCosRes.ok) {
+          const ibmCosData = await ibmCosRes.json();
+          setIbmCosConfigured(
+            Boolean(
+              ibmCosData.connection_id ||
+                ibmCosData.api_key_set ||
+                ibmCosData.hmac_access_key_set,
+            ),
+          );
+        }
+
+        if (s3Res.ok) {
+          const s3Data = await s3Res.json();
+          setS3Configured(
+            Boolean(s3Data.connection_id || s3Data.access_key_set),
+          );
         }
 
         // Check cloud connectors
@@ -183,6 +266,10 @@ export function KnowledgeDropdown() {
     checkAvailability();
   }, []);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const handleFileUpload = () => {
     fileInputRef.current?.click();
   };
@@ -205,11 +292,11 @@ export function KnowledgeDropdown() {
 
       try {
         console.log("[Duplicate Check] Checking file:", file.name);
-        const checkData = await duplicateCheck(file);
-        console.log("[Duplicate Check] Result:", checkData);
+        const exists = await isDuplicateFile(file);
 
-        if (checkData.exists) {
+        if (exists) {
           console.log("[Duplicate Check] Duplicate detected, showing dialog");
+          resetDuplicateDialogState();
           setPendingFile(file);
           setDuplicateFilename(file.name);
           setShowDuplicateDialog(true);
@@ -255,7 +342,49 @@ export function KnowledgeDropdown() {
     }
   };
 
+  const uploadFolderBatches = async (
+    filesToUpload: File[],
+    replace: boolean,
+  ) => {
+    const batches: File[][] = [];
+    for (let i = 0; i < filesToUpload.length; i += uploadBatchSize) {
+      batches.push(filesToUpload.slice(i, i + uploadBatchSize));
+    }
+
+    console.log(
+      `[Folder Upload] Uploading ${filesToUpload.length} file(s) in ${batches.length} batch(es), replace=${replace}`,
+    );
+
+    for (const batch of batches) {
+      try {
+        const result = await uploadFiles(batch, replace);
+        addTask(result.taskId);
+      } catch (error) {
+        console.error("[Folder Upload] Batch upload failed:", error);
+        toast.error("Batch upload failed", {
+          description: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+
+    refetchTasks();
+  };
+
   const handleOverwriteFile = async () => {
+    if (pendingFolderUpload) {
+      isFolderOverwriteConfirmedRef.current = true;
+      const { allFiles, duplicateCount, unsupportedCount } =
+        pendingFolderUpload;
+      await uploadFolderBatches(allFiles, true);
+      const unsupportedMessage =
+        unsupportedCount > 0 ? `, skipped ${unsupportedCount} unsupported` : "";
+      toast.success(
+        `Processed ${allFiles.length} file(s), including ${duplicateCount} overwrite(s)${unsupportedMessage}`,
+      );
+      resetDuplicateDialogState();
+      return;
+    }
+
     if (pendingFile) {
       // Remove the old file from all search query caches before overwriting
       queryClient.setQueriesData({ queryKey: ["search"] }, (oldData: []) => {
@@ -268,9 +397,42 @@ export function KnowledgeDropdown() {
 
       await uploadFile(pendingFile, true);
 
-      setPendingFile(null);
-      setDuplicateFilename("");
+      resetDuplicateDialogState();
     }
+  };
+
+  const handleDuplicateDialogOpenChange = async (open: boolean) => {
+    if (!open && pendingFolderUpload) {
+      if (isFolderOverwriteConfirmedRef.current) {
+        isFolderOverwriteConfirmedRef.current = false;
+      } else {
+        const { nonDuplicateFiles, duplicateCount, unsupportedCount } =
+          pendingFolderUpload;
+        if (nonDuplicateFiles.length > 0) {
+          await uploadFolderBatches(nonDuplicateFiles, false);
+          const extraParts: string[] = [];
+          if (duplicateCount > 0) {
+            extraParts.push(`skipped ${duplicateCount} duplicate(s)`);
+          }
+          if (unsupportedCount > 0) {
+            extraParts.push(`skipped ${unsupportedCount} unsupported`);
+          }
+          const suffix =
+            extraParts.length > 0 ? `, ${extraParts.join(", ")}` : "";
+          toast.success(
+            `Processed ${nonDuplicateFiles.length} file(s)${suffix}`,
+          );
+        } else {
+          toast.info(
+            "Skipped duplicate files. All selected files were duplicates, so nothing was uploaded.",
+          );
+        }
+      }
+
+      resetDuplicateDialogState();
+    }
+
+    setShowDuplicateDialog(open);
   };
 
   const handleFolderSelect = async (
@@ -290,6 +452,7 @@ export function KnowledgeDropdown() {
           .toLowerCase();
         return SUPPORTED_EXTENSIONS.includes(ext);
       });
+      const unsupportedCount = fileList.length - filteredFiles.length;
 
       if (filteredFiles.length === 0) {
         toast.error("No supported files found", {
@@ -301,48 +464,75 @@ export function KnowledgeDropdown() {
 
       toast.info(`Processing ${filteredFiles.length} file(s)...`);
 
-      for (const originalFile of filteredFiles) {
-        try {
-          // Extract just the filename without the folder path
-          const fileName =
-            originalFile.name.split("/").pop() || originalFile.name;
-          console.log(
-            `[Folder Upload] Processing file: ${originalFile.name} -> ${fileName}`,
-          );
+      // Create clean File objects (strip folder path from names)
+      const cleanFiles = filteredFiles.map((originalFile) => {
+        const fileName =
+          originalFile.name.split("/").pop() || originalFile.name;
+        return new File([originalFile], fileName, {
+          type: originalFile.type,
+          lastModified: originalFile.lastModified,
+        });
+      });
 
-          // Create a new File object with just the basename (no folder path)
-          // This is necessary because the webkitRelativePath includes the folder name
-          const file = new File([originalFile], fileName, {
-            type: originalFile.type,
-            lastModified: originalFile.lastModified,
-          });
-          console.log(`[Folder Upload] Created new File object:`, {
-            name: file.name,
-            type: file.type,
-            size: file.size,
-          });
-
-          // Check for duplicates using the clean filename
-          const checkData = await duplicateCheck(file);
-          console.log(`[Folder Upload] Duplicate check result:`, checkData);
-
-          if (!checkData.exists) {
-            console.log(`[Folder Upload] Uploading file: ${fileName}`);
-            await uploadFileUtil(file, false);
-            console.log(`[Folder Upload] Successfully uploaded: ${fileName}`);
-          } else {
-            console.log(`[Folder Upload] Skipping duplicate: ${fileName}`);
+      // Check all files for duplicates in parallel
+      const duplicateResults = await Promise.all(
+        cleanFiles.map(async (file) => {
+          try {
+            const exists = await isDuplicateFile(file);
+            return { file, isDuplicate: exists };
+          } catch (error) {
+            console.error(
+              `[Folder Upload] Duplicate check failed for ${file.name}:`,
+              error,
+            );
+            // On error, include the file (let the server handle it)
+            return { file, isDuplicate: false };
           }
-        } catch (error) {
-          console.error(
-            `[Folder Upload] Failed to upload ${originalFile.name}:`,
-            error,
-          );
-        }
+        }),
+      );
+
+      const nonDuplicateFiles = duplicateResults
+        .filter((r) => !r.isDuplicate)
+        .map((r) => r.file);
+      const duplicateCount = duplicateResults.filter(
+        (r) => r.isDuplicate,
+      ).length;
+
+      if (unsupportedCount > 0) {
+        toast.error(
+          `Unsupported files detected: only ${filteredFiles.length} of ${fileList.length} file(s) will be ingested.`,
+          {
+            description: `${unsupportedCount} file(s) have unsupported types and will be skipped.`,
+          },
+        );
       }
 
-      refetchTasks();
-      toast.success(`Successfully processed ${filteredFiles.length} file(s)`);
+      if (duplicateCount > 0) {
+        console.log(
+          `[Folder Upload] Found ${duplicateCount} duplicate file(s), showing overwrite dialog`,
+        );
+        resetDuplicateDialogState();
+        setPendingFolderUpload({
+          allFiles: cleanFiles,
+          nonDuplicateFiles,
+          duplicateCount,
+          unsupportedCount,
+        });
+        setShowDuplicateDialog(true);
+        return;
+      }
+
+      if (nonDuplicateFiles.length === 0) {
+        toast.info("All files already exist, nothing to upload.");
+        return;
+      }
+
+      await uploadFolderBatches(nonDuplicateFiles, false);
+      const unsupportedMessage =
+        unsupportedCount > 0 ? `, skipped ${unsupportedCount} unsupported` : "";
+      toast.success(
+        `Successfully processed ${nonDuplicateFiles.length} file(s)${unsupportedMessage}`,
+      );
     } catch (error) {
       console.error("Folder upload error:", error);
       toast.error("Folder upload failed", {
@@ -403,49 +593,6 @@ export function KnowledgeDropdown() {
     }
   };
 
-  const handleS3Upload = async () => {
-    if (!bucketUrl.trim()) return;
-
-    setS3Loading(true);
-    setShowS3Dialog(false);
-
-    try {
-      const response = await fetch("/api/upload_bucket", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ s3_url: bucketUrl }),
-      });
-
-      const result = await response.json();
-
-      if (response.status === 201) {
-        const taskId = result.task_id || result.id;
-
-        if (!taskId) {
-          throw new Error("No task ID received from server");
-        }
-
-        addTask(taskId);
-        setBucketUrl("s3://");
-        // Refetch tasks to show the new task
-        refetchTasks();
-      } else {
-        console.error("S3 upload failed:", result.error);
-        if (response.status === 400) {
-          toast.error("Upload failed", {
-            description: result.error || "Bad request",
-          });
-        }
-      }
-    } catch (error) {
-      console.error("S3 upload error:", error);
-    } finally {
-      setS3Loading(false);
-    }
-  };
-
   // Icon mapping for cloud connectors
   const connectorIconMap = {
     google_drive: GoogleDriveIcon,
@@ -478,24 +625,29 @@ export function KnowledgeDropdown() {
   const menuItems = [
     {
       label: "File",
-      icon: ({ className }: { className?: string }) => (
-        <FileIcon className={cn(className, "text-muted-foreground")} />
-      ),
+      icon: FileIconWithColor,
       onClick: handleFileUpload,
     },
     {
       label: "Folder",
-      icon: ({ className }: { className?: string }) => (
-        <Folder className={cn(className, "text-muted-foreground")} />
-      ),
+      icon: FolderIconWithColor,
       onClick: () => folderInputRef.current?.click(),
     },
-    ...(awsEnabled
+    ...(isIbmAuthMode && s3Configured
       ? [
           {
             label: "Amazon S3",
             icon: AwsIcon,
-            onClick: () => setShowS3Dialog(true),
+            onClick: () => router.push("/upload/aws_s3"),
+          },
+        ]
+      : []),
+    ...(isIbmAuthMode && ibmCosConfigured
+      ? [
+          {
+            label: "IBM Cloud Object Storage",
+            icon: IBMCOSIcon,
+            onClick: () => router.push("/upload/ibm_cos"),
           },
         ]
       : []),
@@ -503,37 +655,94 @@ export function KnowledgeDropdown() {
   ];
 
   // Comprehensive loading state
-  const isLoading =
-    fileUploading || folderLoading || s3Loading || isNavigatingToCloud;
+  const isLoading = fileUploading || folderLoading || isNavigatingToCloud;
+
+  if (!mounted) {
+    return (
+      <div className="flex h-12 pointer-events-none">
+        <Button
+          variant="outline"
+          className="h-12 px-6 rounded-l-lg rounded-r-none border-r-0 text-[var(--icon-disabled)] cursor-not-allowed"
+        >
+          <span>Add {isCloudBrand ? `knowledge` : `Knowledge`}</span>
+        </Button>
+        <Button
+          variant="outline"
+          className="h-12 w-12 flex-shrink-0 rounded-r-lg rounded-l-none border-l border-border text-[var(--icon-disabled)] cursor-not-allowed"
+          aria-label="Open add knowledge menu"
+        >
+          <ChevronDown className="h-5 w-5" />
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <>
       <DropdownMenu onOpenChange={setIsMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <Button disabled={isLoading}>
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-            <span>
-              {isLoading
-                ? fileUploading
-                  ? "Uploading..."
-                  : folderLoading
-                    ? "Processing Folder..."
-                    : s3Loading
-                      ? "Processing S3..."
+          {isCloudBrand ? (
+            <div className="flex h-12">
+              <Button
+                type="button"
+                disabled={isLoading}
+                className="h-12 bg-blue-600 px-6 text-body-compact text-primary-foreground hover:bg-blue-700"
+              >
+                {isLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                <span>
+                  {isLoading
+                    ? fileUploading
+                      ? "Uploading..."
+                      : folderLoading
+                        ? "Processing Folder..."
+                        : isNavigatingToCloud
+                          ? "Loading..."
+                          : "Processing..."
+                    : "Add knowledge"}
+                </span>
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="icon"
+                disabled={isLoading}
+                className="h-12 w-12 flex-shrink-0 border-l border-placeholder bg-blue-600 text-primary-foreground hover:bg-blue-700"
+                aria-label="Open add knowledge menu"
+              >
+                {!isLoading && (
+                  <ChevronDown
+                    className={cn(
+                      "h-5 w-5 transition-transform duration-200",
+                      isMenuOpen && "rotate-180",
+                    )}
+                  />
+                )}
+              </Button>
+            </div>
+          ) : (
+            <Button disabled={isLoading} variant="outline">
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              <span>
+                {isLoading
+                  ? fileUploading
+                    ? "Uploading..."
+                    : folderLoading
+                      ? "Processing Folder..."
                       : isNavigatingToCloud
                         ? "Loading..."
                         : "Processing..."
-                : "Add Knowledge"}
-            </span>
-            {!isLoading && (
-              <ChevronDown
-                className={cn(
-                  "h-4 w-4 transition-transform duration-200",
-                  isMenuOpen && "rotate-180",
-                )}
-              />
-            )}
-          </Button>
+                  : "Add Knowledge"}
+              </span>
+              {!isLoading && (
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform duration-200",
+                    isMenuOpen && "rotate-180",
+                  )}
+                />
+              )}
+            </Button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           {menuItems.map((item, index) => (
@@ -562,6 +771,7 @@ export function KnowledgeDropdown() {
         type="file"
         // @ts-ignore - webkitdirectory is not in TypeScript types but is widely supported
         webkitdirectory=""
+        // @ts-ignore
         directory=""
         multiple
         onChange={handleFolderSelect}
@@ -609,51 +819,14 @@ export function KnowledgeDropdown() {
         </DialogContent>
       </Dialog>
 
-      {/* Process S3 Bucket Dialog */}
-      <Dialog open={showS3Dialog} onOpenChange={setShowS3Dialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Cloud className="h-5 w-5" />
-              Process S3 Bucket
-            </DialogTitle>
-            <DialogDescription>
-              Process all documents from an S3 bucket. AWS credentials must be
-              configured.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="bucket-url">S3 URL</Label>
-              <Input
-                id="bucket-url"
-                type="text"
-                placeholder="s3://bucket/path"
-                value={bucketUrl}
-                onChange={(e) => setBucketUrl(e.target.value)}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowS3Dialog(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={handleS3Upload}
-                disabled={!bucketUrl.trim() || s3Loading}
-              >
-                {s3Loading ? "Processing..." : "Process Bucket"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Duplicate Handling Dialog */}
       <DuplicateHandlingDialog
         open={showDuplicateDialog}
-        onOpenChange={setShowDuplicateDialog}
+        onOpenChange={handleDuplicateDialogOpenChange}
         onOverwrite={handleOverwriteFile}
-        isLoading={fileUploading}
+        isLoading={fileUploading || folderLoading}
+        duplicateLabel={duplicateFilename}
+        duplicateCount={pendingFolderUpload?.duplicateCount}
       />
     </>
   );

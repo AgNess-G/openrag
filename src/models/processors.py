@@ -1,6 +1,11 @@
 from typing import Any
 from .tasks import UploadTask, FileTask
 from utils.logging_config import get_logger
+from utils.file_utils import (
+    get_file_extension,
+    clean_connector_filename,
+    get_filename_aliases,
+)
 
 logger = get_logger(__name__)
 
@@ -20,7 +25,7 @@ class TaskProcessor:
         Check if a document with the given hash already exists in OpenSearch.
         Consolidated hash checking for all processors.
         """
-        from config.settings import INDEX_NAME
+        from config.settings import get_index_name
         import asyncio
 
         max_retries = 3
@@ -28,7 +33,7 @@ class TaskProcessor:
 
         for attempt in range(max_retries):
             try:
-                exists = await opensearch_client.exists(index=INDEX_NAME, id=file_hash)
+                exists = await opensearch_client.exists(index=get_index_name(), id=file_hash)
                 return exists
             except (asyncio.TimeoutError, Exception) as e:
                 if attempt == max_retries - 1:
@@ -64,26 +69,44 @@ class TaskProcessor:
         Check if a document with the given filename already exists in OpenSearch.
         Returns True if any chunks with this filename exist.
         """
-        from config.settings import INDEX_NAME
+        from config.settings import get_index_name
         from utils.opensearch_queries import build_filename_search_body
         import asyncio
 
         max_retries = 3
         retry_delay = 1.0
 
+        candidate_filenames = get_filename_aliases(filename)
+        if not candidate_filenames:
+            return False
+        # Keep track of aliases that still need checking across retries.
+        # If one alias was already checked successfully with no hits, we avoid
+        # re-querying it when another alias fails transiently.
+        pending_candidates = list(candidate_filenames)
+        # Retry strategy: only retry aliases that have not completed successfully.
+        # This avoids re-querying aliases already checked with no hits when a later
+        # alias fails transiently (e.g., timeout).
+
         for attempt in range(max_retries):
             try:
-                # Search for any document with this exact filename
-                search_body = build_filename_search_body(filename, size=1, source=False)
-
-                response = await opensearch_client.search(
-                    index=INDEX_NAME,
-                    body=search_body
-                )
-
-                # Check if any hits were found
-                hits = response.get("hits", {}).get("hits", [])
-                return len(hits) > 0
+                i = 0
+                while i < len(pending_candidates):
+                    candidate = pending_candidates[i]
+                    search_body = build_filename_search_body(
+                        candidate, size=1, source=False
+                    )
+                    response = await opensearch_client.search(
+                        index=get_index_name(),
+                        body=search_body
+                    )
+                    hits = response.get("hits", {}).get("hits", [])
+                    if hits:
+                        return True
+                    # Successfully checked this alias with no hits; don't
+                    # re-query it on future retries.
+                    pending_candidates.pop(i)
+                    continue
+                return False
 
             except (asyncio.TimeoutError, Exception) as e:
                 if attempt == max_retries - 1:
@@ -118,19 +141,25 @@ class TaskProcessor:
         """
         Delete all chunks of a document with the given filename from OpenSearch.
         """
-        from config.settings import INDEX_NAME
+        from config.settings import get_index_name
         from utils.opensearch_queries import build_filename_delete_body
 
         try:
-            # Delete all documents with this filename
-            delete_body = build_filename_delete_body(filename)
-
-            response = await opensearch_client.delete_by_query(
-                index=INDEX_NAME,
-                body=delete_body
-            )
-
-            deleted_count = response.get("deleted", 0)
+            deleted_count = 0
+            candidate_filenames = get_filename_aliases(filename)
+            if not candidate_filenames:
+                logger.info(
+                    "Skipped delete_by_filename due to empty filename input",
+                    filename=filename,
+                )
+                return
+            for candidate in candidate_filenames:
+                delete_body = build_filename_delete_body(candidate)
+                response = await opensearch_client.delete_by_query(
+                    index=get_index_name(),
+                    body=delete_body
+                )
+                deleted_count += response.get("deleted", 0)
             logger.info(
                 "Deleted existing document chunks",
                 filename=filename,
@@ -158,6 +187,7 @@ class TaskProcessor:
         connector_type: str = "local",
         embedding_model: str = None,
         is_sample_data: bool = False,
+        acl: "DocumentACL" = None,
     ):
         """
         Standard processing pipeline for non-Langflow processors:
@@ -166,15 +196,28 @@ class TaskProcessor:
         Args:
             embedding_model: Embedding model to use (defaults to the current
                 embedding model from settings)
+            acl: DocumentACL instance with access control information
         """
         import datetime
-        from config.settings import INDEX_NAME, clients, get_embedding_model
+        from config.settings import (
+            clients,
+            get_embedding_model,
+            get_index_name,
+            get_openrag_config,
+        )
         from services.document_service import chunk_texts_for_embeddings
         from utils.document_processing import extract_relevant
         from utils.embedding_fields import get_embedding_field_name, ensure_embedding_field_exists
 
-        # Use provided embedding model or fall back to default
-        embedding_model = embedding_model or get_embedding_model()
+        # Use provided embedding model or configured model.
+        # get_embedding_model() returns empty string when Langflow ingest is enabled,
+        # but OpenRAG processors still need a concrete embedding model.
+        configured_embedding_model = get_openrag_config().knowledge.embedding_model
+        embedding_model = (
+            embedding_model
+            or configured_embedding_model
+            or get_embedding_model()
+        )
 
         # Get user's OpenSearch client with JWT for OIDC auth
         opensearch_client = self.document_service.session_manager.get_user_opensearch_client(
@@ -187,7 +230,7 @@ class TaskProcessor:
 
         # Ensure the embedding field exists for this model
         embedding_field_name = await ensure_embedding_field_exists(
-            opensearch_client, embedding_model, INDEX_NAME
+            opensearch_client, embedding_model, get_index_name()
         )
 
         logger.info(
@@ -197,11 +240,11 @@ class TaskProcessor:
             file_hash=file_hash,
         )
 
-        # Check if this is a .txt file - use simple processing instead of docling
+        # Check if this is a .txt or .md file - use simple processing instead of docling
         import os
         file_ext = os.path.splitext(file_path)[1].lower()
         
-        if file_ext == '.txt':
+        if file_ext in ('.txt', '.md'):
             # Simple text file processing without docling
             from utils.document_processing import process_text_file
             logger.info(
@@ -214,9 +257,9 @@ class TaskProcessor:
             if original_filename:
                 slim_doc["filename"] = original_filename
         else:
-            # Convert and extract using docling for other file types
-            result = clients.converter.convert(file_path)
-            full_doc = result.document.export_to_dict()
+            from utils.docling_client import convert_file
+
+            full_doc = await convert_file(file_path, httpx_client=clients.docling_http_client)
             slim_doc = extract_relevant(full_doc)
 
         texts = [c["text"] for c in slim_doc["chunks"]]
@@ -251,9 +294,20 @@ class TaskProcessor:
                 "indexed_time": datetime.datetime.now().isoformat(),
             }
 
-            # Only set owner fields if owner_user_id is provided (for no-auth mode support)
-            if owner_user_id is not None:
-                chunk_doc["owner"] = owner_user_id
+            # Set owner and ACL fields
+            if acl:
+                # Use ACL data if provided (from connector)
+                chunk_doc["owner"] = acl.owner if acl.owner else owner_user_id
+                chunk_doc["allowed_users"] = acl.allowed_users
+                chunk_doc["allowed_groups"] = acl.allowed_groups
+            else:
+                # Fallback to owner_user_id if no ACL (local uploads)
+                if owner_user_id is not None:
+                    chunk_doc["owner"] = owner_user_id
+                    chunk_doc["allowed_users"] = []
+                    chunk_doc["allowed_groups"] = []
+
+            # Set owner metadata fields (for display)
             if owner_name is not None:
                 chunk_doc["owner_name"] = owner_name
             if owner_email is not None:
@@ -265,7 +319,7 @@ class TaskProcessor:
             chunk_id = f"{file_hash}_{i}"
             try:
                 await opensearch_client.index(
-                    index=INDEX_NAME, id=chunk_id, body=chunk_doc
+                    index=get_index_name(), id=chunk_id, body=chunk_doc
                 )
             except Exception as e:
                 logger.error(
@@ -309,6 +363,7 @@ class DocumentFileProcessor(TaskProcessor):
         owner_name: str = None,
         owner_email: str = None,
         is_sample_data: bool = False,
+        connector_type: str = "local",
     ):
         super().__init__(document_service)
         self.owner_user_id = owner_user_id
@@ -316,6 +371,7 @@ class DocumentFileProcessor(TaskProcessor):
         self.owner_name = owner_name
         self.owner_email = owner_email
         self.is_sample_data = is_sample_data
+        self.connector_type = connector_type
 
     async def process_item(
         self, upload_task: UploadTask, item: str, file_task: FileTask
@@ -349,7 +405,7 @@ class DocumentFileProcessor(TaskProcessor):
                 owner_name=self.owner_name,
                 owner_email=self.owner_email,
                 file_size=file_size,
-                connector_type="local",
+                connector_type=self.connector_type,
                 is_sample_data=self.is_sample_data,
             )
 
@@ -418,6 +474,9 @@ class ConnectorFileProcessor(TaskProcessor):
 
             # Get file content from connector
             document = await connector.get_file_content(file_id)
+            
+            # Update filename in task once we have it from the connector
+            file_task.filename = clean_connector_filename(document.filename, document.mimetype)
 
             if not self.user_id:
                 raise ValueError("user_id not provided to ConnectorFileProcessor")
@@ -425,7 +484,7 @@ class ConnectorFileProcessor(TaskProcessor):
             # Create temporary file from document content
             from utils.file_utils import auto_cleanup_tempfile
 
-            suffix = self.connector_service._get_file_extension(document.mimetype)
+            suffix = get_file_extension(document.mimetype)
             with auto_cleanup_tempfile(suffix=suffix) as tmp_path:
                 # Write content to temp file
                 with open(tmp_path, 'wb') as f:
@@ -445,6 +504,7 @@ class ConnectorFileProcessor(TaskProcessor):
                     owner_email=self.owner_email,
                     file_size=len(document.content),
                     connector_type=connection.connector_type,
+                    acl=document.acl,
                 )
 
                 # Add connector-specific metadata
@@ -519,13 +579,16 @@ class LangflowConnectorFileProcessor(TaskProcessor):
             # Get file content from connector
             document = await connector.get_file_content(file_id)
 
+            # Update filename in task once we have it from the connector
+            file_task.filename = clean_connector_filename(document.filename, document.mimetype)
+
             if not self.user_id:
                 raise ValueError("user_id not provided to LangflowConnectorFileProcessor")
 
             # Create temporary file and compute hash to check for duplicates
             from utils.file_utils import auto_cleanup_tempfile
 
-            suffix = self.langflow_connector_service._get_file_extension(document.mimetype)
+            suffix = get_file_extension(document.mimetype)
             with auto_cleanup_tempfile(suffix=suffix) as tmp_path:
                 # Write content to temp file
                 with open(tmp_path, 'wb') as f:
@@ -601,10 +664,8 @@ class S3FileProcessor(TaskProcessor):
         import time
         import asyncio
         import datetime
-        from config.settings import INDEX_NAME, clients, get_embedding_model
+        from config.settings import clients, get_embedding_model, get_index_name
         from services.document_service import chunk_texts_for_embeddings
-        from utils.document_processing import process_document_sync
-
         file_task.status = TaskStatus.RUNNING
         file_task.updated_at = time.time()
 
@@ -669,6 +730,7 @@ class LangflowFileProcessor(TaskProcessor):
         settings: dict = None,
         delete_after_ingest: bool = True,
         replace_duplicates: bool = False,
+        connector_type: str = "local",
     ):
         super().__init__()
         self.langflow_file_service = langflow_file_service
@@ -682,6 +744,7 @@ class LangflowFileProcessor(TaskProcessor):
         self.settings = settings
         self.delete_after_ingest = delete_after_ingest
         self.replace_duplicates = replace_duplicates
+        self.connector_type = connector_type
 
     async def process_item(
         self, upload_task: UploadTask, item: str, file_task: FileTask
@@ -755,22 +818,6 @@ class LangflowFileProcessor(TaskProcessor):
 
             # Prepare metadata tweaks similar to API endpoint
             final_tweaks = self.tweaks.copy() if self.tweaks else {}
-            
-            metadata_tweaks = []
-            if self.owner_user_id:
-                metadata_tweaks.append({"key": "owner", "value": self.owner_user_id})
-            if self.owner_name:
-                metadata_tweaks.append({"key": "owner_name", "value": self.owner_name})
-            if self.owner_email:
-                metadata_tweaks.append({"key": "owner_email", "value": self.owner_email})
-            # Mark as local upload for connector_type
-            metadata_tweaks.append({"key": "connector_type", "value": "local"})
-
-            if metadata_tweaks:
-                # Initialize the OpenSearch component tweaks if not already present
-                if "OpenSearchVectorStoreComponentMultimodalMultiEmbedding-By9U4" not in final_tweaks:
-                    final_tweaks["OpenSearchVectorStoreComponentMultimodalMultiEmbedding-By9U4"] = {}
-                final_tweaks["OpenSearchVectorStoreComponentMultimodalMultiEmbedding-By9U4"]["docs_metadata"] = metadata_tweaks
 
             # Process file using langflow service
             result = await self.langflow_file_service.upload_and_ingest_file(
@@ -783,8 +830,7 @@ class LangflowFileProcessor(TaskProcessor):
                 owner=self.owner_user_id,
                 owner_name=self.owner_name,
                 owner_email=self.owner_email,
-                connector_type="local",
-
+                connector_type=self.connector_type,
             )
 
             # Update task with success
@@ -800,3 +846,6 @@ class LangflowFileProcessor(TaskProcessor):
             file_task.updated_at = time.time()
             upload_task.failed_files += 1
             raise
+
+
+from .url import LangflowUrlProcessor

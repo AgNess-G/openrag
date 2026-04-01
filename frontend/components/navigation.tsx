@@ -20,6 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useIsCloudBrand } from "@/contexts/brand-context";
 import { type EndpointType, useChat } from "@/contexts/chat-context";
 import { useKnowledgeFilter } from "@/contexts/knowledge-filter-context";
 import { FILES_REGEX } from "@/lib/constants";
@@ -74,6 +75,7 @@ export function Navigation({
   isConversationsLoading = false,
   onNewConversation,
 }: NavigationProps = {}) {
+  const isCloudBrand = useIsCloudBrand();
   const pathname = usePathname();
   const {
     endpoint,
@@ -313,34 +315,58 @@ export function Navigation({
     <div className="flex flex-col h-full bg-background">
       <div className="px-4 py-2 flex-shrink-0">
         <div className="space-y-1">
-          {routes.map((route) => (
-            <div key={route.href}>
-              <Link
-                href={route.href}
-                className={cn(
-                  "text-[13px] group flex p-3 w-full justify-start font-medium cursor-pointer hover:bg-accent hover:text-accent-foreground rounded-lg transition-all",
-                  route.active
-                    ? "bg-accent text-accent-foreground shadow-sm"
-                    : "text-foreground hover:text-accent-foreground",
-                )}
-              >
-                <div className="flex items-center flex-1">
-                  <route.icon
-                    className={cn(
-                      "h-[18px] w-[18px] mr-2 shrink-0",
-                      route.active
+          {routes.map((route) => {
+            const isDisabled = loading && !route.active;
+            const tabClassName = cn(
+              "text-[13px] group flex p-3 w-full justify-start font-medium transition-all",
+              isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+              isCloudBrand
+                ? route.active
+                  ? "border-l-[3px] border-l-primary bg-[var(--layered-select-bg)] text-foreground rounded-r-lg"
+                  : cn(
+                      "border-l-[3px] border-l-transparent text-foreground rounded-lg",
+                      !isDisabled &&
+                        "hover:bg-accent hover:text-accent-foreground",
+                    )
+                : cn(
+                    "rounded-lg",
+                    route.active
+                      ? "bg-accent text-accent-foreground shadow-sm"
+                      : "text-foreground",
+                    !isDisabled &&
+                      "hover:bg-accent hover:text-accent-foreground",
+                  ),
+            );
+            const tabContent = (
+              <div className="flex items-center flex-1">
+                <route.icon
+                  className={cn(
+                    "h-[18px] w-[18px] mr-2 shrink-0",
+                    isCloudBrand
+                      ? "text-foreground"
+                      : route.active
                         ? "text-muted-foreground"
                         : "text-muted-foreground group-hover:text-muted-foreground",
-                    )}
-                  />
-                  {route.label}
-                </div>
-              </Link>
-              {route.label === "Settings" && (
-                <div className="my-2 border-t border-border" />
-              )}
-            </div>
-          ))}
+                  )}
+                />
+                {route.label}
+              </div>
+            );
+            return (
+              <div key={route.href}>
+                {isDisabled ? (
+                  <div className={tabClassName}>{tabContent}</div>
+                ) : (
+                  <Link href={route.href} className={tabClassName}>
+                    {tabContent}
+                  </Link>
+                )}
+                {route.label === "Settings" && (
+                  <div className="my-2 border-t border-border" />
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -367,7 +393,12 @@ export function Navigation({
                 title="Start new conversation"
                 disabled={loading}
               >
-                <Plus className="h-4 w-4 text-muted-foreground" />
+                <Plus
+                  className={cn(
+                    "h-4 w-4",
+                    isCloudBrand ? "text-foreground" : "text-muted-foreground",
+                  )}
+                />
               </button>
             </div>
           </div>
@@ -403,7 +434,8 @@ export function Navigation({
                         // 2. currentConversationId exists but isn't in conversations yet (gap between response and list update)
                         const conversationExists = currentConversationId
                           ? conversations.some(
-                              (conv) => conv.response_id === currentConversationId,
+                              (conv) =>
+                                conv.response_id === currentConversationId,
                             )
                           : false;
 
@@ -416,26 +448,25 @@ export function Navigation({
                         // Use placeholderConversation if available
                         // Otherwise create a placeholder with currentConversationId if it exists
                         // Or use a temporary ID if we're loading but don't have an ID yet
-                        const placeholderToShow =
-                          placeholderConversation
-                            ? placeholderConversation
-                            : currentConversationId
+                        const placeholderToShow = placeholderConversation
+                          ? placeholderConversation
+                          : currentConversationId
+                            ? {
+                                response_id: currentConversationId,
+                                title: "",
+                                endpoint: endpoint,
+                                messages: [],
+                                total_messages: 0,
+                              }
+                            : loading
                               ? {
-                                  response_id: currentConversationId,
+                                  response_id: `loading-${Date.now()}`,
                                   title: "",
                                   endpoint: endpoint,
                                   messages: [],
                                   total_messages: 0,
                                 }
-                              : loading
-                                ? {
-                                    response_id: `loading-${Date.now()}`,
-                                    title: "",
-                                    endpoint: endpoint,
-                                    messages: [],
-                                    total_messages: 0,
-                                  }
-                                : null;
+                              : null;
 
                         return (
                           shouldShowPlaceholder &&
@@ -459,81 +490,81 @@ export function Navigation({
                       })()}
                       {conversations.map((conversation) => (
                         <button
-                        key={conversation.response_id}
-                        type="button"
-                        className={`w-full px-3 h-11 rounded-lg group relative text-left ${
-                          loading || isConversationsLoading
-                            ? "opacity-50 cursor-not-allowed"
-                            : "hover:bg-accent cursor-pointer"
-                        } ${
-                          currentConversationId === conversation.response_id
-                            ? "bg-accent"
-                            : ""
-                        }`}
-                        onClick={() => {
-                          if (loading || isConversationsLoading) return;
-                          loadConversation(conversation);
-                          // Don't refresh - just loading an existing conversation
-                        }}
-                        disabled={loading || isConversationsLoading}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-foreground truncate">
-                              {conversation.title}
-                            </div>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              disabled={
-                                loading ||
-                                isConversationsLoading ||
-                                deleteSessionMutation.isPending
-                              }
-                              asChild
-                            >
-                              <div
-                                className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground transition-opacity p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground ml-2 flex-shrink-0 cursor-pointer"
-                                title="More options"
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                  }
-                                }}
-                              >
-                                <EllipsisVertical className="h-4 w-4" />
+                          key={conversation.response_id}
+                          type="button"
+                          className={`w-full px-3 h-11 rounded-lg group relative text-left ${
+                            loading || isConversationsLoading
+                              ? "opacity-50 cursor-not-allowed"
+                              : "hover:bg-accent cursor-pointer"
+                          } ${
+                            currentConversationId === conversation.response_id
+                              ? "bg-accent"
+                              : ""
+                          }`}
+                          onClick={() => {
+                            if (loading || isConversationsLoading) return;
+                            loadConversation(conversation);
+                            // Don't refresh - just loading an existing conversation
+                          }}
+                          disabled={loading || isConversationsLoading}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-foreground truncate">
+                                {conversation.title}
                               </div>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              side="bottom"
-                              align="end"
-                              className="w-48"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <DropdownMenuItem
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleContextMenuAction(
-                                    "delete",
-                                    conversation,
-                                  );
-                                }}
-                                className="cursor-pointer text-destructive focus:text-destructive"
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                disabled={
+                                  loading ||
+                                  isConversationsLoading ||
+                                  deleteSessionMutation.isPending
+                                }
+                                asChild
                               >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete conversation
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </button>
-                    ))}
+                                <div
+                                  className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground transition-opacity p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground ml-2 flex-shrink-0 cursor-pointer"
+                                  title="More options"
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                    }
+                                  }}
+                                >
+                                  <EllipsisVertical className="h-4 w-4" />
+                                </div>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                side="bottom"
+                                align="end"
+                                className="w-48"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleContextMenuAction(
+                                      "delete",
+                                      conversation,
+                                    );
+                                  }}
+                                  className="cursor-pointer text-destructive focus:text-destructive"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete conversation
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </button>
+                      ))}
                     </>
                   )}
                 </>

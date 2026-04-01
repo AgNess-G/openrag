@@ -64,17 +64,17 @@ class OpenRAGTUI(App):
         min-width: 20;
         border: solid #3f3f46;
     }
-    
+
     #config-header {
         text-align: center;
         margin-bottom: 2;
     }
-    
+
     #config-scroll {
         height: 1fr;
         overflow-y: auto;
     }
-    
+
     #config-form {
         width: 80%;
         max-width: 100;
@@ -82,7 +82,7 @@ class OpenRAGTUI(App):
         padding: 1;
         height: auto;
     }
-    
+
     #config-form Input {
         margin-bottom: 1;
         width: 100%;
@@ -99,7 +99,7 @@ class OpenRAGTUI(App):
         width: auto;
         min-width: 12;
     }
-    
+
     #config-form Label {
         margin-bottom: 0;
         padding-left: 1;
@@ -145,18 +145,18 @@ class OpenRAGTUI(App):
     }
 
     /* Docs path actions row */
-    
+
     #services-content {
         height: 100%;
     }
-    
+
     #runtime-status {
         background: $panel;
         border: solid $primary;
         padding: 1;
         margin-bottom: 1;
     }
-    
+
     #services-table {
         height: auto;
         max-height: 12;
@@ -169,52 +169,52 @@ class OpenRAGTUI(App):
         margin-bottom: 1;
     }
 
-    
-    
+
+
     #logs-scroll {
         height: 1fr;
         border: solid $primary;
         background: $surface;
     }
-    
+
     .controls-row {
         align: left middle;
         height: auto;
         margin: 1 0;
     }
-    
+
     .controls-row > * {
         margin-right: 1;
     }
-    
+
     .label {
         width: auto;
         margin-right: 1;
         text-style: bold;
     }
-    
+
     #system-info {
         background: $panel;
         border: solid $primary;
         padding: 2;
         height: 1fr;
     }
-    
+
     TabbedContent {
         height: 1fr;
     }
-    
+
     TabPane {
         padding: 1;
         height: 1fr;
     }
-    
+
     .tab-header {
         text-style: bold;
         color: $accent;
         margin-bottom: 1;
     }
-    
+
     TabPane ScrollableContainer {
         height: 100%;
         padding: 1;
@@ -367,7 +367,7 @@ class OpenRAGTUI(App):
         self.container_manager = ContainerManager()
         self.env_manager = EnvManager()
         self.docling_manager = DoclingManager()  # Initialize singleton instance
-    
+
     def notify(
         self,
         message: str,
@@ -457,17 +457,17 @@ def _copy_assets(resource_tree, destination: Path, allowed_suffixes: Optional[It
 
 def copy_sample_documents(*, force: bool = False) -> None:
     """Copy sample documents from package to host directory.
-    
+
     Uses the first path from OPENRAG_DOCUMENTS_PATHS env var.
     Defaults to ~/.openrag/documents if not configured.
     """
     from .managers.env_manager import EnvManager
     from pathlib import Path
-    
+
     # Get the configured documents path from env
     env_manager = EnvManager()
     env_manager.load_existing_env()
-    
+
     # Parse the first path from the documents paths config
     documents_path_str = env_manager.config.openrag_documents_paths
     if documents_path_str:
@@ -478,30 +478,43 @@ def copy_sample_documents(*, force: bool = False) -> None:
     else:
         # Default fallback
         documents_dir = Path.home() / ".openrag" / "documents"
-    
+
     documents_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        assets_files = files("tui._assets.openrag-documents")
+        assets_files = files("tui._assets") / "openrag-documents"
         _copy_assets(assets_files, documents_dir, allowed_suffixes=(".pdf",), force=force)
     except Exception as e:
         logger.debug(f"Could not copy sample documents: {e}")
         # This is not a critical error - the app can work without sample documents
 
+    # Ensure OPENRAG_DOCUMENTS_PATH in .env points to the resolved documents directory.
+    # Docker Compose uses this for the volume mount; if unset it defaults to ./openrag-documents
+    # (CWD-relative), which may not contain the PDFs copied above.
+    try:
+        from dotenv import set_key
+        resolved_path = str(documents_dir.resolve())
+        current = env_manager.config.openrag_documents_path
+        if not current or current in ("$HOME/.openrag/documents", "./openrag-documents", "./documents"):
+            set_key(str(env_manager.env_file), "OPENRAG_DOCUMENTS_PATH", resolved_path)
+            logger.debug(f"Set OPENRAG_DOCUMENTS_PATH={resolved_path} in {env_manager.env_file}")
+    except Exception as e:
+        logger.debug(f"Could not update OPENRAG_DOCUMENTS_PATH in .env: {e}")
+
 
 def copy_sample_flows(*, force: bool = False) -> None:
     """Copy sample flows from package to host directory.
-    
+
     Flows are placed in ~/.openrag/flows/ which will be volume-mounted to containers.
     """
     from pathlib import Path
-    
+
     # Flows always go to ~/.openrag/flows/ - this will be volume-mounted
     flows_dir = Path.home() / ".openrag" / "flows"
     flows_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        assets_files = files("tui._assets.flows")
+        assets_files = files("tui._assets") / "flows"
         _copy_assets(assets_files, flows_dir, allowed_suffixes=(".json",), force=force)
     except Exception as e:
         logger.debug(f"Could not copy sample flows: {e}")
@@ -511,7 +524,7 @@ def copy_sample_flows(*, force: bool = False) -> None:
 def copy_compose_files(*, force: bool = False) -> None:
     """Copy docker-compose templates into the TUI workspace if they are missing."""
     from utils.paths import get_tui_compose_file
-    
+
     try:
         assets_root = files("tui._assets")
     except Exception as e:
@@ -521,7 +534,7 @@ def copy_compose_files(*, force: bool = False) -> None:
     for filename in ("docker-compose.yml", "docker-compose.gpu.yml"):
         is_gpu = "gpu" in filename
         destination = get_tui_compose_file(gpu=is_gpu)
-        
+
         if destination.exists() and not force:
             continue
 
@@ -549,7 +562,7 @@ def migrate_legacy_data_directories():
     """Migrate data from CWD-based directories to ~/.openrag/.
 
     This is a one-time migration for users upgrading from the old layout.
-    Migrates: documents, flows, keys, config, opensearch-data
+    Migrates: documents, flows, keys, config, opensearch-data, langflow-data
 
     Prompts user for confirmation before migrating. If user declines,
     exits with a message to downgrade to v1.52 or earlier.
@@ -572,6 +585,7 @@ def migrate_legacy_data_directories():
         (cwd / "keys", target_base / "keys", "keys"),
         (cwd / "config", target_base / "config", "config"),
         (cwd / "opensearch-data", target_base / "data" / "opensearch-data", "OpenSearch data"),
+        (cwd / "langflow-data", target_base / "data" / "langflow-data", "Langflow data"),
     ]
 
     # Check which sources exist and need migration
@@ -595,7 +609,8 @@ def migrate_legacy_data_directories():
             env_manager.config.openrag_config_path = f"{home}/.openrag/config"
             env_manager.config.openrag_data_path = f"{home}/.openrag/data"
             env_manager.config.opensearch_data_path = f"{home}/.openrag/data/opensearch-data"
-            env_manager.save_env()
+            env_manager.config.langflow_data_path = f"{home}/.openrag/data/langflow-data"
+            env_manager.save_env_file()
             logger.info("Updated .env file with centralized paths")
         except Exception as e:
             logger.warning(f"Failed to update .env paths: {e}")
@@ -674,7 +689,8 @@ def migrate_legacy_data_directories():
         env_manager.config.openrag_config_path = f"{home}/.openrag/config"
         env_manager.config.openrag_data_path = f"{home}/.openrag/data"
         env_manager.config.opensearch_data_path = f"{home}/.openrag/data/opensearch-data"
-        env_manager.save_env()
+        env_manager.config.langflow_data_path = f"{home}/.openrag/data/langflow-data"
+        env_manager.save_env_file()
         print("  Updated .env with centralized paths")
         logger.info("Updated .env file with centralized paths")
     except Exception as e:
@@ -740,6 +756,7 @@ def setup_host_directories():
     - ~/.openrag/config/ (for configuration)
     - ~/.openrag/data/ (for backend data: conversations, OAuth tokens, etc.)
     - ~/.openrag/data/opensearch-data/ (for OpenSearch index)
+    - LANGFLOW_DATA_PATH (for Langflow database and state)
     """
     base_dir = Path.home() / ".openrag"
     directories = [
@@ -755,29 +772,61 @@ def setup_host_directories():
         directory.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Ensured directory exists: {directory}")
 
+    # Resolve the configured LANGFLOW_DATA_PATH so we pre-create the exact
+    # directory that Docker/Podman will mount, regardless of user customisation.
+    langflow_data_dir = _resolve_langflow_data_path(base_dir)
+    langflow_data_dir.mkdir(parents=True, exist_ok=True)
+    logger.debug(f"Ensured directory exists: {langflow_data_dir}")
+
+    # langflow-data must be world-writable so the Langflow container user (uid 1000)
+    # can write into it on macOS where Podman's :U uid-remapping does not reliably
+    # update host directory ownership through the VM layer.
+    os.chmod(langflow_data_dir, 0o777)
+
     # Generate JWT keys on host to avoid container permission issues
     generate_jwt_keys(base_dir / "keys")
 
 
-def run_tui():
-    """Run the OpenRAG TUI application."""
-    # Check for native Windows before launching TUI
-    from .utils.platform import PlatformDetector
-    platform_detector = PlatformDetector()
+def _resolve_langflow_data_path(base_dir: Path) -> Path:
+    """Return the absolute path for the Langflow data directory.
 
-    if platform_detector.is_native_windows():
-        print("\n" + "=" * 60)
-        print("  Native Windows Not Supported")
-        print("=" * 60)
-        print(platform_detector.get_wsl_recommendation())
-        print("=" * 60 + "\n")
-        sys.exit(1)
+    Reads LANGFLOW_DATA_PATH from the TUI .env file when available; falls back
+    to the default location (~/.openrag/data/langflow-data).
 
-    # Run startup prerequisites (install runtime, health checks, etc.)
-    from .utils.startup_checks import run_startup_checks
-    if not run_startup_checks():
-        sys.exit(1)
+    Relative paths are not valid in the TUI context because the process working
+    directory is unpredictable.  If a relative path is found the default is used
+    and a warning is logged so the user can correct their configuration.
+    """
+    default = base_dir / "data" / "langflow-data"
+    try:
+        from .managers.env_manager import EnvManager
+        env_manager = EnvManager()
+        env_manager.load_existing_env()
+        raw = env_manager.config.langflow_data_path
+        if not raw:
+            return default
+        expanded = raw.replace("$HOME", str(Path.home()))
+        resolved = Path(expanded).expanduser()
+        if not resolved.is_absolute():
+            logger.warning(
+                f"LANGFLOW_DATA_PATH='{raw}' is a relative path, which is not supported "
+                f"in the TUI. Resetting to default: {default}"
+            )
+            try:
+                env_manager.config.langflow_data_path = str(default)
+                env_manager.save_env_file()
+                logger.info(f"Updated LANGFLOW_DATA_PATH to {default} in {env_manager.env_file}")
+            except Exception as write_err:
+                logger.error(f"Could not update LANGFLOW_DATA_PATH in env file: {write_err}")
+            return default
+        return resolved
+    except Exception as e:
+        logger.error(f"Could not read LANGFLOW_DATA_PATH from env, using default: {e}")
+        return default
 
+
+def _run_tui_app():
+    """Run the existing Textual TUI application."""
     app = None
     try:
         # Migrate legacy data directories from CWD to ~/.openrag/
@@ -785,7 +834,7 @@ def run_tui():
 
         # Initialize host directory structure
         setup_host_directories()
-        
+
         # Keep bundled assets aligned with the packaged versions
         copy_sample_documents(force=True)
         copy_sample_flows(force=True)
@@ -802,6 +851,45 @@ def run_tui():
         if app and hasattr(app, 'docling_manager'):
             app.docling_manager.cleanup()
         sys.exit(0)
+
+
+def run_tui():
+    """Run the OpenRAG application (CLI walkthrough by default, TUI with --tui)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="openrag",
+        description="OpenRAG — AI-powered document management",
+    )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch the full terminal UI instead of the CLI walkthrough",
+    )
+    args = parser.parse_args()
+
+    # Check for native Windows before launching anything
+    from .utils.platform import PlatformDetector
+    platform_detector = PlatformDetector()
+
+    if platform_detector.is_native_windows():
+        print("\n" + "=" * 60)
+        print("  Native Windows Not Supported")
+        print("=" * 60)
+        print(platform_detector.get_wsl_recommendation())
+        print("=" * 60 + "\n")
+        sys.exit(1)
+
+    # Run startup prerequisites (install runtime, health checks, etc.)
+    from .utils.startup_checks import run_startup_checks
+    if not run_startup_checks():
+        sys.exit(1)
+
+    if args.tui:
+        _run_tui_app()
+    else:
+        from .cli import run_cli
+        run_cli()
 
 
 if __name__ == "__main__":

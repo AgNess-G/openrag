@@ -1,6 +1,7 @@
 """Environment configuration manager for OpenRAG TUI."""
 
 import os
+import re
 import secrets
 import string
 from dataclasses import dataclass, field
@@ -28,7 +29,14 @@ class EnvConfig:
 
     # Core settings
     openai_api_key: str = ""
+    openrag_encryption_key: str = ""
+    openrag_tenant_id: str = "openrag"
+    openrag_enforce_prerequisites: str = "false"
     opensearch_password: str = ""
+    opensearch_username: str = "admin"
+    opensearch_host: str = "opensearch"
+    opensearch_port: str = "9200"
+    opensearch_index_name: str = "documents"
     langflow_secret_key: str = ""
     langflow_superuser: str = "admin"
     langflow_superuser_password: str = ""
@@ -53,7 +61,17 @@ class EnvConfig:
     webhook_base_url: str = ""
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
+    aws_s3_endpoint: str = ""
+    aws_region: str = ""
     langflow_public_url: str = ""
+
+    # IBM Cloud Object Storage settings
+    ibm_cos_api_key: str = ""
+    ibm_cos_service_instance_id: str = ""
+    ibm_cos_endpoint: str = ""
+    ibm_cos_hmac_access_key_id: str = ""
+    ibm_cos_hmac_secret_access_key: str = ""
+    ibm_cos_auth_endpoint: str = ""  # Optional: override IAM token endpoint
 
     # Langfuse settings (optional)
     langfuse_secret_key: str = ""
@@ -64,10 +82,11 @@ class EnvConfig:
     langflow_auto_login: str = "False"
     langflow_new_user_is_active: str = "False"
     langflow_enable_superuser_cli: str = "False"
-    
+
     # Ingestion settings
     disable_ingest_with_langflow: str = "False"
     nudges_flow_id: str = "ebc01d31-1976-46ce-a385-b0240327226c"
+    ingest_sample_data: str = "True"
 
     # Document paths (comma-separated) - use centralized location by default
     openrag_documents_paths: str = "$HOME/.openrag/documents"
@@ -79,8 +98,9 @@ class EnvConfig:
     openrag_config_path: str = "$HOME/.openrag/config"
     openrag_data_path: str = "$HOME/.openrag/data"  # Backend data (conversations, tokens, etc.)
     opensearch_data_path: str = "$HOME/.openrag/data/opensearch-data"
+    langflow_data_path: str = "$HOME/.openrag/data/langflow-data"
     openrag_tui_config_path_legacy: str = "$HOME/.openrag/tui/config"
-    
+
     # Container version (linked to TUI version)
     openrag_version: str = ""
 
@@ -91,6 +111,8 @@ class EnvConfig:
 class EnvManager:
     """Manages environment configuration for OpenRAG."""
 
+    assignment_pattern = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
+    
     def __init__(self, env_file: Optional[Path] = None):
         if env_file:
             self.env_file = env_file
@@ -98,7 +120,7 @@ class EnvManager:
             # Use centralized location for TUI .env file
             from utils.paths import get_tui_env_file, get_legacy_paths
             self.env_file = get_tui_env_file()
-            
+
             # Check for legacy .env in current directory and migrate if needed
             legacy_env = get_legacy_paths()["tui_env"]
             if not self.env_file.exists() and legacy_env.exists():
@@ -106,14 +128,15 @@ class EnvManager:
                     import shutil
                     self.env_file.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(legacy_env, self.env_file)
+                    os.chmod(self.env_file, 0o600)
                     logger.info(f"Migrated .env from {legacy_env} to {self.env_file}")
 
 
                 except Exception as e:
                     logger.warning(f"Failed to migrate .env file: {e}")
-        
-        self.config = EnvConfig()
 
+        self.config = EnvConfig()
+        
     def generate_secure_password(self) -> str:
         """Generate a secure password for OpenSearch."""
         # Ensure at least one character from each category
@@ -140,6 +163,11 @@ class EnvManager:
         """Generate a secure secret key for Langflow."""
         return secrets.token_urlsafe(32)
 
+    def generate_openrag_encryption_key(self) -> str:
+        """Generate a secure AES-256 base64 master key for OpenRAG."""
+        import base64
+        return base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+
     def _quote_env_value(self, value: str) -> str:
         """Single quote all environment variable values for consistency."""
         if not value:
@@ -149,26 +177,23 @@ class EnvManager:
         escaped_value = value.replace("'", "'\\''")
         return f"'{escaped_value}'"
 
-    def load_existing_env(self) -> bool:
-        """Load existing .env file if it exists, or fall back to environment variables.
-        
-        Uses python-dotenv's load_dotenv() for standard .env file parsing, which handles:
-        - Quoted values (single and double quotes)
-        - Variable expansion (${VAR})
-        - Multiline values
-        - Escaped characters
-        - Comments
-        """
-        # Map env vars to config attributes
-        # These are environment variable names, not actual secrets
-        attr_map = {  # pragma: allowlist secret
+    def _env_attr_map(self) -> Dict[str, str]:
+        """Map env vars to EnvConfig attribute names."""
+        return {  # pragma: allowlist secret
             "OPENAI_API_KEY": "openai_api_key",  # pragma: allowlist secret
             "ANTHROPIC_API_KEY": "anthropic_api_key",  # pragma: allowlist secret
             "OLLAMA_ENDPOINT": "ollama_endpoint",
             "WATSONX_API_KEY": "watsonx_api_key",  # pragma: allowlist secret
             "WATSONX_ENDPOINT": "watsonx_endpoint",
             "WATSONX_PROJECT_ID": "watsonx_project_id",
+            "OPENRAG_ENCRYPTION_KEY": "openrag_encryption_key",  # pragma: allowlist secret
+            "OPENRAG_TENANT_ID": "openrag_tenant_id",
+            "OPENRAG_ENFORCE_PREREQUISITES": "openrag_enforce_prerequisites",
             "OPENSEARCH_PASSWORD": "opensearch_password",  # pragma: allowlist secret
+            "OPENSEARCH_USERNAME": "opensearch_username",
+            "OPENSEARCH_HOST": "opensearch_host",
+            "OPENSEARCH_PORT": "opensearch_port",
+            "OPENSEARCH_INDEX_NAME": "opensearch_index_name",
             "LANGFLOW_SECRET_KEY": "langflow_secret_key",  # pragma: allowlist secret
             "LANGFLOW_SUPERUSER": "langflow_superuser",
             "LANGFLOW_SUPERUSER_PASSWORD": "langflow_superuser_password",  # pragma: allowlist secret
@@ -183,7 +208,15 @@ class EnvManager:
             "WEBHOOK_BASE_URL": "webhook_base_url",
             "AWS_ACCESS_KEY_ID": "aws_access_key_id",
             "AWS_SECRET_ACCESS_KEY": "aws_secret_access_key",  # pragma: allowlist secret
+            "AWS_S3_ENDPOINT": "aws_s3_endpoint",
+            "AWS_REGION": "aws_region",
             "LANGFLOW_PUBLIC_URL": "langflow_public_url",
+            "IBM_COS_API_KEY": "ibm_cos_api_key",  # pragma: allowlist secret
+            "IBM_COS_SERVICE_INSTANCE_ID": "ibm_cos_service_instance_id",
+            "IBM_COS_ENDPOINT": "ibm_cos_endpoint",
+            "IBM_COS_HMAC_ACCESS_KEY_ID": "ibm_cos_hmac_access_key_id",
+            "IBM_COS_HMAC_SECRET_ACCESS_KEY": "ibm_cos_hmac_secret_access_key",  # pragma: allowlist secret
+            "IBM_COS_AUTH_ENDPOINT": "ibm_cos_auth_endpoint",
             "OPENRAG_DOCUMENTS_PATHS": "openrag_documents_paths",
             "OPENRAG_DOCUMENTS_PATH": "openrag_documents_path",
             "OPENRAG_KEYS_PATH": "openrag_keys_path",
@@ -191,18 +224,62 @@ class EnvManager:
             "OPENRAG_CONFIG_PATH": "openrag_config_path",
             "OPENRAG_DATA_PATH": "openrag_data_path",
             "OPENSEARCH_DATA_PATH": "opensearch_data_path",
+            "LANGFLOW_DATA_PATH": "langflow_data_path",
             "LANGFLOW_AUTO_LOGIN": "langflow_auto_login",
             "LANGFLOW_NEW_USER_IS_ACTIVE": "langflow_new_user_is_active",
             "LANGFLOW_ENABLE_SUPERUSER_CLI": "langflow_enable_superuser_cli",
             "DISABLE_INGEST_WITH_LANGFLOW": "disable_ingest_with_langflow",
+            "INGEST_SAMPLE_DATA": "ingest_sample_data",
             "OPENRAG_VERSION": "openrag_version",
             "LANGFUSE_SECRET_KEY": "langfuse_secret_key",  # pragma: allowlist secret
             "LANGFUSE_PUBLIC_KEY": "langfuse_public_key",  # pragma: allowlist secret
             "LANGFUSE_HOST": "langfuse_host",
         }
-        
+
+    def _collect_preserved_env_lines(self) -> list[str]:
+        """Collect existing .env assignments not managed by this TUI."""
+        if not self.env_file.exists():
+            return []
+
+        managed_vars = set(self._env_attr_map().keys())
+        preserved_lines: list[str] = []
+
+        try:
+            is_managed_block = True
+            for raw_line in self.env_file.read_text().splitlines():
+                match = EnvManager.assignment_pattern.match(raw_line)
+                if match:
+                    env_var = match.group(1)
+                    is_managed_block = env_var in managed_vars
+                    if not is_managed_block:
+                        preserved_lines.append(raw_line)
+                elif not is_managed_block:
+                    # Preserves multi-line backslash strings, empty splits and unmanaged comments natively inline
+                    preserved_lines.append(raw_line)
+        except Exception:
+            logger.warning(
+                f"Failed to preserve custom .env lines from {self.env_file}",
+                exc_info=True,
+            )
+
+        return preserved_lines
+
+    def load_existing_env(self) -> bool:
+        """Load existing .env file if it exists, or fall back to environment variables.
+
+        Uses python-dotenv's load_dotenv() for standard .env file parsing, which handles:
+        - Quoted values (single and double quotes)
+        - Variable expansion (${VAR})
+        - Multiline values
+        - Escaped characters
+        - Comments
+        """
+        # Map env vars to config attributes
+        # These are environment variable names, not actual secrets
+        attr_map = self._env_attr_map()
+
         loaded_from_file = False
-        
+
         # Load .env file using python-dotenv for standard parsing
         # override=True ensures .env file values take precedence over existing environment variables
         if self.env_file.exists():
@@ -213,14 +290,14 @@ class EnvManager:
                 logger.debug(f"Loaded .env file from {self.env_file}")
             except Exception as e:
                 logger.error("Error loading .env file", error=str(e))
-        
+
         # Map environment variables to config attributes
         # This works whether values came from .env file or existing environment variables
         for env_key, attr_name in attr_map.items():
             value = os.environ.get(env_key, "")
             if value:
                 setattr(self.config, attr_name, value)
-        
+
         return loaded_from_file
 
     def setup_secure_defaults(self) -> None:
@@ -230,7 +307,10 @@ class EnvManager:
 
         if not self.config.langflow_secret_key:
             self.config.langflow_secret_key = self.generate_langflow_secret_key()
-        
+
+        if not self.config.openrag_encryption_key:
+            self.config.openrag_encryption_key = self.generate_openrag_encryption_key()
+
         # Set OPENRAG_VERSION to TUI version if not already set
         if not self.config.openrag_version:
             try:
@@ -360,13 +440,17 @@ class EnvManager:
         try:
             # Ensure secure defaults (including Langflow secret key) are set before saving
             self.setup_secure_defaults()
+            preserved_custom_lines = self._collect_preserved_env_lines()
             # Create timestamped backup if file exists
             if self.env_file.exists():
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 backup_file = self.env_file.with_suffix(f".env.backup.{timestamp}")
                 self.env_file.rename(backup_file)
+                os.chmod(backup_file, 0o600)
 
-            with open(self.env_file, "w") as f:
+            # Create .env file with secure permissions (owner read/write only) to protect secrets
+            fd = os.open(self.env_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
                 f.write("# OpenRAG Environment Configuration\n")
                 f.write("# Generated by OpenRAG TUI\n\n")
 
@@ -385,7 +469,17 @@ class EnvManager:
                 )
                 f.write(f"LANGFLOW_URL_INGEST_FLOW_ID={self._quote_env_value(self.config.langflow_url_ingest_flow_id)}\n")
                 f.write(f"NUDGES_FLOW_ID={self._quote_env_value(self.config.nudges_flow_id)}\n")
+                f.write(f"OPENRAG_ENCRYPTION_KEY={self._quote_env_value(self.config.openrag_encryption_key)}\n")
+                f.write(f"OPENRAG_TENANT_ID={self._quote_env_value(self.config.openrag_tenant_id)}\n")
+                f.write(f"OPENRAG_ENFORCE_PREREQUISITES={self._quote_env_value(self.config.openrag_enforce_prerequisites)}\n")
                 f.write(f"OPENSEARCH_PASSWORD={self._quote_env_value(self.config.opensearch_password)}\n")
+                if self.config.opensearch_username and self.config.opensearch_username != "admin":
+                    f.write(f"OPENSEARCH_USERNAME={self._quote_env_value(self.config.opensearch_username)}\n")
+                if self.config.opensearch_host and self.config.opensearch_host != "opensearch":
+                    f.write(f"OPENSEARCH_HOST={self._quote_env_value(self.config.opensearch_host)}\n")
+                if self.config.opensearch_port and self.config.opensearch_port != "9200":
+                    f.write(f"OPENSEARCH_PORT={self._quote_env_value(self.config.opensearch_port)}\n")
+                f.write(f"OPENSEARCH_INDEX_NAME={self._quote_env_value(self.config.opensearch_index_name)}\n")
 
                 # Expand $HOME in paths before writing to .env
                 # This ensures paths work with all compose implementations (docker, podman)
@@ -415,6 +509,9 @@ class EnvManager:
                 f.write(
                     f"OPENSEARCH_DATA_PATH={self._quote_env_value(expand_path(self.config.opensearch_data_path))}\n"
                 )
+                f.write(
+                    f"LANGFLOW_DATA_PATH={self._quote_env_value(expand_path(self.config.langflow_data_path))}\n"
+                )
                 # Set OPENRAG_VERSION to TUI version
                 if self.config.openrag_version:
                     f.write(f"OPENRAG_VERSION={self._quote_env_value(self.config.openrag_version)}\n")
@@ -443,7 +540,7 @@ class EnvManager:
                     provider_vars.append(("WATSONX_ENDPOINT", self.config.watsonx_endpoint))
                 if self.config.watsonx_project_id:
                     provider_vars.append(("WATSONX_PROJECT_ID", self.config.watsonx_project_id))
-                
+
                 if provider_vars:
                     f.write("# AI Provider API Keys and Endpoints\n")
                     for var_name, var_value in provider_vars:
@@ -453,6 +550,7 @@ class EnvManager:
                 # Ingestion settings
                 f.write("# Ingestion settings\n")
                 f.write(f"DISABLE_INGEST_WITH_LANGFLOW={self._quote_env_value(self.config.disable_ingest_with_langflow)}\n")
+                f.write(f"INGEST_SAMPLE_DATA={self._quote_env_value(self.config.ingest_sample_data)}\n")
                 f.write("\n")
 
                 # Langflow auth settings
@@ -498,7 +596,15 @@ class EnvManager:
                     ("WEBHOOK_BASE_URL", self.config.webhook_base_url),
                     ("AWS_ACCESS_KEY_ID", self.config.aws_access_key_id),
                     ("AWS_SECRET_ACCESS_KEY", self.config.aws_secret_access_key),
+                    ("AWS_S3_ENDPOINT", self.config.aws_s3_endpoint),
+                    ("AWS_REGION", self.config.aws_region),
                     ("LANGFLOW_PUBLIC_URL", self.config.langflow_public_url),
+                    ("IBM_COS_API_KEY", self.config.ibm_cos_api_key),
+                    ("IBM_COS_SERVICE_INSTANCE_ID", self.config.ibm_cos_service_instance_id),
+                    ("IBM_COS_ENDPOINT", self.config.ibm_cos_endpoint),
+                    ("IBM_COS_HMAC_ACCESS_KEY_ID", self.config.ibm_cos_hmac_access_key_id),
+                    ("IBM_COS_HMAC_SECRET_ACCESS_KEY", self.config.ibm_cos_hmac_secret_access_key),
+                    ("IBM_COS_AUTH_ENDPOINT", self.config.ibm_cos_auth_endpoint),
                 ]
 
                 optional_written = False
@@ -530,6 +636,15 @@ class EnvManager:
                 if langfuse_written:
                     f.write("\n")
 
+                if preserved_custom_lines:
+                    f.write("# Preserved custom settings\n")
+                    for line in preserved_custom_lines:
+                        f.write(f"{line}\n")
+                    f.write("\n")
+
+                f.flush()
+                os.fsync(f.fileno())
+
             return True
 
         except Exception as e:
@@ -540,6 +655,12 @@ class EnvManager:
         """Get fields required for no-auth setup mode. Returns (field_name, display_name, placeholder, can_generate)."""
         return [
             ("openai_api_key", "OpenAI API Key", "sk-... or leave empty", False),
+            (
+                "openrag_encryption_key",
+                "OpenRAG Encryption Key",
+                "Will be auto-generated if empty",
+                True,
+            ),
             (
                 "opensearch_password",
                 "OpenSearch Password",
@@ -598,6 +719,18 @@ class EnvManager:
                 False,
             ),
             (
+                "ingest_sample_data",
+                "Ingest Sample Data (optional)",
+                "True",
+                False,
+            ),
+            (
+                "opensearch_index_name",
+                "OpenSearch Index Name",
+                "documents",
+                False,
+            ),
+            (
                 "webhook_base_url",
                 "Webhook Base URL (optional)",
                 "https://your-domain.com",
@@ -619,11 +752,10 @@ class EnvManager:
         """Ensure OPENRAG_VERSION is set in .env file to match TUI version."""
         try:
             from ..utils.version_check import get_current_version
-            import os
             current_version = get_current_version()
             if current_version == "unknown":
                 return
-            
+
             # Check if OPENRAG_VERSION is already set in .env
             if self.env_file.exists():
                 # Load .env file using load_dotenv
@@ -632,17 +764,17 @@ class EnvManager:
                 if existing_value and existing_value == current_version:
                     # Already correct, no update needed
                     return
-            
+
             # Set or update OPENRAG_VERSION
             self.config.openrag_version = current_version
-            
+
             # Update .env file
             if self.env_file.exists():
                 # Read existing content
                 lines = self.env_file.read_text().splitlines()
                 updated = False
                 new_lines = []
-                
+
                 for line in lines:
                     if line.strip().startswith("OPENRAG_VERSION"):
                         # Replace existing line
@@ -650,7 +782,7 @@ class EnvManager:
                         updated = True
                     else:
                         new_lines.append(line)
-                
+
                 # If not found, add it after OPENSEARCH_DATA_PATH or at the end
                 if not updated:
                     insert_pos = len(new_lines)
@@ -659,14 +791,18 @@ class EnvManager:
                             insert_pos = i + 1
                             break
                     new_lines.insert(insert_pos, f"OPENRAG_VERSION={self._quote_env_value(current_version)}")
-                
-                with open(self.env_file, 'w') as f:
+
+                fd = os.open(self.env_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                # Ensure pre-existing files get restricted permissions
+                os.chmod(self.env_file, 0o600)
+                with os.fdopen(fd, 'w') as f:
                     f.write("\n".join(new_lines) + "\n")
                     f.flush()
                     os.fsync(f.fileno())
             else:
                 # Create new .env file with just OPENRAG_VERSION
-                with open(self.env_file, 'w') as f:
+                fd = os.open(self.env_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, 'w') as f:
                     content = (
                         f"# OpenRAG Environment Configuration\n"
                         f"# Generated by OpenRAG TUI\n\n"
@@ -676,7 +812,7 @@ class EnvManager:
                     f.flush()
                     os.fsync(f.fileno())
         except Exception as e:
-            logger.debug(f"Error ensuring OPENRAG_VERSION: {e}")
+            logger.error(f"Error ensuring OPENRAG_VERSION: {e}")
 
     def generate_compose_volume_mounts(self) -> List[str]:
         """Generate Docker Compose volume mount strings from documents paths."""

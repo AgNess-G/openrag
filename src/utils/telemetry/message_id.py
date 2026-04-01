@@ -66,10 +66,24 @@ class MessageId:
     ORB_DOC_INGEST_FAILED = "ORB_DOC_INGEST_FAILED"
     # Message: Default documents ingestion started
     ORB_DOC_DEFAULT_START = "ORB_DOC_DEFAULT_START"
+    # Message: Default URL documents ingestion started
+    ORB_DOC_DEFAULT_URL_START = "ORB_DOC_DEFAULT_URL_START"
+    # Message: Default URL documents ingestion completed
+    ORB_DOC_DEFAULT_URL_COMPLETE = "ORB_DOC_DEFAULT_URL_COMPLETE"
+    # Message: Default URL documents ingestion failed
+    ORB_DOC_DEFAULT_URL_FAILED = "ORB_DOC_DEFAULT_URL_FAILED"
     # Message: Default documents ingestion completed
     ORB_DOC_DEFAULT_COMPLETE = "ORB_DOC_DEFAULT_COMPLETE"
     # Message: Default documents ingestion failed
     ORB_DOC_DEFAULT_FAILED = "ORB_DOC_DEFAULT_FAILED"
+    # Message: Default docs refresh started
+    ORB_DOC_REFRESH_START = "ORB_DOC_REFRESH_START"
+    # Message: Default docs refresh skipped
+    ORB_DOC_REFRESH_SKIPPED = "ORB_DOC_REFRESH_SKIPPED"
+    # Message: Default docs refresh completed
+    ORB_DOC_REFRESH_COMPLETE = "ORB_DOC_REFRESH_COMPLETE"
+    # Message: Default docs refresh failed
+    ORB_DOC_REFRESH_FAILED = "ORB_DOC_REFRESH_FAILED"
     
     # Category: DOCUMENT_PROCESSING -------------------------------------------->
     
@@ -176,6 +190,8 @@ class MessageId:
     ORB_SETTINGS_CHUNK_UPDATED = "ORB_SETTINGS_CHUNK_UPDATED"
     # Message: Docling settings updated
     ORB_SETTINGS_DOCLING_UPDATED = "ORB_SETTINGS_DOCLING_UPDATED"
+    # Message: Index name updated
+    ORB_SETTINGS_INDEX_NAME_UPDATED = "ORB_SETTINGS_INDEX_NAME_UPDATED"
     # Message: Provider credentials updated
     ORB_SETTINGS_PROVIDER_CREDS = "ORB_SETTINGS_PROVIDER_CREDS"
     

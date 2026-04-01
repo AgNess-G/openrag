@@ -1,13 +1,14 @@
 "use client";
 
-import { FilterColor, IconKey } from "@/components/filter-icon-popover";
 import React, {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useState,
 } from "react";
+import { FilterColor, IconKey } from "@/components/filter-icon-popover";
 
 interface KnowledgeFilter {
   id: string;
@@ -39,7 +40,9 @@ interface KnowledgeFilterContextType {
   setSelectedFilter: (filter: KnowledgeFilter | null) => void;
   clearFilter: () => void;
   isPanelOpen: boolean;
+  panelMode: "filters" | "ingestion-status";
   openPanel: () => void;
+  openIngestionStatusPanel: () => void;
   closePanel: () => void;
   closePanelOnly: () => void;
   createMode: boolean;
@@ -75,6 +78,9 @@ export function KnowledgeFilterProvider({
   const [parsedFilterData, setParsedFilterData] =
     useState<ParsedQueryData | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [panelMode, setPanelMode] = useState<"filters" | "ingestion-status">(
+    "filters",
+  );
   const [createMode, setCreateMode] = useState(false);
   const [queryOverride, setQueryOverride] = useState("");
 
@@ -103,6 +109,7 @@ export function KnowledgeFilterProvider({
         setParsedFilterData(parsed);
 
         // Auto-open panel when filter is selected
+        setPanelMode("filters");
         setIsPanelOpen(true);
       } catch (error) {
         console.error("Error parsing filter data:", error);
@@ -119,20 +126,28 @@ export function KnowledgeFilterProvider({
   };
 
   const openPanel = () => {
+    setPanelMode("filters");
+    setIsPanelOpen(true);
+  };
+
+  const openIngestionStatusPanel = () => {
+    setPanelMode("ingestion-status");
     setIsPanelOpen(true);
   };
 
   const closePanel = () => {
     setCreateMode(false);
+    setPanelMode("filters");
     setSelectedFilter(null); // This will also close the panel
   };
 
-  const closePanelOnly = () => {
+  const closePanelOnly = useCallback(() => {
     setIsPanelOpen(false); // Close panel but keep filter selected
-  };
+  }, []);
 
   const startCreateMode = () => {
     // Initialize defaults
+    setPanelMode("filters");
     setCreateMode(true);
     setSelectedFilterState(null);
     setParsedFilterData({
@@ -166,7 +181,9 @@ export function KnowledgeFilterProvider({
     setSelectedFilter,
     clearFilter,
     isPanelOpen,
+    panelMode,
     openPanel,
+    openIngestionStatusPanel,
     closePanel,
     closePanelOnly,
     createMode,

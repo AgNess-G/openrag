@@ -42,6 +42,17 @@ class APIKeyService:
 
         return full_key, key_hash, key_prefix
 
+    def _get_opensearch_client(self, jwt_token: str = None):
+        """Get the appropriate OpenSearch client.
+
+        In IBM auth mode, returns a user-authenticated client when *jwt_token*
+        is available; otherwise falls back to the default admin client.
+        """
+        from config.settings import IBM_AUTH_ENABLED, clients
+        if IBM_AUTH_ENABLED and jwt_token and self.session_manager:
+            return clients.create_user_opensearch_client(jwt_token)
+        return clients.opensearch
+
     def _hash_key(self, api_key: str) -> str:
         """Hash an API key for lookup."""
         return hashlib.sha256(api_key.encode()).hexdigest()
@@ -87,9 +98,7 @@ class APIKeyService:
                 "revoked": False,
             }
 
-            # Get OpenSearch client
-            from config.settings import clients
-            opensearch_client = clients.opensearch
+            opensearch_client = self._get_opensearch_client(jwt_token)
 
             # Index the key document
             result = await opensearch_client.index(
@@ -139,9 +148,7 @@ class APIKeyService:
             # Hash the incoming key
             key_hash = self._hash_key(api_key)
 
-            # Get OpenSearch client
-            from config.settings import clients
-            opensearch_client = clients.opensearch
+            opensearch_client = self._get_opensearch_client()
 
             # Search for the key by hash
             search_body = {
@@ -208,9 +215,7 @@ class APIKeyService:
             Dict with list of key metadata
         """
         try:
-            # Get OpenSearch client
-            from config.settings import clients
-            opensearch_client = clients.opensearch
+            opensearch_client = self._get_opensearch_client(jwt_token)
 
             # Search for user's keys
             search_body = {
@@ -262,9 +267,7 @@ class APIKeyService:
             Dict with success status
         """
         try:
-            # Get OpenSearch client
-            from config.settings import clients
-            opensearch_client = clients.opensearch
+            opensearch_client = self._get_opensearch_client(jwt_token)
 
             # First, verify the key belongs to this user
             try:
@@ -328,9 +331,7 @@ class APIKeyService:
             Dict with success status
         """
         try:
-            # Get OpenSearch client
-            from config.settings import clients
-            opensearch_client = clients.opensearch
+            opensearch_client = self._get_opensearch_client(jwt_token)
 
             # First, verify the key belongs to this user
             try:

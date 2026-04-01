@@ -10,10 +10,14 @@ import {
   useOnboardingMutation,
 } from "@/app/api/mutations/useOnboardingMutation";
 import { useOnboardingRollbackMutation } from "@/app/api/mutations/useOnboardingRollbackMutation";
-import { useUpdateOnboardingStateMutation } from "@/app/api/mutations/useUpdateOnboardingStateMutation";
 import { useGetSettingsQuery } from "@/app/api/queries/useGetSettingsQuery";
 import { useGetTasksQuery } from "@/app/api/queries/useGetTasksQuery";
 import type { ProviderHealthResponse } from "@/app/api/queries/useProviderHealthQuery";
+import {
+  CLOUD_EXCLUDED_PROVIDERS,
+  EMBEDDING_PROVIDER_ORDER,
+  LLM_PROVIDER_ORDER,
+} from "@/app/settings/_helpers/model-helpers";
 import { useDoclingHealth } from "@/components/docling-health-banner";
 import AnthropicLogo from "@/components/icons/anthropic-logo";
 import IBMLogo from "@/components/icons/ibm-logo";
@@ -26,6 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useIsCloudBrand } from "@/contexts/brand-context";
 import { cn } from "@/lib/utils";
 import { AnimatedProviderSteps } from "./animated-provider-steps";
 import { AnthropicOnboarding } from "./anthropic-onboarding";
@@ -61,12 +66,11 @@ const OnboardingCard = ({
   isCompleted = false,
 }: OnboardingCardProps) => {
   const { isHealthy: isDoclingHealthy } = useDoclingHealth();
+  const isCloudBrand = useIsCloudBrand();
 
   const [modelProvider, setModelProvider] = useState<string>(
     isEmbedding ? "openai" : "anthropic",
   );
-
-  const [sampleDataset, setSampleDataset] = useState<boolean>(true);
 
   const [isLoadingModels, setIsLoadingModels] = useState<boolean>(false);
 
@@ -80,9 +84,12 @@ const OnboardingCard = ({
     if (!currentSettings?.providers) return;
 
     // Define provider order based on whether it's embedding or not
-    const providerOrder = isEmbedding
-      ? ["openai", "watsonx", "ollama"]
-      : ["anthropic", "openai", "watsonx", "ollama"];
+    const fullOrder = isEmbedding
+      ? EMBEDDING_PROVIDER_ORDER
+      : LLM_PROVIDER_ORDER;
+    const providerOrder = isCloudBrand
+      ? fullOrder.filter((p) => !CLOUD_EXCLUDED_PROVIDERS.includes(p))
+      : fullOrder;
 
     // Find the first provider with an API key
     for (const provider of providerOrder) {
@@ -92,7 +99,10 @@ const OnboardingCard = ({
       ) {
         setModelProvider("anthropic");
         return;
-      } else if (provider === "openai" && currentSettings.providers.openai?.has_api_key) {
+      } else if (
+        provider === "openai" &&
+        currentSettings.providers.openai?.has_api_key
+      ) {
         setModelProvider("openai");
         return;
       } else if (
@@ -109,7 +119,7 @@ const OnboardingCard = ({
         return;
       }
     }
-  }, [currentSettings, isEmbedding]);
+  }, [currentSettings, isEmbedding, isCloudBrand]);
 
   const handleSetModelProvider = (provider: string) => {
     setIsLoadingModels(false);
@@ -171,6 +181,8 @@ const OnboardingCard = ({
 
   const [error, setError] = useState<string | null>(null);
 
+  const [onboardingTaskId, setOnboardingTaskId] = useState<string | null>(null);
+
   // Track which tasks we've already handled to prevent infinite loops
   const handledFailedTasksRef = useRef<Set<string>>(new Set());
 
@@ -191,120 +203,22 @@ const OnboardingCard = ({
     onError: (error) => {
       console.error("Failed to rollback onboarding", error);
       // Preserve existing error message if set, otherwise show rollback error
-      setError((prevError) => prevError || `Failed to rollback: ${error.message}`);
+      setError(
+        (prevError) => prevError || `Failed to rollback: ${error.message}`,
+      );
       // Still reset to provider selection even if rollback fails
       setCurrentStep(null);
     },
   });
 
-  // Monitor tasks and call onComplete when all tasks are done
-  useEffect(() => {
-    if (currentStep === null || !tasks || !isEmbedding) {
-      return;
-    }
-
-    // Check if there are any active tasks (pending, running, or processing)
-    const activeTasks = tasks.find(
-      (task) =>
-        task.status === "pending" ||
-        task.status === "running" ||
-        task.status === "processing",
-    );
-
-    // Check if any file failed in completed tasks
-    const completedTasks = tasks.filter(
-      (task) => task.status === "completed"
-    );
-
-    // Check if any completed task has at least one failed file
-    const taskWithFailedFile = completedTasks.find((task) => {
-      // Must have files object
-      if (!task.files || typeof task.files !== "object") {
-        return false;
-      }
-
-      const fileEntries = Object.values(task.files);
-      
-      // Must have at least one file
-      if (fileEntries.length === 0) {
-        return false;
-      }
-
-      // Check if any file has failed status
-      const hasFailedFile = fileEntries.some(
-        (file) => file.status === "failed" || file.status === "error"
-      );
-
-      return hasFailedFile;
-    });
-
-    // If any file failed, show error and jump back one step (like onboardingMutation.onError)
-    // Only handle if we haven't already handled this task
-    if (
-      taskWithFailedFile && 
-      !rollbackMutation.isPending && 
-      !isCompleted &&
-      !handledFailedTasksRef.current.has(taskWithFailedFile.task_id)
-    ) {
-      console.error("File failed in task, jumping back one step", taskWithFailedFile);
-      
-      // Mark this task as handled to prevent infinite loops
-      handledFailedTasksRef.current.add(taskWithFailedFile.task_id);
-      
-      // Extract error messages from failed files
-      const errorMessages: string[] = [];
-      if (taskWithFailedFile.files) {
-        Object.values(taskWithFailedFile.files).forEach((file) => {
-          if ((file.status === "failed" || file.status === "error") && file.error) {
-            errorMessages.push(file.error);
-          }
-        });
-      }
-      
-      // Also check task-level error
-      if (taskWithFailedFile.error) {
-        errorMessages.push(taskWithFailedFile.error);
-      }
-      
-      // Use the first error message, or a generic message if no errors found
-      const errorMessage = errorMessages.length > 0
-        ? errorMessages[0]
-        : "Sample data file failed to ingest. Please try again with a different configuration.";
-      
-      // Set error message and jump back one step (exactly like onboardingMutation.onError)
-      setError(errorMessage);
-      setCurrentStep(totalSteps);
-      // Jump back one step after 1 second (go back to the step before ingestion)
-      // For embedding: totalSteps is 4, ingestion is step 3, so go back to step 2
-      // For LLM: totalSteps is 3, ingestion is step 2, so go back to step 1
-      setTimeout(() => {
-        // Go back to the step before the last step (which is ingestion)
-        const previousStep = totalSteps > 1 ? totalSteps - 2 : 0;
-        setCurrentStep(previousStep);
-      }, 1000);
-      return;
-    }
-
-    // If no active tasks and we've started onboarding, complete it
-    if (
-      (!activeTasks || (activeTasks.processed_files ?? 0) > 0) &&
-      tasks.length > 0 &&
-      !isCompleted &&
-      !taskWithFailedFile
-    ) {
-      // Set to final step to show "Done"
-      setCurrentStep(totalSteps);
-      // Wait a bit before completing
-      setTimeout(() => {
-        onComplete();
-      }, 1000);
-    }
-  }, [tasks, currentStep, onComplete, isCompleted, isEmbedding, totalSteps, rollbackMutation]);
-
   // Mutations
   const onboardingMutation = useOnboardingMutation({
     onSuccess: (data) => {
       console.log("Onboarding completed successfully", data);
+
+      if (data.task_id) {
+        setOnboardingTaskId(data.task_id);
+      }
 
       // Update provider health cache to healthy since backend just validated
       const provider =
@@ -329,12 +243,137 @@ const OnboardingCard = ({
     onError: (error) => {
       setError(error.message);
       setCurrentStep(totalSteps);
-      // Reset to provider selection after 1 second
-      setTimeout(() => {
-        setCurrentStep(null);
-      }, 1000);
+      rollbackMutation.mutate({ embedding_only: isEmbedding });
     },
   });
+
+  // Monitor tasks and call onComplete when all tasks are done
+  useEffect(() => {
+    if (currentStep === null || !tasks || !isEmbedding) {
+      return;
+    }
+
+    if (!onboardingMutation.isSuccess) {
+      return;
+    }
+
+    const relevantTasks = onboardingTaskId
+      ? tasks.filter((task) => task.task_id === onboardingTaskId)
+      : [];
+
+    // Check if there are any active tasks (pending, running, or processing)
+    const activeTasks = relevantTasks.find(
+      (task) =>
+        task.status === "pending" ||
+        task.status === "running" ||
+        task.status === "processing",
+    );
+
+    // Check if any task failed at the top level
+    const failedTask = relevantTasks.find(
+      (task) => task.status === "failed" || task.status === "error",
+    );
+
+    // Check if any completed task has at least one failed file
+    const completedTaskWithFailedFile = relevantTasks.find((task) => {
+      // Must have files object
+      if (!task.files || typeof task.files !== "object") {
+        return false;
+      }
+
+      const fileEntries = Object.values(task.files);
+
+      // Must have at least one file
+      if (fileEntries.length === 0) {
+        return false;
+      }
+
+      // Check if any file has failed status
+      const hasFailedFile = fileEntries.some(
+        (file) => file.status === "failed" || file.status === "error",
+      );
+
+      return hasFailedFile;
+    });
+
+    const taskWithFailure = failedTask || completedTaskWithFailedFile;
+
+    // If any file failed, show error and jump back one step (like onboardingMutation.onError)
+    // Only handle if we haven't already handled this task
+    if (
+      taskWithFailure &&
+      !rollbackMutation.isPending &&
+      !isCompleted &&
+      !handledFailedTasksRef.current.has(taskWithFailure.task_id)
+    ) {
+      console.error("Task failed, jumping back one step", taskWithFailure);
+
+      // Mark this task as handled to prevent infinite loops
+      handledFailedTasksRef.current.add(taskWithFailure.task_id);
+
+      // Extract error messages from failed files
+      const errorMessages: string[] = [];
+      if (taskWithFailure.files) {
+        Object.values(taskWithFailure.files).forEach((file) => {
+          if (
+            (file.status === "failed" || file.status === "error") &&
+            file.error
+          ) {
+            errorMessages.push(file.error);
+          }
+        });
+      }
+
+      // Also check task-level error
+      if (taskWithFailure.error) {
+        errorMessages.push(taskWithFailure.error);
+      }
+
+      // Use the first error message, or a generic message if no errors found
+      const errorMessage =
+        errorMessages.length > 0
+          ? errorMessages[0]
+          : "Sample data ingestion failed. Please try again.";
+
+      // Set error message and jump back one step (exactly like onboardingMutation.onError)
+      setError(errorMessage);
+      setCurrentStep(totalSteps);
+      rollbackMutation.mutate({ embedding_only: isEmbedding });
+      return;
+    }
+
+    const hasSuccessfulTasks =
+      relevantTasks.length > 0 &&
+      (!activeTasks || (activeTasks.successful_files ?? 0) > 0);
+
+    const hasIngestionDisabledOrDone =
+      !onboardingTaskId && currentStep === totalSteps - 1;
+
+    // If at least one processed file, no failures, and we've started onboarding, complete it
+    if (
+      (hasSuccessfulTasks || hasIngestionDisabledOrDone) &&
+      !isCompleted &&
+      !taskWithFailure &&
+      currentStep === totalSteps - 1
+    ) {
+      // Set to final step to show "Done"
+      setCurrentStep(totalSteps);
+      // Wait a bit before completing
+      setTimeout(() => {
+        onComplete();
+      }, 1000);
+    }
+  }, [
+    tasks,
+    currentStep,
+    onComplete,
+    isCompleted,
+    isEmbedding,
+    totalSteps,
+    rollbackMutation,
+    onboardingMutation.isSuccess,
+    onboardingTaskId,
+  ]);
 
   const handleComplete = () => {
     const currentProvider = isEmbedding
@@ -356,9 +395,7 @@ const OnboardingCard = ({
     setError(null);
 
     // Prepare onboarding data with provider-specific fields
-    const onboardingData: OnboardingVariables = {
-      sample_data: sampleDataset,
-    };
+    const onboardingData: OnboardingVariables = {};
 
     // Set the provider field
     if (isEmbedding) {
@@ -457,7 +494,7 @@ const OnboardingCard = ({
                       >
                         <div
                           className={cn(
-                            "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
+                            "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
                             modelProvider === "anthropic"
                               ? "bg-[#D97757]"
                               : "bg-muted",
@@ -490,7 +527,7 @@ const OnboardingCard = ({
                     >
                       <div
                         className={cn(
-                          "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
+                          "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
                           modelProvider === "openai" ? "bg-white" : "bg-muted",
                         )}
                       >
@@ -520,7 +557,7 @@ const OnboardingCard = ({
                     >
                       <div
                         className={cn(
-                          "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
+                          "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
                           modelProvider === "watsonx"
                             ? "bg-[#1063FE]"
                             : "bg-muted",
@@ -538,43 +575,45 @@ const OnboardingCard = ({
                       IBM watsonx.ai
                     </TabTrigger>
                   </TabsTrigger>
-                  <TabsTrigger
-                    value="ollama"
-                    className={cn(
-                      error &&
-                        modelProvider === "ollama" &&
-                        "data-[state=active]:border-destructive",
-                    )}
-                  >
-                    <TabTrigger
-                      selected={modelProvider === "ollama"}
-                      isLoading={isLoadingModels}
+                  {!isCloudBrand && (
+                    <TabsTrigger
+                      value="ollama"
+                      className={cn(
+                        error &&
+                          modelProvider === "ollama" &&
+                          "data-[state=active]:border-destructive",
+                      )}
                     >
-                      <div
-                        className={cn(
-                          "flex items-center justify-center gap-2 w-8 h-8 rounded-md border",
-                          modelProvider === "ollama" ? "bg-white" : "bg-muted",
-                        )}
+                      <TabTrigger
+                        selected={modelProvider === "ollama"}
+                        isLoading={isLoadingModels}
                       >
-                        <OllamaLogo
+                        <div
                           className={cn(
-                            "w-4 h-4 shrink-0",
+                            "flex items-center justify-center gap-2 w-8 h-8 rounded-none border",
                             modelProvider === "ollama"
-                              ? "text-black"
-                              : "text-muted-foreground",
+                              ? "bg-white"
+                              : "bg-muted",
                           )}
-                        />
-                      </div>
-                      Ollama
-                    </TabTrigger>
-                  </TabsTrigger>
+                        >
+                          <OllamaLogo
+                            className={cn(
+                              "w-4 h-4 shrink-0",
+                              modelProvider === "ollama"
+                                ? "text-black"
+                                : "text-muted-foreground",
+                            )}
+                          />
+                        </div>
+                        Ollama
+                      </TabTrigger>
+                    </TabsTrigger>
+                  )}
                 </TabsList>
                 {!isEmbedding && (
                   <TabsContent value="anthropic">
                     <AnthropicOnboarding
                       setSettings={setSettings}
-                      sampleDataset={sampleDataset}
-                      setSampleDataset={setSampleDataset}
                       setIsLoadingModels={setIsLoadingModels}
                       isEmbedding={isEmbedding}
                       hasEnvApiKey={
@@ -587,40 +626,50 @@ const OnboardingCard = ({
                 <TabsContent value="openai">
                   <OpenAIOnboarding
                     setSettings={setSettings}
-                    sampleDataset={sampleDataset}
-                    setSampleDataset={setSampleDataset}
                     setIsLoadingModels={setIsLoadingModels}
                     isEmbedding={isEmbedding}
                     hasEnvApiKey={
                       currentSettings?.providers?.openai?.has_api_key === true
                     }
-                    alreadyConfigured={providerAlreadyConfigured && modelProvider === "openai"}
+                    alreadyConfigured={
+                      providerAlreadyConfigured && modelProvider === "openai"
+                    }
                   />
                 </TabsContent>
                 <TabsContent value="watsonx">
                   <IBMOnboarding
                     setSettings={setSettings}
-                    sampleDataset={sampleDataset}
-                    setSampleDataset={setSampleDataset}
                     setIsLoadingModels={setIsLoadingModels}
                     isEmbedding={isEmbedding}
-                    alreadyConfigured={providerAlreadyConfigured && modelProvider === "watsonx"}
-                    existingEndpoint={currentSettings?.providers?.watsonx?.endpoint}
-                    existingProjectId={currentSettings?.providers?.watsonx?.project_id}
-                    hasEnvApiKey={currentSettings?.providers?.watsonx?.has_api_key === true}
+                    alreadyConfigured={
+                      providerAlreadyConfigured && modelProvider === "watsonx"
+                    }
+                    existingEndpoint={
+                      currentSettings?.providers?.watsonx?.endpoint
+                    }
+                    existingProjectId={
+                      currentSettings?.providers?.watsonx?.project_id
+                    }
+                    hasEnvApiKey={
+                      currentSettings?.providers?.watsonx?.has_api_key === true
+                    }
                   />
                 </TabsContent>
-                <TabsContent value="ollama">
-                  <OllamaOnboarding
-                    setSettings={setSettings}
-                    sampleDataset={sampleDataset}
-                    setSampleDataset={setSampleDataset}
-                    setIsLoadingModels={setIsLoadingModels}
-                    isEmbedding={isEmbedding}
-                    alreadyConfigured={providerAlreadyConfigured && modelProvider === "ollama"}
-                    existingEndpoint={currentSettings?.providers?.ollama?.endpoint}
-                  />
-                </TabsContent>
+                {!isCloudBrand && (
+                  <TabsContent value="ollama">
+                    <OllamaOnboarding
+                      setSettings={setSettings}
+                      setIsLoadingModels={setIsLoadingModels}
+                      isEmbedding={isEmbedding}
+                      alreadyConfigured={
+                        providerAlreadyConfigured && modelProvider === "ollama"
+                      }
+                      existingEndpoint={
+                        currentSettings?.providers?.ollama?.endpoint
+                      }
+                    />
+                  </TabsContent>
+                )}
               </Tabs>
 
               <Tooltip>

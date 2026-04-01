@@ -8,6 +8,9 @@ logger = get_logger(__name__)
 
 
 class ChatService:
+    def __init__(self, flows_service=None):
+        self.flows_service = flows_service
+
     async def chat(
         self,
         prompt: str,
@@ -78,7 +81,7 @@ class ChatService:
         extra_headers["X-LANGFLOW-GLOBAL-VAR-SELECTED_EMBEDDING_MODEL"] = embedding_model
         
         # Add provider credentials to headers
-        add_provider_credentials_to_headers(extra_headers, config)
+        await add_provider_credentials_to_headers(extra_headers, config, flows_service=self.flows_service, jwt_token=jwt_token)
         logger.debug(f"[LF] Extra headers {extra_headers}")
         # Get context variables for filters, limit, and threshold
         from auth_context import (
@@ -100,6 +103,7 @@ class ChatService:
                 "data_sources": "filename",
                 "document_types": "mimetype",
                 "owners": "owner",
+                "connector_types": "connector_type",
             }
 
             for filter_key, values in filters.items():
@@ -156,7 +160,7 @@ class ChatService:
         else:
             from agent import async_langflow_chat
 
-            response_text, response_id = await async_langflow_chat(
+            response_text, response_id, sources = await async_langflow_chat(
                 langflow_client,
                 LANGFLOW_CHAT_FLOW_ID,
                 prompt,
@@ -168,6 +172,8 @@ class ChatService:
             response_data = {"response": response_text}
             if response_id:
                 response_data["response_id"] = response_id
+            if sources:
+                response_data["sources"] = sources
             return response_data
 
     async def langflow_nudges_chat(
@@ -200,7 +206,7 @@ class ChatService:
         extra_headers["X-LANGFLOW-GLOBAL-VAR-SELECTED_EMBEDDING_MODEL"] = embedding_model
         
         # Add provider credentials to headers
-        add_provider_credentials_to_headers(extra_headers, config)
+        await add_provider_credentials_to_headers(extra_headers, config, flows_service=self.flows_service, jwt_token=jwt_token)
 
         # Build the complete filter expression like the chat service does
         filter_expression = {}
@@ -213,6 +219,7 @@ class ChatService:
                 "data_sources": "filename",
                 "document_types": "mimetype",
                 "owners": "owner",
+                "connector_types": "connector_type",
             }
 
             for filter_key, values in filters.items():
@@ -289,7 +296,7 @@ class ChatService:
         from agent import async_langflow_chat
 
 
-        response_text, response_id = await async_langflow_chat(
+        response_text, response_id, _sources = await async_langflow_chat(
             langflow_client,
             NUDGES_FLOW_ID,
             prompt,
@@ -329,7 +336,7 @@ class ChatService:
             extra_headers["X-LANGFLOW-GLOBAL-VAR-SELECTED_EMBEDDING_MODEL"] = embedding_model
             
             # Add provider credentials to headers
-            add_provider_credentials_to_headers(extra_headers, config)
+            await add_provider_credentials_to_headers(extra_headers, config, flows_service=self.flows_service, jwt_token=jwt_token)
             
             # Ensure the Langflow client exists; try lazy init if needed
             langflow_client = await clients.ensure_langflow_client()
@@ -516,6 +523,9 @@ class ChatService:
                             "source": "langflow",
                         }
 
+                        if msg.get("error"):
+                            message_data["error"] = True
+
                         # Include function call data if present
                         if msg.get("chunks"):
                             message_data["chunks"] = msg["chunks"]
@@ -597,20 +607,21 @@ class ChatService:
             from agent import delete_user_conversation
             local_deleted = await delete_user_conversation(user_id, session_id)
 
-            # Delete from Langflow using the monitor API
+            if not local_deleted:
+                return {
+                    "success": False,
+                    "not_found": True,
+                    "error": "Conversation not found",
+                }
+
+            # Delete from Langflow using the monitor API (best-effort)
             langflow_deleted = await self._delete_langflow_session(session_id)
 
-            success = local_deleted or langflow_deleted
-            error_msg = None
-
-            if not success:
-                error_msg = "Session not found in local storage or Langflow"
-
             return {
-                "success": success,
+                "success": True,
                 "local_deleted": local_deleted,
                 "langflow_deleted": langflow_deleted,
-                "error": error_msg
+                "error": None,
             }
 
         except Exception as e:

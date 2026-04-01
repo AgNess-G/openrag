@@ -9,18 +9,18 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 
 function LoginPageContent() {
-  const { isLoading, isAuthenticated, isNoAuthMode, login } = useAuth();
+  const { isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode, login } =
+    useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const redirect = searchParams.get("redirect") || "/chat";
 
-  // Redirect if already authenticated or in no-auth mode
   useEffect(() => {
-    if (!isLoading && (isAuthenticated || isNoAuthMode)) {
+    if (!isLoading && (isAuthenticated || isNoAuthMode || isIbmAuthMode)) {
       router.push(redirect);
     }
-  }, [isLoading, isAuthenticated, isNoAuthMode, router, redirect]);
+  }, [isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode, router, redirect]);
 
   if (isLoading) {
     return (
@@ -33,7 +33,7 @@ function LoginPageContent() {
     );
   }
 
-  if (isAuthenticated || isNoAuthMode) {
+  if (isAuthenticated || isNoAuthMode || isIbmAuthMode) {
     return null; // Will redirect in useEffect
   }
 

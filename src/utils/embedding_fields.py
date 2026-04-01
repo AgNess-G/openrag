@@ -78,7 +78,7 @@ async def ensure_embedding_field_exists(
     Args:
         opensearch_client: OpenSearch client instance
         model_name: The embedding model name
-        index_name: OpenSearch index name (defaults to INDEX_NAME from settings)
+        index_name: OpenSearch index name (defaults to get_index_name() from settings)
 
     Returns:
         The field name that was ensured to exist
@@ -86,11 +86,11 @@ async def ensure_embedding_field_exists(
     Raises:
         Exception: If unable to add the field mapping
     """
-    from config.settings import INDEX_NAME
+    from config.settings import KNN_EF_CONSTRUCTION, KNN_M, get_index_name
     from utils.embeddings import get_embedding_dimensions
 
     if index_name is None:
-        index_name = INDEX_NAME
+        index_name = get_index_name()
 
     field_name = get_embedding_field_name(model_name)
     dimensions = await get_embedding_dimensions(model_name)
@@ -113,8 +113,11 @@ async def ensure_embedding_field_exists(
             )
             return {}
 
-        properties = mapping.get(index_name, {}).get("mappings", {}).get("properties", {})
-        return properties.get(field_name, {}) if isinstance(properties, dict) else {}
+        for index_info in mapping.values():
+            properties = index_info.get("mappings", {}).get("properties", {})
+            if isinstance(properties, dict) and field_name in properties:
+                return properties[field_name]
+        return {}
 
     existing_definition = await _get_field_definition()
     if existing_definition:
@@ -134,7 +137,7 @@ async def ensure_embedding_field_exists(
                     "name": "disk_ann",
                     "engine": "jvector",
                     "space_type": "l2",
-                    "parameters": {"ef_construction": 100, "m": 16},
+                    "parameters": {"ef_construction": KNN_EF_CONSTRUCTION, "m": KNN_M},
                 },
             },
             # Also ensure the embedding_model tracking field exists as keyword
@@ -160,6 +163,16 @@ async def ensure_embedding_field_exists(
             model_name=model_name,
         )
     except Exception as e:
+        # Check if the field was created by a concurrent request
+        check_def = await _get_field_definition()
+        if check_def.get("type") == "knn_vector":
+            logger.info(
+                "Embedding field already exists as knn_vector (race condition handled)",
+                field_name=field_name,
+                model_name=model_name,
+            )
+            return field_name
+
         logger.error(
             "Failed to add embedding field mapping",
             field_name=field_name,

@@ -15,9 +15,9 @@ load_dotenv()
 os.environ['GOOGLE_OAUTH_CLIENT_ID'] = ''
 os.environ['GOOGLE_OAUTH_CLIENT_SECRET'] = ''
 
-from src.config.settings import clients
-from src.session_manager import SessionManager
-from src.main import generate_jwt_keys
+from config.settings import clients
+from session_manager import SessionManager
+from main import generate_jwt_keys
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
@@ -26,7 +26,14 @@ async def onboard_system():
 
     This ensures the OpenRAG config is marked as edited and properly initialized
     so that tests can use the /settings endpoint.
+
+    Skips in-process backend setup when SDK_TESTS_ONLY=true (SDK tests talk to
+    an already-running external stack and must not wipe its state).
     """
+    if os.environ.get("SDK_TESTS_ONLY") == "true":
+        yield
+        return
+
     from pathlib import Path
     import shutil
 
@@ -34,7 +41,7 @@ async def onboard_system():
     config_file = Path("config/config.yaml")
     if config_file.exists():
         config_file.unlink()
-    
+
     # Clean up OpenSearch data directory to ensure fresh state for tests
     opensearch_data_path = Path(os.getenv("OPENSEARCH_DATA_PATH", "./opensearch-data"))
     if opensearch_data_path.exists():
@@ -48,7 +55,7 @@ async def onboard_system():
     await clients.initialize()
 
     # Create app and perform onboarding via API
-    from src.main import create_app, startup_tasks
+    from main import create_app, startup_tasks
     import httpx
 
     app = await create_app()
@@ -61,7 +68,6 @@ async def onboard_system():
             "embedding_provider": "openai",
             "embedding_model": "text-embedding-3-small",
             "llm_model": "gpt-4o-mini",
-            "sample_data": False,
         }
         resp = await client.post("/onboarding", json=onboarding_payload)
         if resp.status_code not in (200, 204):
