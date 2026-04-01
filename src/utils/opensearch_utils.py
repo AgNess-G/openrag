@@ -126,9 +126,45 @@ async def wait_for_opensearch(
     raise OpenSearchNotReadyError(message)
 
 
+async def graceful_opensearch_shutdown(opensearch_client: AsyncOpenSearch) -> None:
+    """Gracefully shutdown OpenSearch client connection.
+    
+    This ensures that all pending operations are completed and connections
+    are properly closed before the application exits.
+    
+    Args:
+        opensearch_client: The OpenSearch client to shutdown.
+    """
+    if opensearch_client is None:
+        logger.debug("OpenSearch client is None, skipping graceful shutdown")
+        return
+    
+    try:
+        logger.info("Initiating graceful OpenSearch shutdown...")
+        
+        # Flush any pending operations by checking cluster health one last time
+        try:
+            await asyncio.wait_for(
+                opensearch_client.cluster.health(),
+                timeout=10.0
+            )
+            logger.debug("Final cluster health check completed")
+        except asyncio.TimeoutError:
+            logger.warning("Timeout during final cluster health check")
+        except Exception as e:
+            logger.warning("Error during final cluster health check", error=str(e))
+        
+        # Close the client connection
+        await opensearch_client.close()
+        logger.info("OpenSearch client connection closed gracefully")
+        
+    except Exception as e:
+        logger.error("Error during graceful OpenSearch shutdown", error=str(e))
+
+
 async def setup_opensearch_security(
     opensearch_client: AsyncOpenSearch,
-    admin_username: str = None,
+    admin_username: str | None = None,
 ) -> None:
     """Setup OpenSearch roles and roles mapping.
 
@@ -147,7 +183,7 @@ async def setup_opensearch_security(
             ``users`` list so they retain admin access after ``backend_roles``
             are modified for DLS.
 
-    This should be called during initial setup.
+    This should be called during initial setup after OpenSearch is ready.
     """
     from config.settings import IBM_AUTH_ENABLED
 
@@ -164,11 +200,26 @@ async def setup_opensearch_security(
     roles_file = os.path.join(security_config_dir, "roles.yml")
     roles_mapping_file = os.path.join(security_config_dir, "roles_mapping.yml")
 
+    logger.info(
+        "[OpenSearch Security] Configuration paths",
+        base_dir=base_dir,
+        security_config_dir=security_config_dir,
+        roles_file=roles_file,
+        roles_mapping_file=roles_mapping_file,
+    )
+
     try:
         # 1. & 2. Readiness checks
-        logger.debug("[OpenSearch Security] Performing readiness checks...")
-        await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/rolesmapping")
-        await opensearch_client.cluster.health()
+        logger.info("[OpenSearch Security] Performing readiness checks...")
+        
+        try:
+            rolesmapping_response = await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/rolesmapping")
+            logger.info("[OpenSearch Security] Current rolesmapping retrieved", count=len(rolesmapping_response) if isinstance(rolesmapping_response, dict) else "unknown")
+        except Exception as e:
+            logger.warning("[OpenSearch Security] Failed to get current rolesmapping", error=str(e))
+        
+        cluster_health = await opensearch_client.cluster.health()
+        logger.info("[OpenSearch Security] Cluster health check passed", status=cluster_health.get("status"))
 
         # Load role definitions from YAML
         if not os.path.exists(roles_file):
@@ -177,6 +228,8 @@ async def setup_opensearch_security(
 
         with open(roles_file, "r") as f:
             roles_config = yaml.safe_load(f)
+        
+        logger.info("[OpenSearch Security] Loaded roles configuration", roles=list(roles_config.keys()) if roles_config else [])
 
         # 3. Create openrag_user_role
         if "openrag_user_role" in roles_config:
@@ -196,14 +249,19 @@ async def setup_opensearch_security(
                         patterns.add("knowledge_filters*")
                         permission["index_patterns"] = sorted(list(patterns))
 
-            logger.info(f"[OpenSearch Security] Creating 'openrag_user_role' role with patterns: {role_body['index_permissions'][0]['index_patterns'] if 'index_permissions' in role_body else 'default'}...")
+            logger.info(
+                "[OpenSearch Security] Creating 'openrag_user_role' role",
+                patterns=role_body['index_permissions'][0]['index_patterns'] if 'index_permissions' in role_body else 'default',
+                allowed_actions=role_body['index_permissions'][0].get('allowed_actions', []) if 'index_permissions' in role_body else []
+            )
+            
             resp = await opensearch_client.transport.perform_request(
                 "PUT",
                 "/_plugins/_security/api/roles/openrag_user_role",
                 body=role_body,
                 headers={"Content-Type": "application/json"}
             )
-            logger.debug("[OpenSearch Security] Role creation response", status=resp.get("status"), message=resp.get("message"))
+            logger.info("[OpenSearch Security] Role creation response", response=resp)
         else:
             logger.warning("[OpenSearch Security] 'openrag_user_role' not found in roles.yml")
 
@@ -214,18 +272,24 @@ async def setup_opensearch_security(
 
         with open(roles_mapping_file, "r") as f:
             mapping_config = yaml.safe_load(f)
+        
+        logger.info("[OpenSearch Security] Loaded roles mapping configuration", mappings=list(mapping_config.keys()) if mapping_config else [])
 
         # 4. Create openrag_user_role mapping
         if "openrag_user_role" in mapping_config:
             mapping_body = mapping_config["openrag_user_role"]
-            logger.info("[OpenSearch Security] Creating 'openrag_user_role' mapping...")
+            logger.info(
+                "[OpenSearch Security] Creating 'openrag_user_role' mapping",
+                backend_roles=mapping_body.get("backend_roles", []),
+                users=mapping_body.get("users", [])
+            )
             resp = await opensearch_client.transport.perform_request(
                 "PUT",
                 "/_plugins/_security/api/rolesmapping/openrag_user_role",
                 body=mapping_body,
                 headers={"Content-Type": "application/json"}
             )
-            logger.debug("[OpenSearch Security] Role mapping update response", status=resp.get("status"), message=resp.get("message"))
+            logger.info("[OpenSearch Security] Role mapping update response", response=resp)
 
         # 5. Update all_access mapping — merge with existing to preserve
         # IBM-managed entries, but ensure backend_roles never contains
@@ -304,12 +368,15 @@ async def setup_opensearch_security(
                 body=all_access_body,
                 headers={"Content-Type": "application/json"}
             )
-            logger.debug("[OpenSearch Security] All access mapping update response", status=resp.get("status"), message=resp.get("message"))
+            logger.info("[OpenSearch Security] All access mapping update response", response=resp)
 
         # 6. Final verification
         logger.info("[OpenSearch Security] Verifying security configuration...")
-        await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/roles/openrag_user_role")
-        await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/rolesmapping/openrag_user_role")
+        role_verify = await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/roles/openrag_user_role")
+        logger.info("[OpenSearch Security] Role verification", role=role_verify)
+        
+        mapping_verify = await opensearch_client.transport.perform_request("GET", "/_plugins/_security/api/rolesmapping/openrag_user_role")
+        logger.info("[OpenSearch Security] Role mapping verification", mapping=mapping_verify)
 
         logger.info("Successfully completed OpenSearch security configuration.")
 
