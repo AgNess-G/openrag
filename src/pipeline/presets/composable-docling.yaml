@@ -8,11 +8,8 @@ parser:
     ocr: false
     table_structure: true
 
-preprocessors:
-  - type: cleaning
-
 chunker:
-  type: docling_hybrid
+  type: recursive
   chunk_size: 1000
   chunk_overlap: 200
 

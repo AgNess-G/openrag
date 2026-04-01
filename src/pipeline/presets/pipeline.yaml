@@ -1,11 +1,16 @@
+# Docling-serve with structure-aware chunking
 version: "1"
 ingestion_mode: composable
 
 parser:
-  type: auto
+  type: markitdown
+
+
+preprocessors:
+  - type: cleaning
 
 chunker:
-  type: recursive
+  type: docling_hybrid
   chunk_size: 1000
   chunk_overlap: 200
 
@@ -13,6 +18,10 @@ embedder:
   provider: openai
   model: text-embedding-3-small
 
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 500
+
 execution:
-  backend: ray
+  backend: local
   concurrency: 4

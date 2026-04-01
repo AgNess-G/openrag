@@ -436,9 +436,29 @@ class TaskService:
                                 upload_task.processed_files += 1
                         upload_task.updated_at = time.time()
 
-            tasks = [process_with_semaphore(item, str(item)) for item in items]
-
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # Composable processors implement process_all_items() to submit the
+            # whole batch in one pipeline call so the backend's own concurrency
+            # control (execution.concurrency / Ray scheduler) is used rather than
+            # the per-file TaskService semaphore.
+            if hasattr(processor, "process_all_items") and callable(
+                getattr(processor, "process_all_items")
+            ):
+                try:
+                    await processor.process_all_items(upload_task, items)
+                except (asyncio.CancelledError, Exception) as _batch_exc:
+                    # Mark any file tasks that didn't reach a terminal state.
+                    for _item in items:
+                        _ft = upload_task.file_tasks.get(str(_item))
+                        if _ft and _ft.status == TaskStatus.RUNNING:
+                            _ft.status = TaskStatus.FAILED
+                            _ft.error = str(_batch_exc)
+                            _ft.updated_at = time.time()
+                            upload_task.failed_files += 1
+                            upload_task.processed_files += 1
+                    raise
+            else:
+                tasks = [process_with_semaphore(item, str(item)) for item in items]
+                await asyncio.gather(*tasks, return_exceptions=True)
 
             # Mark task as completed if all files (including appended ones) are done
             if upload_task.processed_files >= upload_task.total_files:

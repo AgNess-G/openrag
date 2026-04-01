@@ -1012,3 +1012,90 @@ class ComposableFileProcessor(TaskProcessor):
             file_task.updated_at = _time.time()
             upload_task.failed_files += 1
             raise
+
+    async def process_all_items(self, upload_task: UploadTask, items: list) -> None:
+        """Submit every file as a single pipeline batch.
+
+        Called by TaskService instead of per-file process_item() so the pipeline
+        backend's own concurrency setting (execution.concurrency for LocalBackend,
+        Ray task scheduler for RayBackend) controls parallelism rather than the
+        TaskService semaphore.
+        """
+        import hashlib
+        import mimetypes
+        import os
+        import time as _time
+
+        from main import _get_pipeline_service
+        from models.tasks import TaskStatus as _TaskStatus
+        from pipeline.types import FileMetadata
+
+        pipeline_service = _get_pipeline_service()
+        if pipeline_service is None:
+            raise RuntimeError("PipelineService not available in composable mode")
+
+        now = _time.time()
+
+        # Mark all files as running before submitting the batch.
+        for item in items:
+            ft = upload_task.file_tasks[str(item)]
+            ft.status = _TaskStatus.RUNNING
+            ft.updated_at = now
+
+        # Build FileMetadata for every file.
+        file_metas: list[FileMetadata] = []
+        for item in items:
+            ft = upload_task.file_tasks[str(item)]
+            original_filename = ft.filename or os.path.basename(str(item))
+            with open(str(item), "rb") as fh:
+                content = fh.read()
+            file_hash = hashlib.sha256(content).hexdigest()
+            mime, _ = mimetypes.guess_type(str(item))
+            fm = FileMetadata(
+                file_path=str(item),
+                filename=original_filename,
+                file_hash=file_hash,
+                file_size=len(content),
+                mimetype=mime or "application/octet-stream",
+                owner_user_id=self.owner_user_id,
+                jwt_token=self.jwt_token,
+                connector_type=self.connector_type,
+                owner_name=self.owner_name,
+                owner_email=self.owner_email,
+                is_sample_data=self.is_sample_data,
+            )
+            file_metas.append(fm)
+
+        # Submit the whole batch and block until every file finishes so the
+        # pipeline backend's concurrency control takes effect.
+        batch_id = await pipeline_service.run_files(file_metas)
+        progress = await pipeline_service.wait_for_batch(batch_id)
+
+        # Map PipelineResults back to individual file tasks by file path.
+        results = progress.get("results", [])
+        result_by_path: dict = {r.file_path: r for r in results}
+
+        now = _time.time()
+        for item in items:
+            ft = upload_task.file_tasks[str(item)]
+            r = result_by_path.get(str(item))
+
+            if r is not None and r.status == "failed":
+                ft.status = _TaskStatus.FAILED
+                ft.error = r.error or "Pipeline processing failed"
+                ft.updated_at = now
+                upload_task.failed_files += 1
+            else:
+                ft.status = _TaskStatus.COMPLETED
+                result_data: dict = {"status": "indexed", "batch_id": batch_id}
+                if r is not None:
+                    result_data["chunks_indexed"] = r.chunks_indexed
+                    result_data["chunks_total"] = r.chunks_total
+                    result_data["pipeline_status"] = r.status
+                    result_data["duration_seconds"] = round(r.duration_seconds, 2)
+                ft.result = result_data
+                ft.updated_at = now
+                upload_task.successful_files += 1
+
+            upload_task.processed_files += 1
+            upload_task.updated_at = now
