@@ -14,5 +14,5 @@ embedder:
   model: text-embedding-3-small
 
 execution:
-  backend: local
+  backend: ray
   concurrency: 4

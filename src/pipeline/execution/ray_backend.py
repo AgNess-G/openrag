@@ -101,13 +101,33 @@ def _execute_pipeline_file_on_worker(
     from pipeline.types import FileMetadata
 
     async def _run() -> PipelineResult:
-        if clients.opensearch is None:
-            await clients.initialize()
+        # Ray reuses worker processes across tasks. Each call to asyncio.run() creates
+        # a new event loop and closes it when done. Any aiohttp client (AsyncOpenSearch
+        # / AIOHttpConnection) is bound to the event loop in which it was created, so
+        # reusing a client across asyncio.run() calls causes
+        # "RuntimeError: Event loop is closed". Close and reinitialize on every call.
+        if clients.opensearch is not None:
+            try:
+                await clients.opensearch.close()
+            except Exception:
+                pass
+            clients.opensearch = None
+        await clients.initialize()
+
         cfg = PipelineConfig.model_validate(config_dict)
         fm = FileMetadata(**metadata_dict)
         builder = PipelineBuilder(cfg, get_default_registry())
         pipe = builder.build(opensearch_client=clients.opensearch)
-        return await pipe.run(file_path, fm)
+        try:
+            return await pipe.run(file_path, fm)
+        finally:
+            # Close the client before asyncio.run() tears down the loop so
+            # aiohttp does not log "Unclosed client session" warnings.
+            try:
+                await clients.opensearch.close()
+            except Exception:
+                pass
+            clients.opensearch = None
 
     return asyncio.run(_run())
 
@@ -189,17 +209,18 @@ class RayBackend:
         if state is None:
             raise KeyError(f"Unknown batch: {batch_id}")
 
-        completed_results: list[PipelineResult] = []
+        # Drain any newly-finished refs into state.completed_results so that
+        # results accumulate across repeated get_progress() / get_status() calls
+        # instead of being lost after the first poll.
         still_pending = []
-
         for ref in state.refs:
             ready, _ = ray.wait([ref], timeout=0)
             if ready:
                 try:
                     result = ray.get(ready[0])
-                    completed_results.append(result)
+                    state.completed_results.append(result)
                 except Exception as exc:
-                    completed_results.append(
+                    state.completed_results.append(
                         PipelineResult(
                             file_path="unknown",
                             document_id="",
@@ -214,13 +235,13 @@ class RayBackend:
                 still_pending.append(ref)
 
         state.refs = still_pending
-        failed = sum(1 for r in completed_results if r.status == "failed")
+        failed = sum(1 for r in state.completed_results if r.status == "failed")
         return {
             "total": state.total,
-            "completed": len(completed_results) - failed,
+            "completed": len(state.completed_results) - failed,
             "failed": failed,
-            "in_flight": [],
-            "results": completed_results,
+            "in_flight": [str(r) for r in state.refs],
+            "results": list(state.completed_results),
         }
 
     async def cancel(self, batch_id: str) -> None:
@@ -233,8 +254,9 @@ class RayBackend:
 
 
 class _RayBatchState:
-    __slots__ = ("total", "refs")
+    __slots__ = ("total", "refs", "completed_results")
 
     def __init__(self, total: int, refs: list) -> None:
         self.total = total
-        self.refs = refs
+        self.refs = refs  # still-pending ObjectRefs; drained as results arrive
+        self.completed_results: list[PipelineResult] = []

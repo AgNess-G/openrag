@@ -986,8 +986,23 @@ class ComposableFileProcessor(TaskProcessor):
             )
 
             batch_id = await pipeline_service.run_files([fm])
+            # Wait for the batch to actually finish so the task status reflects
+            # real completion and any pipeline errors propagate correctly.
+            progress = await pipeline_service.wait_for_batch(batch_id)
+
+            results = progress.get("results", [])
+            first = results[0] if results else None
+            if first is not None and first.status == "failed":
+                raise RuntimeError(first.error or "Pipeline processing failed")
+
             file_task.status = _TaskStatus.COMPLETED
-            file_task.result = {"status": "indexed", "batch_id": batch_id}
+            result_data: dict = {"status": "indexed", "batch_id": batch_id}
+            if first is not None:
+                result_data["chunks_indexed"] = first.chunks_indexed
+                result_data["chunks_total"] = first.chunks_total
+                result_data["pipeline_status"] = first.status
+                result_data["duration_seconds"] = round(first.duration_seconds, 2)
+            file_task.result = result_data
             file_task.updated_at = _time.time()
             upload_task.successful_files += 1
 

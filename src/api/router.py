@@ -13,7 +13,6 @@ from dependencies import (
     get_document_service,
     get_langflow_file_service,
     get_pipeline_config,
-    get_pipeline_service,
     get_session_manager,
     get_task_service,
     get_current_user,
@@ -36,40 +35,32 @@ async def upload_ingest_router(
     langflow_file_service=Depends(get_langflow_file_service),
     session_manager=Depends(get_session_manager),
     task_service=Depends(get_task_service),
-    pipeline_service=Depends(get_pipeline_service),
     pipeline_config=Depends(get_pipeline_config),
     user: User = Depends(get_current_user),
 ):
     """
     Router endpoint that automatically routes upload requests based on configuration.
 
-    - If pipeline ingestion_mode == 'composable': uses composable pipeline
-    - If DISABLE_INGEST_WITH_LANGFLOW is True: uses traditional OpenRAG upload
-    - If DISABLE_INGEST_WITH_LANGFLOW is False (default): uses Langflow upload-ingest via task service
+    - If pipeline ingestion_mode == 'composable': routes through TaskService using
+      ComposableFileProcessor so the task is trackable via /tasks/{task_id}.
+    - If DISABLE_INGEST_WITH_LANGFLOW is True (and not composable): uses traditional
+      OpenRAG upload.
+    - Otherwise: uses Langflow upload-ingest via TaskService.
     """
+    composable = (
+        pipeline_config is not None
+        and pipeline_config.ingestion_mode == "composable"
+    )
+
     logger.debug(
         "Router upload_ingest endpoint called",
+        mode="composable" if composable else "langflow",
         disable_langflow_ingest=DISABLE_INGEST_WITH_LANGFLOW,
     )
 
-    if (
-        pipeline_config
-        and pipeline_config.ingestion_mode == "composable"
-        and pipeline_service
-    ):
-        logger.debug("Routing to composable pipeline")
-        task_id = await pipeline_service.enqueue(file, user=user)
-        return JSONResponse(
-            {
-                "task_id": task_id,
-                "message": f"Composable pipeline task created for {len(file)} file(s)",
-                "file_count": len(file),
-                "pipeline_mode": "composable",
-            },
-            status_code=202,
-        )
-
-    if DISABLE_INGEST_WITH_LANGFLOW:
+    # Traditional OpenRAG path only when Langflow is disabled AND we are not in
+    # composable mode (composable always goes through TaskService for tracking).
+    if DISABLE_INGEST_WITH_LANGFLOW and not composable:
         logger.debug("Routing to traditional OpenRAG upload")
         from api.upload import upload as traditional_upload_fn
         return await traditional_upload_fn(
@@ -79,7 +70,11 @@ async def upload_ingest_router(
             user=user,
         )
 
-    logger.debug("Routing to Langflow upload-ingest pipeline via task service")
+    # Both Langflow and composable go through TaskService so every upload gets a
+    # task_id that can be polled via GET /tasks/{task_id}.
+    # create_langflow_upload_task() detects composable mode and switches to
+    # ComposableFileProcessor automatically.
+    logger.debug("Routing upload to TaskService", mode="composable" if composable else "langflow")
     return await _langflow_upload_ingest_task(
         upload_files=file,
         session_id=session_id,

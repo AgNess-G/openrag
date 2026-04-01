@@ -223,8 +223,26 @@ class ComposableUrlProcessor(TaskProcessor):
                 )
 
                 batch_id = await pipeline_service.run_files([fm])
+                # Wait for the pipeline to finish before deleting the temp file
+                # and before marking the task complete. The local backend submits
+                # work as asyncio tasks (fire-and-forget), so without this wait
+                # the temp file would be deleted before the parser reads it and
+                # the task would be marked done while indexing is still running.
+                progress = await pipeline_service.wait_for_batch(batch_id)
+
+                results = progress.get("results", [])
+                first = results[0] if results else None
+                if first is not None and first.status == "failed":
+                    raise RuntimeError(first.error or "Pipeline processing failed")
+
                 file_task.status = _TaskStatus.COMPLETED
-                file_task.result = {"status": "indexed", "batch_id": batch_id}
+                result_data: dict = {"status": "indexed", "batch_id": batch_id}
+                if first is not None:
+                    result_data["chunks_indexed"] = first.chunks_indexed
+                    result_data["chunks_total"] = first.chunks_total
+                    result_data["pipeline_status"] = first.status
+                    result_data["duration_seconds"] = round(first.duration_seconds, 2)
+                file_task.result = result_data
                 file_task.updated_at = _time.time()
                 upload_task.successful_files += 1
             finally:
