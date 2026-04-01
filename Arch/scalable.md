@@ -64,7 +64,7 @@ flowchart TB
     Upload -->|"1 write file"| S3Stage
     Upload --> TaskSvc
     TaskSvc -->|"2 enqueue task\n{s3_key, metadata}"| RedisQ
-    TaskSvc -->>|"202 { task_id }"| Client
+    TaskSvc -->|"202 { task_id }"| Client
 
     RedisQ -->|"3 claim task\nXREADGROUP"| PS
     PS -->|"4 ray.remote(s3_key, config)"| RayHead
