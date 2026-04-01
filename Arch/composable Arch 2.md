@@ -1,4 +1,4 @@
-# Composable Ingestion Pipeline -- Refined Architecture
+# Composable Ingestion Pipeline -- Complete Architecture
 
 ## 1. Execution Backend: Why Ray (and not Redis or Kafka)
 
@@ -25,7 +25,7 @@
 
 ### Abstracted Backend Interface
 
-We still define a thin `ExecutionBackend` protocol so the pipeline is not hard-coupled to Ray. This enables a fallback to plain asyncio for zero-dep local dev:
+We define a thin `ExecutionBackend` protocol so the pipeline is not hard-coupled to Ray. This enables a fallback to plain asyncio for zero-dep local dev:
 
 ```python
 class ExecutionBackend(Protocol):
@@ -67,7 +67,112 @@ A third backend (Redis Streams, Celery, etc.) can be added later by implementing
 
 ---
 
-## 2. Pipeline Configuration File
+## 2. LangChain: Use for Chunkers Only
+
+LangChain is **not** a Python dependency of the OpenRAG backend today (not in `pyproject.toml`). It only runs inside the Langflow container. For the composable pipeline, use LangChain selectively:
+
+### Chunkers -- YES, use `langchain-text-splitters`
+
+This is a **lightweight standalone package** (~2MB, no full langchain dependency). It provides battle-tested implementations that are the de facto standard for RAG text splitting:
+
+- `RecursiveCharacterTextSplitter` -- the most widely used chunker
+- `CharacterTextSplitter` -- matches what the Langflow ingest flow uses today
+- `SemanticChunker` -- embedding-similarity-based splitting (requires an embedder)
+- `HTMLHeaderTextSplitter`, `MarkdownHeaderTextSplitter` -- structure-aware
+
+Each composable chunker wraps the LangChain splitter inside our `Chunker` protocol:
+
+```python
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+class RecursiveChunker:
+    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200, separators: list[str] | None = None):
+        self._splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=separators or ["\n\n", "\n", " ", ""],
+        )
+
+    async def chunk(self, doc: ParsedDocument) -> list[Chunk]:
+        texts = self._splitter.split_text(doc.content)
+        return [Chunk(text=t, index=i, source=doc.filename) for i, t in enumerate(texts)]
+```
+
+### Parsers -- NO LangChain
+
+- **Docling**: Use **docling-serve** via HTTP (wraps existing [src/utils/docling_client.py](../src/utils/docling_client.py))
+- **MarkItDown**: Use the `markitdown` package directly
+- **Plain text**: Use existing logic from [src/utils/document_processing.py](../src/utils/document_processing.py)
+
+LangChain document loaders add no value over these direct integrations.
+
+### Embedders -- NO LangChain
+
+The project already uses the **OpenAI SDK** (`openai` package) which provides a clean, async-native API. Each provider gets its own `Embedder` protocol implementation using native SDKs:
+
+- **OpenAI** -- `openai.AsyncOpenAI` directly (already in deps)
+- **Ollama** -- `openai.AsyncOpenAI` with `base_url` override (Ollama exposes an OpenAI-compatible `/v1/embeddings` endpoint)
+- **WatsonX** -- `ibm-watsonx-ai` SDK directly, calling the WatsonX embeddings API natively. No LiteLLM.
+- **HuggingFace** -- `sentence-transformers` directly for local embedding models
+
+Each embedder wraps its native SDK in the `Embedder` protocol.
+
+### Indexers -- NO LangChain
+
+LangChain's `OpenSearchVectorStore` is more opinionated and less efficient than direct `opensearch-py` `_bulk` API calls. Keep direct control over bulk batching, retry, and ACL fields.
+
+### Summary
+
+| Component      | LangChain? | Package                           | Reason                                         |
+| -------------- | ---------- | --------------------------------- | ---------------------------------------------- |
+| Chunkers       | YES        | `langchain-text-splitters`        | Lightweight, battle-tested, de facto standard   |
+| Semantic chunk  | YES        | `langchain-text-splitters`        | Needs embedder for similarity; LC handles this  |
+| Parsers        | NO         | docling-serve, markitdown         | Direct HTTP/package is simpler                  |
+| Embedders      | NO         | `openai`, `sentence-transformers` | Existing SDK pattern works for all providers    |
+| Indexers       | NO         | `opensearch-py`                   | Direct bulk API gives full control              |
+
+---
+
+## 3. Design: Protocol-Based Stages
+
+Each stage is a Python `Protocol` with a single async method. Implementations are registered in a component registry and selected by name from config.
+
+```python
+class DocumentParser(Protocol):
+    async def parse(self, file_path: str, metadata: FileMetadata) -> ParsedDocument: ...
+
+class Preprocessor(Protocol):
+    async def process(self, doc: ParsedDocument) -> ParsedDocument: ...
+
+class Chunker(Protocol):
+    async def chunk(self, doc: ParsedDocument) -> list[Chunk]: ...
+
+class Embedder(Protocol):
+    async def embed(self, chunks: list[Chunk]) -> list[EmbeddedChunk]: ...
+
+class Indexer(Protocol):
+    async def index(self, chunks: list[EmbeddedChunk], metadata: FileMetadata) -> IndexResult: ...
+```
+
+The `IngestionPipeline` composes them:
+
+```python
+class IngestionPipeline:
+    def __init__(self, parser, preprocessors, chunker, embedder, indexer): ...
+    
+    async def run(self, file_path: str, metadata: FileMetadata) -> PipelineResult:
+        doc = await self.parser.parse(file_path, metadata)
+        for pp in self.preprocessors:
+            doc = await pp.process(doc)
+        chunks = await self.chunker.chunk(doc)
+        embedded = await self.embedder.embed(chunks)
+        result = await self.indexer.index(embedded, metadata)
+        return result
+```
+
+---
+
+## 4. Pipeline Configuration File
 
 ### Location and Format
 
@@ -82,14 +187,14 @@ Separate file because:
 - Pipeline config is complex and domain-specific (stages, per-stage options)
 - Easier to swap/version pipeline configs independently
 - Teams can iterate on pipeline config without touching app config
-- Can ship multiple preset files (`pipeline.default.yaml`, `pipeline.high-throughput.yaml`)
+- Can ship multiple preset files in `config/presets/`
 
 ### Boot-Time Loading
 
-`ConfigManager` gains a `load_pipeline_config()` method called at startup from [src/main.py](../src/main.py) `initialize_services()`. Priority order (same pattern as existing config):
+`PipelineConfigManager` is called at startup from [src/main.py](../src/main.py) `initialize_services()`. Priority order (same pattern as existing config):
 
 1. **Environment variables** (highest -- e.g., `PIPELINE_CHUNKER=semantic`)
-2. **`config/pipeline.yaml`** file
+2. **`config/pipeline.yaml`** file (or `PIPELINE_CONFIG_FILE` env var for alternate path)
 3. **Defaults** (lowest -- sensible out-of-the-box config)
 
 ### Example `config/pipeline.yaml`
@@ -153,7 +258,7 @@ execution:
 
 ---
 
-## 3. Configuration Validation with Pydantic + JSON Schema
+## 5. Configuration Validation with Pydantic + JSON Schema
 
 ### Pydantic v2 Models
 
@@ -255,7 +360,188 @@ chunker -> chunk_size
 
 ---
 
-## 4. Updated File Structure
+## 6. Preset Pipeline Configurations
+
+### Location
+
+```
+config/presets/
+    default.yaml              # Current behavior (langflow mode)
+    composable-basic.yaml     # Simple composable: auto parser, recursive chunker, OpenAI
+    composable-docling.yaml   # Docling-optimized: docling parser, docling_hybrid chunker
+    high-throughput.yaml      # 1M docs: Ray backend, large batches, high concurrency
+    local-ollama.yaml         # Fully local: Ollama embeddings, no external APIs
+    watsonx.yaml              # IBM stack: WatsonX embeddings, docling parser
+```
+
+### Preset Contents
+
+**`default.yaml`** -- Maps to current Langflow behavior (for backward compat):
+
+```yaml
+# yaml-language-server: $schema=../pipeline.schema.json
+version: "1"
+ingestion_mode: langflow
+```
+
+**`composable-basic.yaml`** -- Simplest composable pipeline:
+
+```yaml
+version: "1"
+ingestion_mode: composable
+parser:
+  type: auto
+preprocessors:
+  - type: cleaning
+chunker:
+  type: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 500
+execution:
+  backend: local
+  concurrency: 4
+```
+
+**`composable-docling.yaml`** -- Docling-serve with structure-aware chunking:
+
+```yaml
+version: "1"
+ingestion_mode: composable
+parser:
+  type: docling
+  docling:
+    ocr: false
+    table_structure: true
+preprocessors:
+  - type: cleaning
+chunker:
+  type: docling_hybrid
+  chunk_size: 1000
+  chunk_overlap: 200
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 500
+execution:
+  backend: local
+  concurrency: 4
+```
+
+**`high-throughput.yaml`** -- Ray backend for 1M+ docs:
+
+```yaml
+version: "1"
+ingestion_mode: composable
+parser:
+  type: auto
+preprocessors:
+  - type: cleaning
+  - type: dedup
+    strategy: content_hash
+chunker:
+  type: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+  batch_size: 200
+  max_tokens: 8000
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 1000
+  retry_attempts: 5
+execution:
+  backend: ray
+  concurrency: 16
+  timeout: 7200
+  ray:
+    address: auto
+    num_cpus_per_task: 1
+    max_retries: 3
+```
+
+**`local-ollama.yaml`** -- Fully local, no external API calls:
+
+```yaml
+version: "1"
+ingestion_mode: composable
+parser:
+  type: auto
+preprocessors:
+  - type: cleaning
+chunker:
+  type: recursive
+  chunk_size: 500
+  chunk_overlap: 100
+embedder:
+  provider: ollama
+  model: nomic-embed-text
+  batch_size: 50
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 200
+execution:
+  backend: local
+  concurrency: 2
+```
+
+**`watsonx.yaml`** -- IBM WatsonX stack:
+
+```yaml
+version: "1"
+ingestion_mode: composable
+parser:
+  type: docling
+  docling:
+    ocr: true
+    ocr_engine: easyocr
+    table_structure: true
+preprocessors:
+  - type: cleaning
+  - type: dedup
+    strategy: content_hash
+chunker:
+  type: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+embedder:
+  provider: watsonx
+  model: ibm/slate-125m-english-rtrvr-v2
+  batch_size: 100
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 500
+execution:
+  backend: local
+  concurrency: 4
+```
+
+### Using a Preset
+
+Copy a preset to the active config location:
+
+```bash
+cp config/presets/composable-basic.yaml config/pipeline.yaml
+```
+
+Or reference via env var (the `PipelineConfigManager` supports this):
+
+```bash
+PIPELINE_CONFIG_FILE=config/presets/high-throughput.yaml
+```
+
+---
+
+## 7. File Structure
 
 ```
 src/pipeline/
@@ -263,14 +549,46 @@ src/pipeline/
     types.py                # ParsedDocument, Chunk, EmbeddedChunk, FileMetadata, PipelineResult
     registry.py             # Component registry (register/get by name)
     pipeline.py             # IngestionPipeline orchestrator + PipelineBuilder
-    config.py               # PipelineConfig Pydantic models (above) + PipelineConfigManager
+    config.py               # PipelineConfig Pydantic models + PipelineConfigManager
     schema_gen.py           # CLI: python -m pipeline.schema_gen -> writes pipeline.schema.json
+    cli.py                  # CLI entry point: python -m pipeline.cli
 
-    parsers/                # DocumentParser protocol + implementations
-    preprocessors/          # Preprocessor protocol + implementations
-    chunkers/               # Chunker protocol + implementations
-    embedders/              # Embedder protocol + implementations
-    indexers/               # Indexer protocol + implementations (OpenSearch bulk)
+    parsers/
+        __init__.py         # Re-exports + auto-register
+        base.py             # DocumentParser protocol
+        docling.py          # Wraps docling-serve via HTTP (docling_client.py)
+        markitdown.py       # MarkItDown package integration
+        text.py             # Wraps existing process_text_file logic
+        auto.py             # Auto-detect parser by file extension
+
+    preprocessors/
+        __init__.py
+        base.py             # Preprocessor protocol
+        cleaning.py         # Strip control chars, normalize whitespace
+        dedup.py            # Content-hash dedup check against OpenSearch
+        metadata.py         # Extract/enrich metadata (language, dates, etc.)
+
+    chunkers/
+        __init__.py
+        base.py             # Chunker protocol
+        recursive.py        # Wraps langchain RecursiveCharacterTextSplitter
+        character.py        # Wraps langchain CharacterTextSplitter
+        semantic.py         # Wraps langchain SemanticChunker
+        page_table.py       # Current extract_relevant logic (page + table chunks)
+        docling_hybrid.py   # Docling structure-aware + recursive fallback
+
+    embedders/
+        __init__.py
+        base.py             # Embedder protocol
+        openai_embedder.py  # openai.AsyncOpenAI SDK
+        watsonx_embedder.py # ibm-watsonx-ai SDK (native, no LiteLLM)
+        ollama_embedder.py  # openai.AsyncOpenAI with base_url override
+        huggingface_embedder.py  # sentence-transformers local
+
+    indexers/
+        __init__.py
+        base.py             # Indexer protocol
+        opensearch_bulk.py  # Bulk indexing with opensearch-py _bulk API
 
     execution/
         __init__.py
@@ -279,13 +597,49 @@ src/pipeline/
         ray_backend.py      # Ray-based distributed execution
 
 config/
-    pipeline.yaml           # Pipeline configuration (loaded at boot)
+    pipeline.yaml           # Active pipeline configuration (loaded at boot)
     pipeline.schema.json    # Auto-generated JSON Schema for editor support
+    presets/
+        default.yaml
+        composable-basic.yaml
+        composable-docling.yaml
+        high-throughput.yaml
+        local-ollama.yaml
+        watsonx.yaml
+
+scripts/
+    start-ray.sh            # Local Ray dev script
+
+kubernetes/ray/
+    ray-cluster.yaml        # KubeRay RayCluster custom resource
+    kustomization.yaml      # Kustomize overlay
+    values-ray.yaml         # Helm values override
+
+tests/pipeline/
+    __init__.py
+    conftest.py             # Shared fixtures
+    test_config.py
+    test_config_validation.py
+    test_registry.py
+    test_parsers.py
+    test_chunkers.py
+    test_embedders.py
+    test_indexer.py
+    test_pipeline.py
+    test_integration.py
+    test_e2e.py
+
+test-docs/
+    sample.pdf
+    sample.txt
+    sample.md
+    sample.docx
+    sample.html
 ```
 
 ---
 
-## 5. Integration with Existing Config System
+## 8. Integration with Existing Config System
 
 The existing `ConfigManager` in [src/config/config_manager.py](../src/config/config_manager.py) already:
 
@@ -299,7 +653,7 @@ The `ingestion_mode` field in `pipeline.yaml` replaces the boolean `DISABLE_INGE
 
 ---
 
-## 6. Docker Compose Changes
+## 9. Docker Compose Changes
 
 For the `ray` backend, add an optional Ray head service:
 
@@ -328,27 +682,28 @@ Using Docker Compose **profiles**, Ray services only start when explicitly reque
 
 ---
 
-## 7. Dependency Changes in [pyproject.toml](../pyproject.toml)
+## 10. Dependency Changes in [pyproject.toml](../pyproject.toml)
 
 ```toml
 dependencies = [
     # ... existing ...
-    "pydantic>=2.0",          # pipeline config validation
+    "pydantic>=2.0",                   # pipeline config validation
+    "langchain-text-splitters>=0.3",   # core chunkers (lightweight, no full langchain)
 ]
 
 [project.optional-dependencies]
-ray = ["ray[default]>=2.44"]      # opt-in: pip install openrag[ray]
-markitdown = ["markitdown>=0.1"]  # opt-in: pip install openrag[markitdown]
-semantic-chunking = ["langchain-text-splitters>=0.2", "sentence-transformers>=3.0"]
+ray = ["ray[default]>=2.44"]
+markitdown = ["markitdown>=0.1"]
+huggingface = ["sentence-transformers>=3.0"]  # local embeddings
 ```
 
-Ray and MarkItDown are **optional extras** -- not required for the default `local` + `docling` path. This keeps the base install lightweight.
+Ray, MarkItDown, and HuggingFace are **optional extras** -- not required for the default `local` + `docling` + `openai` path. This keeps the base install lightweight.
 
 ---
 
-## 8. Deployment Scripts and Configurations
+## 11. Deployment Scripts and Configurations
 
-### 8a. Local Dev Script -- `scripts/start-ray.sh`
+### 11a. Local Dev Script -- `scripts/start-ray.sh`
 
 A convenience script for developers who want to test the Ray backend locally without Docker:
 
@@ -383,9 +738,9 @@ echo "Ray cluster ready. Stop with: ray stop"
 
 Usage: `./scripts/start-ray.sh` (starts head + 2 workers) or `./scripts/start-ray.sh 0` (head only, Ray auto-uses local CPUs).
 
-### 8b. Docker Compose -- `docker-compose.yml` Ray Profile
+### 11b. Docker Compose -- `docker-compose.yml` Ray Profile
 
-Already described in Section 6. Uses Docker Compose profiles so Ray services are opt-in:
+Uses Docker Compose profiles so Ray services are opt-in:
 
 ```bash
 # Without Ray (default -- uses local asyncio backend):
@@ -400,16 +755,9 @@ docker compose --profile ray up --scale ray-worker=8
 
 The `openrag-backend` container connects to Ray via `ray://ray-head:10001` (configured in `pipeline.yaml` or `RAY_ADDRESS` env var).
 
-### 8c. Kubernetes -- KubeRay Deployment
+### 11c. Kubernetes -- KubeRay Deployment
 
 New directory: `kubernetes/ray/`
-
-```
-kubernetes/ray/
-    ray-cluster.yaml        # KubeRay RayCluster custom resource
-    kustomization.yaml      # Kustomize overlay for environment-specific tuning
-    values-ray.yaml         # Helm values override for OpenRAG chart
-```
 
 **`ray-cluster.yaml`** -- KubeRay RayCluster CR:
 
@@ -433,17 +781,13 @@ spec:
               - containerPort: 8265   # Dashboard
               - containerPort: 10001  # Client
             resources:
-              requests:
-                cpu: "2"
-                memory: "4Gi"
-              limits:
-                cpu: "4"
-                memory: "8Gi"
+              requests: { cpu: "2", memory: "4Gi" }
+              limits: { cpu: "4", memory: "8Gi" }
   workerGroupSpecs:
     - groupName: cpu-workers
       replicas: 2
       minReplicas: 1
-      maxReplicas: 20        # Autoscaler can scale to 20
+      maxReplicas: 20
       rayStartParams: {}
       template:
         spec:
@@ -451,13 +795,9 @@ spec:
             - name: ray-worker
               image: rayproject/ray:2.44.1-py313
               resources:
-                requests:
-                  cpu: "2"
-                  memory: "4Gi"
-                limits:
-                  cpu: "4"
-                  memory: "8Gi"
-    - groupName: gpu-workers  # Optional: for local embedding models
+                requests: { cpu: "2", memory: "4Gi" }
+                limits: { cpu: "4", memory: "8Gi" }
+    - groupName: gpu-workers
       replicas: 0
       minReplicas: 0
       maxReplicas: 4
@@ -469,22 +809,17 @@ spec:
             - name: ray-worker-gpu
               image: rayproject/ray:2.44.1-py313-gpu
               resources:
-                requests:
-                  nvidia.com/gpu: "1"
-                limits:
-                  nvidia.com/gpu: "1"
+                requests: { nvidia.com/gpu: "1" }
+                limits: { nvidia.com/gpu: "1" }
 ```
 
-**`values-ray.yaml`** -- Helm values override for the existing OpenRAG Helm chart:
+**`values-ray.yaml`** -- Helm values override:
 
 ```yaml
-# Use alongside the main OpenRAG Helm chart
 backend:
   env:
     PIPELINE_EXECUTION_BACKEND: ray
     RAY_ADDRESS: "ray://openrag-ray-head-svc:10001"
-
-# Enable Ray cluster deployment
 ray:
   enabled: true
   clusterName: openrag-ray
@@ -503,23 +838,7 @@ ray:
       maxReplicas: 4
 ```
 
-Deploy with:
-
-```bash
-# Install KubeRay operator (one-time)
-helm install kuberay-operator kuberay/kuberay-operator
-
-# Deploy OpenRAG with Ray
-helm install openrag ./kubernetes/helm/openrag \
-  -f kubernetes/ray/values-ray.yaml
-
-# Apply Ray cluster
-kubectl apply -f kubernetes/ray/ray-cluster.yaml
-```
-
-### 8d. Cloud Deployment Guide -- `docs/deployment/ray-deployment.md`
-
-A Markdown guide covering three deployment paths:
+### 11d. Cloud Deployment Guide -- `docs/deployment/ray-deployment.md`
 
 **Path 1: Docker Compose (single server / VM)**
 
@@ -535,7 +854,6 @@ A Markdown guide covering three deployment paths:
 - KubeRay autoscaler scales workers 0->N based on pending Ray task queue depth
 - GPU worker group available via IKS GPU-enabled worker pools (e.g., `gx3.16x80x1v100` profiles)
 - Integrates with IBM Cloud Object Storage for document staging and IBM watsonx for embeddings
-- Example commands:
 
 ```bash
 # Create IKS cluster with worker pool
@@ -563,20 +881,12 @@ helm install openrag ./kubernetes/helm/openrag \
   -f kubernetes/ray/values-ray.yaml
 ```
 
-- IBM Cloud monitoring: Forward Ray Dashboard via `kubectl port-forward` or expose through IBM Cloud Ingress
-- Persistent storage: Use IBM Cloud Block Storage CSI driver for OpenSearch data volumes
-
 **Path 3: IBM Code Engine (serverless containers)**
 
 - For teams that want managed compute without managing Kubernetes
 - IBM Code Engine runs containerized workloads with auto-scaling (including scale-to-zero)
-- Deployment approach:
-  - Deploy `openrag-backend` as a Code Engine **application** (always-on, handles API traffic)
-  - Deploy Ray head as a Code Engine **application** with a fixed instance
-  - Deploy Ray workers as Code Engine **job** definitions that scale based on ingestion load
-- Set `ray.address` in `pipeline.yaml` to the Ray head's private endpoint within the Code Engine project
+- Deploy `openrag-backend` as a Code Engine **application**, Ray head as a fixed **application**, Ray workers as Code Engine **jobs** that scale based on ingestion load
 - Integrates natively with IBM Cloud Object Storage, watsonx.ai, and IBM Cloud Databases for OpenSearch
-- Cost-effective for bursty workloads: workers scale to zero when no ingestion is running
 
 ```bash
 # Create Code Engine project
@@ -608,7 +918,7 @@ ibmcloud ce job create --name ray-worker \
 
 ---
 
-## 9. Deployment Architecture Diagram
+## 12. Deployment Architecture Diagram
 
 ```mermaid
 flowchart TB
@@ -645,40 +955,147 @@ flowchart TB
 
 ---
 
-## 10. What Changed from the Previous Plan
+## 13. Local Run and Test Plan
 
-| Aspect                | Previous Plan                    | This Plan                                                                  |
-| --------------------- | -------------------------------- | -------------------------------------------------------------------------- |
-| Queue technology      | Redis Streams (always-on Redis)  | Ray (zero infra locally) + local asyncio fallback                          |
-| Config loading        | Extend KnowledgeConfig dataclass | Separate `config/pipeline.yaml` loaded at boot via `PipelineConfigManager` |
-| Validation            | None specified                   | Pydantic v2 with JSON Schema generation for editor support                 |
-| Config format         | Embedded in code                 | YAML file with `$schema` directive, env overrides, clear validation errors |
-| Extra infra for local | Redis server required            | Nothing required (local backend is default)                                |
-| Ray infra             | Not considered                   | Optional Docker Compose profile, or `ray.init()` auto-local               |
-| Dependencies          | Implicit                         | Explicit optional extras in pyproject.toml                                 |
-| Deployment scripts    | None                             | Local script, Docker Compose profile, IBM IKS + KubeRay, IBM Code Engine   |
+### Prerequisites
+
+```bash
+# 1. Install OpenRAG with pipeline extras
+pip install -e ".[ray,markitdown,huggingface]"
+
+# 2. Start OpenSearch (required for indexing)
+docker compose up opensearch -d
+
+# 3. Start docling-serve (required for non-text documents)
+uvx docling-serve run --port 5001
+
+# 4. Set up a preset config
+cp config/presets/composable-basic.yaml config/pipeline.yaml
+
+# 5. Set required env vars
+export OPENAI_API_KEY=sk-...
+export OPENSEARCH_PASSWORD=your-password
+```
+
+### Running the Composable Pipeline
+
+**Option A: Via the API (full stack)**
+
+```bash
+# Start the backend with composable mode
+python -m uvicorn main:app --host 0.0.0.0 --port 8080 --app-dir src
+
+# Upload a document via API
+curl -X POST http://localhost:8080/v1/documents/ingest \
+  -H "Content-Type: multipart/form-data" \
+  -F "files=@test-docs/sample.pdf"
+
+# Check task status
+curl http://localhost:8080/v1/tasks/{task_id}
+```
+
+**Option B: Via CLI (pipeline directly, no API server)**
+
+A CLI entry point for testing pipelines without starting the full server:
+
+```bash
+# Run pipeline on a single file
+python -m pipeline.cli run test-docs/sample.pdf
+
+# Run pipeline on a directory
+python -m pipeline.cli run test-docs/ --recursive
+
+# Run with a specific preset
+python -m pipeline.cli run test-docs/sample.pdf --config config/presets/local-ollama.yaml
+
+# Dry run (parse + chunk, skip embed + index)
+python -m pipeline.cli run test-docs/sample.pdf --dry-run
+
+# Test individual stages
+python -m pipeline.cli parse test-docs/sample.pdf          # Parser only
+python -m pipeline.cli chunk test-docs/sample.txt           # Parse + chunk
+python -m pipeline.cli embed test-docs/sample.txt           # Parse + chunk + embed
+```
+
+### Testing with Ray Backend
+
+```bash
+# Start Ray locally
+./scripts/start-ray.sh 0   # head only, uses local CPUs
+
+# Update config to use Ray
+# In config/pipeline.yaml, set execution.backend: ray
+
+# Run pipeline (uses Ray cluster)
+python -m pipeline.cli run test-docs/ --recursive
+
+# Monitor via Ray Dashboard
+open http://localhost:8265
+```
+
+### Running Tests
+
+```bash
+# Unit tests for pipeline components (no external services needed)
+pytest tests/pipeline/ -v
+
+# Specific stage tests
+pytest tests/pipeline/test_chunkers.py -v
+pytest tests/pipeline/test_parsers.py -v
+pytest tests/pipeline/test_config.py -v
+
+# Integration tests (requires OpenSearch + docling-serve running)
+pytest tests/pipeline/test_integration.py -v
+
+# End-to-end: ingest a test doc and verify it appears in OpenSearch
+pytest tests/pipeline/test_e2e.py -v
+
+# Config validation tests
+pytest tests/pipeline/test_config_validation.py -v
+```
+
+### Quick Smoke Test (one-liner)
+
+```bash
+# After setup, this verifies the full composable pipeline works end-to-end:
+echo "Hello, OpenRAG composable pipeline test." > /tmp/test.txt && \
+  python -m pipeline.cli run /tmp/test.txt && \
+  echo "Pipeline smoke test passed"
+```
 
 ---
 
-## Implementation Order
+## 14. What Stays the Same
 
-Build bottom-up: types -> protocols -> implementations -> pipeline -> workers -> API integration.
+- All existing Langflow ingestion code is untouched
+- All existing traditional ingestion code is untouched
+- `DISABLE_INGEST_WITH_LANGFLOW` continues to work as before
+- Default `ingestion_mode` remains `"langflow"` -- zero breaking changes
+- Existing `KnowledgeConfig` fields (`embedding_model`, `embedding_provider`, `chunk_size`, `chunk_overlap`) are reused by composable pipeline defaults
+
+---
+
+## 15. Implementation Order
+
+Build bottom-up: config -> types -> protocols -> implementations -> pipeline -> CLI -> workers -> API integration -> deployment.
 
 1. **Pydantic Config Models** -- `PipelineConfig`, `ParserConfig`, `ChunkerConfig`, `EmbedderConfig`, `ExecutionConfig` with `PipelineConfigManager` (YAML load + env overrides + validation)
 2. **JSON Schema Generator** -- CLI to auto-generate `config/pipeline.schema.json` from the Pydantic model
-3. **Default `config/pipeline.yaml`** -- sensible defaults with `yaml-language-server` schema directive
+3. **Default `config/pipeline.yaml`** and **preset configs** in `config/presets/`
 4. **Types and Protocols** -- `ParsedDocument`, `Chunk`, `EmbeddedChunk`, `FileMetadata`, `PipelineResult`; `DocumentParser`, `Preprocessor`, `Chunker`, `Embedder`, `Indexer` protocols
 5. **Component Registry** -- register/get by name, auto-discovery of implementations
-6. **Parsers** -- DoclingParser (wraps existing `docling_client`), MarkItDownParser (new), PlainTextParser (wraps existing `process_text_file`), AutoParser (extension-based dispatch)
+6. **Parsers** -- DoclingParser (wraps docling-serve via HTTP), MarkItDownParser (markitdown package), PlainTextParser (wraps existing `process_text_file`), AutoParser (extension-based dispatch)
 7. **Preprocessors** -- CleaningPreprocessor, DedupPreprocessor, MetadataPreprocessor
-8. **Chunkers** -- RecursiveChunker, CharacterChunker, SemanticChunker, PageTableChunker (wraps `extract_relevant`), DoclingHybridChunker
-9. **Embedders** -- OpenAIEmbedder, WatsonXEmbedder, OllamaEmbedder, HuggingFaceEmbedder (all with batching and token-limit awareness)
-10. **Bulk Indexer** -- OpenSearchBulkIndexer using `_bulk` API with configurable batch size, retry logic, and ACL support
+8. **Chunkers** -- RecursiveChunker, CharacterChunker, SemanticChunker (all wrapping `langchain-text-splitters`), PageTableChunker (wraps `extract_relevant`), DoclingHybridChunker
+9. **Embedders** -- OpenAIEmbedder (`openai` SDK), WatsonXEmbedder (`ibm-watsonx-ai` SDK, no LiteLLM), OllamaEmbedder (`openai` SDK with `base_url`), HuggingFaceEmbedder (`sentence-transformers`) -- all with batching and token-limit awareness
+10. **Bulk Indexer** -- OpenSearchBulkIndexer using `opensearch-py` `_bulk` API with configurable batch size, retry logic, and ACL support
 11. **Execution Backends** -- `ExecutionBackend` protocol + `LocalBackend` (asyncio) + `RayBackend` (ray.remote tasks)
 12. **Pipeline Orchestrator** -- `IngestionPipeline` + `PipelineBuilder` that assembles stages from `PipelineConfig` via the registry
-13. **API Integration** -- composable branch in `router.py`, `PipelineService`, registration in `main.py`/`dependencies.py`
-14. **Docker Compose** -- Ray head and worker services under `profiles: [ray]`
-15. **Dependencies** -- pydantic to core deps, ray/markitdown/semantic-chunking as optional extras in `pyproject.toml`
-16. **Local Dev Script** -- `scripts/start-ray.sh`
-17. **Kubernetes Deployment** -- KubeRay `RayCluster` CR, Helm values override, Kustomize overlay
-18. **Cloud Deployment Docs** -- `docs/deployment/ray-deployment.md` covering Docker Compose, IBM IKS + KubeRay, and IBM Code Engine
+13. **Pipeline CLI** -- `python -m pipeline.cli` with `run`, `parse`, `chunk`, `embed` subcommands and `--dry-run`, `--config`, `--recursive` flags
+14. **API Integration** -- composable branch in `router.py`, `PipelineService`, registration in `main.py`/`dependencies.py`
+15. **Dependencies** -- `pydantic` and `langchain-text-splitters` to core deps; `ray`, `markitdown`, `huggingface` as optional extras in `pyproject.toml`
+16. **Docker Compose** -- Ray head and worker services under `profiles: [ray]`
+17. **Local Dev Script** -- `scripts/start-ray.sh`
+18. **Kubernetes Deployment** -- KubeRay `RayCluster` CR, Helm values override, Kustomize overlay
+19. **Cloud Deployment Docs** -- `docs/deployment/ray-deployment.md` covering Docker Compose, IBM IKS + KubeRay, and IBM Code Engine
+20. **Test Suite** -- Unit tests for all components, integration tests, e2e tests, sample test documents
