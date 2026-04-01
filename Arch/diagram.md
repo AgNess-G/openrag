@@ -1,6 +1,6 @@
 # OpenRAG Ingestion Architecture — Evolution Diagram
 
-Compares three generations of the ingestion architecture: the original dual-path system, the first composable design (Redis-backed), and the final composable design (Ray-backed).
+Compares two generations of the ingestion architecture: the original dual-path system and the composable pipeline with Ray.
 
 ---
 
@@ -55,71 +55,9 @@ flowchart TB
 
 ---
 
-## 2. Generation 2 — Composable Pipeline · Arch 1 (Redis Streams)
+## 2. Generation 2 — Composable Pipeline with Ray
 
-Introduced a protocol-based pluggable pipeline. Proposed Redis Streams as the durable work queue.
-
-```mermaid
-flowchart TB
-    Client(["Client\nFile Upload"])
-
-    subgraph api [API Layer]
-        Upload["POST /ingest"]
-        Switch{"ingestion_mode?"}
-    end
-
-    subgraph existing [Existing Paths — Untouched]
-        Langflow["Langflow Pipeline"]
-        Traditional["Traditional Pipeline"]
-    end
-
-    subgraph queue [Work Queue — Redis Streams]
-        Redis[("Redis Streams\nDurable queue\nSeparate service")]
-    end
-
-    subgraph workers [Worker Pool]
-        W1["Worker 1"]
-        W2["Worker 2"]
-        WN["Worker N"]
-    end
-
-    subgraph pipeline [Composable Pipeline — Per Worker]
-        direction LR
-        Parser["Parser\nauto | docling\nmarkitdown | text"]
-        Pre["Preprocessors\ncleaning | dedup\nmetadata"]
-        Chunker["Chunker\nrecursive | semantic\ncharacter | docling_hybrid"]
-        Embedder["Embedder\nopenai | watsonx\nollama | huggingface"]
-        Indexer["Indexer\nopensearch_bulk"]
-        Parser --> Pre --> Chunker --> Embedder --> Indexer
-    end
-
-    subgraph cfg [Config — pipeline.yaml]
-        YAML["version, ingestion_mode\nparser, preprocessors\nchunker, embedder\nindexer, execution"]
-    end
-
-    Client --> Upload --> Switch
-    Switch -->|"langflow"| Langflow
-    Switch -->|"traditional"| Traditional
-    Switch -->|"composable"| Redis
-    Redis --> W1 & W2 & WN
-    W1 & W2 & WN --> Parser
-    cfg -.->|"drives"| pipeline
-```
-
-**Why Redis was rejected:**
-| Concern | Redis Streams |
-|---|---|
-| Local dev | Requires a running Redis server — extra infra |
-| GPU scheduling | None — no awareness of compute resources |
-| ML workloads | Not designed for compute orchestration |
-| Monitoring | External tooling needed |
-| Moving parts | Redis + consumer group logic |
-
----
-
-## 3. Generation 3 — Composable Pipeline · Arch 2 (Ray)
-
-Replaced Redis with Ray. Same pluggable stage design; execution backend is now an abstraction with two implementations.
+Protocol-based pluggable pipeline. Execution is an abstraction with two implementations: local asyncio and Ray.
 
 ```mermaid
 flowchart TB
@@ -184,7 +122,7 @@ flowchart TB
 
 ---
 
-## 4. Side-by-Side Comparison
+## 3. Side-by-Side Comparison
 
 ```mermaid
 flowchart LR
@@ -201,19 +139,7 @@ flowchart LR
         G1C & G1D --> G1E
     end
 
-    subgraph gen2 [Gen 2 — Composable + Redis]
-        direction TB
-        G2A["Upload"]
-        G2B{"ingestion_mode?"}
-        G2C["Langflow / Traditional\nunchanged"]
-        G2D[("Redis Streams\nexternal service")]
-        G2E["Worker Pool\npluggable stages"]
-        G2A --> G2B
-        G2B -->|"langflow/traditional"| G2C
-        G2B -->|"composable"| G2D --> G2E
-    end
-
-    subgraph gen3 [Gen 3 — Composable + Ray]
+    subgraph gen2 [Gen 2 — Composable + Ray]
         direction TB
         G3A["Upload → TaskService\n/tasks tracking"]
         G3B{"ingestion_mode?"}
@@ -232,23 +158,27 @@ flowchart LR
 
 ---
 
-## 5. Key Decisions — Why Ray Beat Redis
+## 4. Key Differences — Gen 1 vs Gen 2
 
-| Concern | Gen 1 (asyncio only) | Gen 2 (Redis Streams) | Gen 3 (Ray) |
-|---|---|---|---|
-| Local dev infra | None (in-process) | Redis server required | `ray.init()` — zero external services |
-| Task durability | None — lost on restart | Durable in Redis | Ray object store + lineage |
-| GPU scheduling | None | None | Native — place on GPU node |
-| Fault tolerance | None | Manual consumer retry | Built-in retries + lineage |
-| Monitoring | None | External tooling | Ray Dashboard bundled (:8265) |
-| Cloud/K8s scale | Not possible | Needs Redis cluster | KubeRay on IKS/Code Engine |
-| ML workloads | Poor | Poor | Designed for it |
-| `/tasks` API tracking | TaskService | Not wired | TaskService (same as gen 1) |
-| Serialization concern | N/A | N/A | Config dict only (no pickle of HTTP clients) |
+| Concern | Gen 1 (Dual Path) | Gen 2 (Composable + Ray) |
+|---|---|---|
+| Stages | Hardcoded per path | Pluggable via `pipeline.yaml` |
+| Parsers | Docling only | auto, docling, markitdown, text |
+| Chunkers | Hardcoded (char / page-table) | recursive, semantic, character, docling_hybrid |
+| Embedders | Hardcoded provider | openai, watsonx, ollama, huggingface |
+| Indexing | Per-chunk writes | Bulk `_bulk` API |
+| Concurrency | `asyncio.Semaphore` (fixed) | `execution.concurrency` or Ray scheduler |
+| Scale | Single process | Local → Docker → IKS → Code Engine |
+| GPU scheduling | None | Native via Ray |
+| Fault tolerance | None | Built-in Ray retries + lineage |
+| Monitoring | None | Ray Dashboard (:8265) |
+| Task tracking | TaskService | TaskService (same + richer result) |
+| Infra (local) | None | None (`local` backend needs zero extras) |
+| Infra (scale) | N/A | Ray cluster (Docker / KubeRay) |
 
 ---
 
-## 6. Deployment Topology — Ray Backend Only
+## 5. Deployment Topology — Ray Backend
 
 ```mermaid
 flowchart TB
@@ -284,7 +214,7 @@ flowchart TB
 
 ---
 
-## 7. Data Flow — Single File Through Ray Backend
+## 6. Data Flow — Single File Through Ray Backend
 
 ```mermaid
 sequenceDiagram
