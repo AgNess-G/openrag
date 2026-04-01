@@ -3,8 +3,11 @@ version: "1"
 ingestion_mode: composable
 
 parser:
-  type: markitdown
-
+  type: docling
+  docling:
+    ocr: true
+    ocr_engine: easyocr
+    table_structure: true
 
 preprocessors:
   - type: cleaning
