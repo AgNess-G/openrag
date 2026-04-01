@@ -1242,6 +1242,17 @@ async def startup_tasks(services):
         # Index will be created after onboarding when we know the embedding model
         await wait_for_opensearch()
 
+        # Setup OpenSearch security (roles and mappings) after connection is established
+        try:
+            from utils.opensearch_utils import setup_opensearch_security
+            await setup_opensearch_security(clients.opensearch)
+            logger.info("OpenSearch security configuration completed successfully")
+        except Exception as e:
+            logger.warning(
+                "Failed to setup OpenSearch security configuration - continuing anyway",
+                error=str(e)
+            )
+
         if DISABLE_INGEST_WITH_LANGFLOW:
             await _ensure_opensearch_index()
 
@@ -2029,15 +2040,25 @@ async def create_app():
         await TelemetryClient.send_event(
             Category.APPLICATION_SHUTDOWN, MessageId.ORB_APP_SHUTDOWN
         )
+        logger.info("Application shutdown initiated")
+        
+        # Gracefully shutdown OpenSearch connection first
+        try:
+            from utils.opensearch_utils import graceful_opensearch_shutdown
+            await graceful_opensearch_shutdown(clients.opensearch)
+        except Exception as e:
+            logger.error("Error during graceful OpenSearch shutdown", error=str(e))
+        
         await cleanup_subscriptions_proper(services)
         # Cleanup task service (cancels background tasks and process pool)
         await services["task_service"].shutdown()
-        # Cleanup async clients
+        # Cleanup async clients (this will also close OpenSearch client if not already closed)
         await clients.cleanup()
         # Cleanup telemetry client
         from utils.telemetry.client import cleanup_telemetry_client
 
         await cleanup_telemetry_client()
+        logger.info("Application shutdown completed")
 
     return app
 
