@@ -43,10 +43,11 @@ _background_tasks: set[asyncio.Task] = set()
 def _is_composable_mode() -> bool:
     """Return True when the pipeline is configured for composable ingestion."""
     try:
-        from main import _app_services
-        cfg = (_app_services or {}).get("pipeline_config")
-        return cfg is not None and cfg.ingestion_mode == "composable"
-    except Exception:
+        from pipeline.config import PipelineConfigManager
+        cfg = PipelineConfigManager().load()
+        return cfg.ingestion_mode == "composable"
+    except Exception as e:
+        logger.warning("Failed to check composable mode", error=str(e))
         return False
 
 

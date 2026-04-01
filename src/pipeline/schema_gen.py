@@ -12,7 +12,10 @@ from pathlib import Path
 from pipeline.config import PipelineConfig
 
 
-def generate_schema(output_path: str | Path = "config/pipeline.schema.json") -> Path:
+_DEFAULT_SCHEMA = Path(__file__).resolve().parent / "presets" / "pipeline.schema.json"
+
+
+def generate_schema(output_path: str | Path = _DEFAULT_SCHEMA) -> Path:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     schema = PipelineConfig.model_json_schema()

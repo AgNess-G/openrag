@@ -1,0 +1,36 @@
+# Ray backend for 1M+ document ingestion
+version: "1"
+ingestion_mode: composable
+
+parser:
+  type: auto
+
+preprocessors:
+  - type: cleaning
+  - type: dedup
+    strategy: content_hash
+
+chunker:
+  type: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+  batch_size: 200
+  max_tokens: 8000
+
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 1000
+  retry_attempts: 5
+
+execution:
+  backend: ray
+  concurrency: 16
+  timeout: 7200
+  ray:
+    address: auto
+    num_cpus_per_task: 1
+    max_retries: 3

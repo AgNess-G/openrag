@@ -1,0 +1,26 @@
+# Simplest composable pipeline: auto parser, recursive chunker, OpenAI embeddings
+version: "1"
+ingestion_mode: composable
+
+parser:
+  type: auto
+
+preprocessors:
+  - type: cleaning
+
+chunker:
+  type: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 500
+
+execution:
+  backend: local
+  concurrency: 4

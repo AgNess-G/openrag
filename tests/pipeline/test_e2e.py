@@ -23,7 +23,7 @@ def test_cli_parse_command(sample_text_file):
     result = subprocess.run(
         [
             sys.executable, "-m", "pipeline.cli",
-            "--config", "config/presets/composable-basic.yaml",
+            "--config", "pipeline/presets/composable-basic.yaml",
             "parse", sample_text_file,
         ],
         capture_output=True,

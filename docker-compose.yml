@@ -106,7 +106,7 @@ services:
       - UPLOAD_BATCH_SIZE=${UPLOAD_BATCH_SIZE:-25}
       - MAX_WORKERS=${MAX_WORKERS:-4}
       - RAY_ADDRESS=${RAY_ADDRESS:-}
-      - PIPELINE_CONFIG_FILE=${PIPELINE_CONFIG_FILE:-config/pipeline.yaml}
+      - PIPELINE_CONFIG_FILE=${PIPELINE_CONFIG_FILE:-src/pipeline/presets/pipeline.yaml}
     volumes:
       - ${OPENRAG_DOCUMENTS_PATH:-./openrag-documents}:/app/openrag-documents:U,z
       - ${OPENRAG_KEYS_PATH:-./keys}:/app/keys:U,z

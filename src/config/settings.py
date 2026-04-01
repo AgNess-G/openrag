@@ -377,8 +377,8 @@ class AppClients:
             _pcm = PipelineConfigManager()
             _pcfg = _pcm.load()
             skip_langflow = _pcfg.ingestion_mode == "composable"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to check composable mode in AppClients", error=str(e))
 
         if skip_langflow:
             logger.info("Composable mode: skipping Langflow client initialization")

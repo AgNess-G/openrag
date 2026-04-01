@@ -1,0 +1,27 @@
+# Fully local pipeline -- no external API calls, uses Ollama for embeddings
+version: "1"
+ingestion_mode: composable
+
+parser:
+  type: auto
+
+preprocessors:
+  - type: cleaning
+
+chunker:
+  type: recursive
+  chunk_size: 500
+  chunk_overlap: 100
+
+embedder:
+  provider: ollama
+  model: nomic-embed-text
+  batch_size: 50
+
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 200
+
+execution:
+  backend: local
+  concurrency: 2

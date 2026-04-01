@@ -1,7 +1,7 @@
 """Pipeline configuration models and manager.
 
 Pydantic v2 models for the composable ingestion pipeline configuration.
-Loaded from config/pipeline.yaml at boot time with env-var overrides.
+Loaded from pipeline/presets/pipeline.yaml at boot time with env-var overrides.
 """
 
 from __future__ import annotations
@@ -145,6 +145,9 @@ _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
 }
 
 
+_DEFAULT_CONFIG = Path(__file__).resolve().parent / "presets" / "pipeline.yaml"
+
+
 class PipelineConfigManager:
     """Loads and manages pipeline configuration from YAML + env overrides."""
 
@@ -152,7 +155,8 @@ class PipelineConfigManager:
         self._config: PipelineConfig | None = None
         self._path = Path(
             config_path
-            or os.getenv("PIPELINE_CONFIG_FILE", "config/pipeline.yaml")
+            or os.getenv("PIPELINE_CONFIG_FILE")
+            or str(_DEFAULT_CONFIG)
         )
 
     def load(self, path: Path | None = None) -> PipelineConfig:

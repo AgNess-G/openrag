@@ -1,7 +1,7 @@
 """CLI for the composable ingestion pipeline.
 
 Usage:
-    python -m pipeline.cli run <path> [--config config/pipeline.yaml] [--dry-run] [--recursive]
+    python -m pipeline.cli run <path> [--config pipeline/presets/pipeline.yaml] [--dry-run] [--recursive]
     python -m pipeline.cli parse <file>
     python -m pipeline.cli chunk <file>
     python -m pipeline.cli embed <file>
@@ -167,7 +167,7 @@ def main() -> None:
         prog="pipeline", description="OpenRAG Composable Ingestion Pipeline CLI"
     )
     parser.add_argument(
-        "--config", default="config/pipeline.yaml", help="Pipeline config file path"
+        "--config", default=None, help="Pipeline config file path (default: pipeline/presets/pipeline.yaml)"
     )
     parser.add_argument("--verbose", action="store_true")
 

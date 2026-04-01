@@ -1,0 +1,3 @@
+# Default preset -- maps to current Langflow behavior (backward compat)
+version: "1"
+ingestion_mode: langflow

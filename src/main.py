@@ -412,9 +412,11 @@ _app_services: dict | None = None
 def _is_composable_mode() -> bool:
     """Return True when the pipeline is configured for composable ingestion."""
     try:
-        cfg = (_app_services or {}).get("pipeline_config")
-        return cfg is not None and cfg.ingestion_mode == "composable"
-    except Exception:
+        from pipeline.config import PipelineConfigManager
+        cfg = PipelineConfigManager().load()
+        return cfg.ingestion_mode == "composable"
+    except Exception as e:
+        logger.warning("Failed to check composable mode", error=str(e))
         return False
 
 
@@ -1607,29 +1609,37 @@ async def initialize_services():
     # API Key service for public API authentication
     api_key_service = APIKeyService(session_manager)
 
-    # Initialize composable pipeline (non-blocking, uses defaults if config missing)
+    # Load pipeline config (separate from PipelineService init so config is
+    # always available even if service instantiation fails)
     pipeline_config_obj = None
     pipeline_service = None
     try:
         from pipeline.config import PipelineConfigManager
-        from services.pipeline_service import PipelineService
-
         pipeline_mgr = PipelineConfigManager()
         pipeline_config_obj = pipeline_mgr.load()
-        if pipeline_config_obj.ingestion_mode == "composable":
+        logger.info(
+            "Pipeline config loaded",
+            ingestion_mode=pipeline_config_obj.ingestion_mode,
+        )
+    except Exception as e:
+        logger.warning("Failed to load pipeline config", error=str(e))
+
+    if pipeline_config_obj and pipeline_config_obj.ingestion_mode == "composable":
+        try:
+            from services.pipeline_service import PipelineService
             pipeline_service = PipelineService(
                 pipeline_config=pipeline_config_obj,
                 session_manager=session_manager,
                 document_service=document_service,
             )
             logger.info("Composable pipeline service initialized")
-        else:
-            logger.info(
-                "Pipeline mode is not 'composable', skipping PipelineService init",
-                mode=pipeline_config_obj.ingestion_mode,
-            )
-    except Exception as e:
-        logger.warning("Failed to initialize composable pipeline", error=str(e))
+        except Exception as e:
+            logger.error("Failed to initialize PipelineService", error=str(e))
+    elif pipeline_config_obj:
+        logger.info(
+            "Pipeline mode is not 'composable', skipping PipelineService init",
+            mode=pipeline_config_obj.ingestion_mode,
+        )
 
     if pipeline_config_obj:
         connector_service._pipeline_service = pipeline_service

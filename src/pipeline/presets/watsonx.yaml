@@ -1,0 +1,33 @@
+# IBM WatsonX stack with docling parser and OCR
+version: "1"
+ingestion_mode: composable
+
+parser:
+  type: docling
+  docling:
+    ocr: true
+    ocr_engine: easyocr
+    table_structure: true
+
+preprocessors:
+  - type: cleaning
+  - type: dedup
+    strategy: content_hash
+
+chunker:
+  type: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+
+embedder:
+  provider: watsonx
+  model: ibm/slate-125m-english-rtrvr-v2
+  batch_size: 100
+
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 500
+
+execution:
+  backend: local
+  concurrency: 4

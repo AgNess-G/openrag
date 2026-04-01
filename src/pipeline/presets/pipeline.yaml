@@ -1,0 +1,18 @@
+version: "1"
+ingestion_mode: composable
+
+parser:
+  type: docling
+
+chunker:
+  type: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+
+execution:
+  backend: local
+  concurrency: 4
