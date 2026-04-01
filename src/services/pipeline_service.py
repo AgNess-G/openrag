@@ -74,12 +74,27 @@ class PipelineService:
                 mimetype=mt or "application/octet-stream",
                 owner_user_id=user.user_id if user else None,
                 jwt_token=user.jwt_token if user else None,
+                owner_name=getattr(user, "name", None) if user else None,
+                owner_email=getattr(user, "email", None) if user else None,
             )
             file_metas.append(fm)
 
         batch_id = await self._backend.submit(self._pipeline, file_metas)
         logger.info(
             "Pipeline batch submitted",
+            batch_id=batch_id,
+            file_count=len(file_metas),
+        )
+        return batch_id
+
+    async def run_files(
+        self,
+        file_metas: list,
+    ) -> str:
+        """Submit pre-built FileMetadata objects for pipeline processing."""
+        batch_id = await self._backend.submit(self._pipeline, file_metas)
+        logger.info(
+            "Pipeline batch submitted (run_files)",
             batch_id=batch_id,
             file_count=len(file_metas),
         )

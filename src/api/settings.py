@@ -40,6 +40,16 @@ logger = get_logger(__name__)
 _background_tasks: set[asyncio.Task] = set()
 
 
+def _is_composable_mode() -> bool:
+    """Return True when the pipeline is configured for composable ingestion."""
+    try:
+        from main import _app_services
+        cfg = (_app_services or {}).get("pipeline_config")
+        return cfg is not None and cfg.ingestion_mode == "composable"
+    except Exception:
+        return False
+
+
 class SettingsUpdateBody(BaseModel):
     llm_model: Optional[str] = Field(None, min_length=1)
     llm_provider: Optional[str] = Field(None, pattern="^(openai|anthropic|watsonx|ollama)$")
@@ -533,14 +543,12 @@ async def update_settings(
                 MessageId.ORB_SETTINGS_SYSTEM_PROMPT
             )
 
-            # Also update the chat flow with the new system prompt
-            try:
-                flows_service = _get_flows_service()
-                await _update_langflow_system_prompt(current_config, flows_service)
-            except Exception as e:
-                logger.error(f"Failed to update chat flow system prompt: {str(e)}")
-                # Don't fail the entire settings update if flow update fails
-                # The config will still be saved
+            if not _is_composable_mode():
+                try:
+                    flows_service = _get_flows_service()
+                    await _update_langflow_system_prompt(current_config, flows_service)
+                except Exception as e:
+                    logger.error(f"Failed to update chat flow system prompt: {str(e)}")
 
         # Update knowledge settings
         if body.embedding_model is not None:
@@ -572,12 +580,12 @@ async def update_settings(
                 MessageId.ORB_SETTINGS_DOCLING_UPDATED
             )
 
-            # Also update the flow with the new docling settings
-            try:
-                flows_service = _get_flows_service()
-                await _update_langflow_docling_settings(current_config, flows_service)
-            except Exception as e:
-                logger.error(f"Failed to update docling settings in flow: {str(e)}")
+            if not _is_composable_mode():
+                try:
+                    flows_service = _get_flows_service()
+                    await _update_langflow_docling_settings(current_config, flows_service)
+                except Exception as e:
+                    logger.error(f"Failed to update docling settings in flow: {str(e)}")
 
         if body.ocr is not None:
             current_config.knowledge.ocr = body.ocr
@@ -587,12 +595,12 @@ async def update_settings(
                 MessageId.ORB_SETTINGS_DOCLING_UPDATED
             )
 
-            # Also update the flow with the new docling settings
-            try:
-                flows_service = _get_flows_service()
-                await _update_langflow_docling_settings(current_config, flows_service)
-            except Exception as e:
-                logger.error(f"Failed to update docling settings in flow: {str(e)}")
+            if not _is_composable_mode():
+                try:
+                    flows_service = _get_flows_service()
+                    await _update_langflow_docling_settings(current_config, flows_service)
+                except Exception as e:
+                    logger.error(f"Failed to update docling settings in flow: {str(e)}")
 
         if body.picture_descriptions is not None:
             current_config.knowledge.picture_descriptions = body.picture_descriptions
@@ -602,12 +610,12 @@ async def update_settings(
                 MessageId.ORB_SETTINGS_DOCLING_UPDATED
             )
 
-            # Also update the flow with the new docling settings
-            try:
-                flows_service = _get_flows_service()
-                await _update_langflow_docling_settings(current_config, flows_service)
-            except Exception as e:
-                logger.error(f"Failed to update docling settings in flow: {str(e)}")
+            if not _is_composable_mode():
+                try:
+                    flows_service = _get_flows_service()
+                    await _update_langflow_docling_settings(current_config, flows_service)
+                except Exception as e:
+                    logger.error(f"Failed to update docling settings in flow: {str(e)}")
 
         if body.chunk_size is not None:
             effective_overlap = body.chunk_overlap if body.chunk_overlap is not None else current_config.knowledge.chunk_overlap
@@ -623,17 +631,15 @@ async def update_settings(
                 MessageId.ORB_SETTINGS_CHUNK_UPDATED
             )
 
-            # Also update the ingest flow with the new chunk size
-            try:
-                flows_service = _get_flows_service()
-                await flows_service.update_ingest_flow_chunk_size(body.chunk_size)
-                logger.info(
-                    f"Successfully updated ingest flow chunk size to {body.chunk_size}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to update ingest flow chunk size: {str(e)}")
-                # Don't fail the entire settings update if flow update fails
-                # The config will still be saved
+            if not _is_composable_mode():
+                try:
+                    flows_service = _get_flows_service()
+                    await flows_service.update_ingest_flow_chunk_size(body.chunk_size)
+                    logger.info(
+                        f"Successfully updated ingest flow chunk size to {body.chunk_size}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update ingest flow chunk size: {str(e)}")
 
         if body.chunk_overlap is not None:
             effective_chunk_size = body.chunk_size if body.chunk_size is not None else current_config.knowledge.chunk_size
@@ -649,18 +655,17 @@ async def update_settings(
                 MessageId.ORB_SETTINGS_CHUNK_UPDATED
             )
 
-            # Also update the ingest flow with the new chunk overlap
-            try:
-                flows_service = _get_flows_service()
-                await flows_service.update_ingest_flow_chunk_overlap(
-                    body.chunk_overlap
-                )
-                logger.info(
-                    f"Successfully updated ingest flow chunk overlap to {body.chunk_overlap}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to update ingest flow chunk overlap: {str(e)}")
-                # Don't fail the entire settings update if flow update fails
+            if not _is_composable_mode():
+                try:
+                    flows_service = _get_flows_service()
+                    await flows_service.update_ingest_flow_chunk_overlap(
+                        body.chunk_overlap
+                    )
+                    logger.info(
+                        f"Successfully updated ingest flow chunk overlap to {body.chunk_overlap}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update ingest flow chunk overlap: {str(e)}")
         if body.index_name is not None:
             old_index_name = current_config.knowledge.index_name
             new_index_name = body.index_name.strip()
@@ -672,17 +677,14 @@ async def update_settings(
             )
             logger.info(f"Index name changed from {old_index_name} to {new_index_name}")
 
-            # Also update global variable with new index name
-            try:
-                await clients._create_langflow_global_variable("OPENSEARCH_INDEX_NAME", new_index_name, modify=True)
-                logger.info(
-                    f"Successfully updated global variable with new index name {new_index_name}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to update global variable with new index name: {str(e)}")
-                # Don't fail the entire settings update if flow update fails
-
-                # The config will still be saved
+            if not _is_composable_mode():
+                try:
+                    await clients._create_langflow_global_variable("OPENSEARCH_INDEX_NAME", new_index_name, modify=True)
+                    logger.info(
+                        f"Successfully updated global variable with new index name {new_index_name}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update global variable with new index name: {str(e)}")
 
         # Update provider-specific settings
         provider_updated = False
@@ -836,7 +838,7 @@ async def update_settings(
         await clients.refresh_patched_client()
 
         # Run expensive Langflow sync in the background to keep settings updates responsive.
-        if should_validate or provider_updated:
+        if not _is_composable_mode() and (should_validate or provider_updated):
             task = asyncio.create_task(
                 _run_async_post_save_langflow_updates(
                     session_manager=session_manager,
@@ -854,9 +856,19 @@ async def update_settings(
                     ),
                 )
             )
-            # Keep a strong reference until completion to avoid premature GC cancellation.
             _background_tasks.add(task)
             task.add_done_callback(_background_tasks.discard)
+        elif _is_composable_mode() and (body.embedding_model is not None or body.embedding_provider is not None):
+            try:
+                from pipeline.index_management import init_composable_index
+                from dependencies import get_pipeline_config
+                pipeline_cfg = get_pipeline_config()
+                if pipeline_cfg:
+                    pipeline_cfg.sync_from_openrag_config(current_config)
+                    os_client = clients.opensearch
+                    await init_composable_index(os_client, pipeline_cfg)
+            except Exception as e:
+                logger.error("Failed to update composable index mapping", error=str(e))
 
 
         set_fields = [k for k, v in body.model_dump().items() if v is not None]
@@ -936,7 +948,8 @@ async def onboarding(
         embedding_model_selected = None
         embedding_provider_selected = None
 
-        if body.embedding_model and not DISABLE_INGEST_WITH_LANGFLOW:
+        composable = _is_composable_mode()
+        if body.embedding_model and (composable or not DISABLE_INGEST_WITH_LANGFLOW):
             embedding_model_selected = body.embedding_model.strip()
             current_config.knowledge.embedding_model = embedding_model_selected
             config_updated = True
@@ -1075,67 +1088,77 @@ async def onboarding(
                 status_code=400,
             )
 
-        # Ensure the Langflow service is ready before attempting to configure it
-        try:
-            await wait_for_langflow()
-        except LangflowNotReadyError as e:
-            message: str = "Aborted the Langflow service configuration process. The Langflow service is not ready."
-            logger.error(message, error=str(e))
-
-            return JSONResponse(
-                {
-                    "error": message
-                },
-                status_code=503,
-            )
-
-        # Set Langflow global variables and model values based on provider configuration
-        try:
-            # Check if any provider-related fields were provided
-            provider_fields_provided = any([
-                body.openai_api_key, body.anthropic_api_key,
-                body.watsonx_api_key, body.watsonx_endpoint, body.watsonx_project_id,
-                body.ollama_endpoint
-            ])
-
-            # Update global variables if any provider fields were provided
-            # or if existing config has values (for OpenAI/Anthropic that might already be set)
-            if (provider_fields_provided or
-                current_config.providers.openai.api_key != "" or
-                current_config.providers.anthropic.api_key != "" or
-                current_config.providers.any_configured()):
-                await _update_langflow_global_variables(current_config, flows_service=flows_service)
-
-            if body.embedding_provider or body.embedding_model:
-                await _update_mcp_servers_with_provider_credentials(current_config, session_manager=session_manager, flows_service=flows_service)
-
-            # Update model values if provider or model fields were provided
-            if body.llm_provider or body.llm_model or body.embedding_provider or body.embedding_model:
-                await _update_langflow_model_values(current_config, flows_service)
-
-        except Exception as e:
-            logger.error(
-                "Failed to set Langflow global variables and model values",
-                error=str(e),
-            )
-            raise
-
         task_id = None
+
+        if composable:
+            logger.info("Composable mode: skipping Langflow sync during onboarding")
+        else:
+            # Ensure the Langflow service is ready before attempting to configure it
+            try:
+                await wait_for_langflow()
+            except LangflowNotReadyError as e:
+                message: str = "Aborted the Langflow service configuration process. The Langflow service is not ready."
+                logger.error(message, error=str(e))
+
+                return JSONResponse(
+                    {
+                        "error": message
+                    },
+                    status_code=503,
+                )
+
+            # Set Langflow global variables and model values based on provider configuration
+            try:
+                provider_fields_provided = any([
+                    body.openai_api_key, body.anthropic_api_key,
+                    body.watsonx_api_key, body.watsonx_endpoint, body.watsonx_project_id,
+                    body.ollama_endpoint
+                ])
+
+                if (provider_fields_provided or
+                    current_config.providers.openai.api_key != "" or
+                    current_config.providers.anthropic.api_key != "" or
+                    current_config.providers.any_configured()):
+                    await _update_langflow_global_variables(current_config, flows_service=flows_service)
+
+                if body.embedding_provider or body.embedding_model:
+                    await _update_mcp_servers_with_provider_credentials(current_config, session_manager=session_manager, flows_service=flows_service)
+
+                if body.llm_provider or body.llm_model or body.embedding_provider or body.embedding_model:
+                    await _update_langflow_model_values(current_config, flows_service)
+
+            except Exception as e:
+                logger.error(
+                    "Failed to set Langflow global variables and model values",
+                    error=str(e),
+                )
+                raise
 
         # Initialize the OpenSearch index if embedding model is configured
         if body.embedding_model or body.embedding_provider:
             try:
-                from main import init_index_when_ready
                 from config.settings import IBM_AUTH_ENABLED, clients as app_clients
 
                 opensearch_client = None
                 if IBM_AUTH_ENABLED and user and user.jwt_token:
                     opensearch_client = app_clients.create_user_opensearch_client(user.jwt_token)
 
-                logger.info(
-                    "Initializing OpenSearch index after onboarding configuration"
-                )
-                await init_index_when_ready(opensearch_client)
+                if composable:
+                    from pipeline.index_management import init_composable_index
+                    from dependencies import get_pipeline_config
+                    pipeline_cfg = get_pipeline_config()
+                    pipeline_cfg.sync_from_openrag_config(current_config)
+                    os_client = opensearch_client or app_clients.opensearch
+                    from main import wait_for_opensearch
+                    await wait_for_opensearch(opensearch_client)
+                    await init_composable_index(os_client, pipeline_cfg)
+                else:
+                    from main import init_index_when_ready
+                    logger.info(
+                        "Initializing OpenSearch index after onboarding configuration"
+                    )
+                    await init_index_when_ready(opensearch_client)
+
                 logger.info("OpenSearch index initialization completed successfully")
             except Exception as e:
                 logger.error(
@@ -1152,7 +1175,6 @@ async def onboarding(
             # Handle sample data ingestion if requested
             if should_ingest_sample_data:
                 try:
-                    # Import the function here to avoid circular imports
                     from main import ingest_default_documents_when_ready
 
                     ingestion_jwt = user.jwt_token if IBM_AUTH_ENABLED and user and user.jwt_token else None
@@ -1600,9 +1622,25 @@ async def reapply_all_settings(session_manager = None):
     """
     Reapply all current configuration settings to Langflow flows and global variables.
     This is called when flows are detected to have been reset.
+    In composable mode only the OpenSearch index mapping is verified.
     """
     try:
         config = get_openrag_config()
+
+        if _is_composable_mode():
+            logger.info("Composable mode: verifying OpenSearch index mapping instead of Langflow sync")
+            if config.knowledge.embedding_model or config.knowledge.embedding_provider:
+                try:
+                    from pipeline.index_management import init_composable_index
+                    from dependencies import get_pipeline_config
+                    pipeline_cfg = get_pipeline_config()
+                    if pipeline_cfg:
+                        pipeline_cfg.sync_from_openrag_config(config)
+                        await init_composable_index(clients.opensearch, pipeline_cfg)
+                except Exception as e:
+                    logger.error(f"Failed to verify composable index mapping: {str(e)}")
+            return
+
         flows_service = _get_flows_service()
 
         logger.info("Reapplying all settings to Langflow flows and global variables")
@@ -1612,12 +1650,10 @@ async def reapply_all_settings(session_manager = None):
         else:
             logger.info("No embedding model or provider configured, skipping MCP server update")
 
-        # Update all Langflow settings using helper functions
         try:
             await _update_langflow_global_variables(config, flows_service=flows_service)
         except Exception as e:
             logger.error(f"Failed to update Langflow global variables: {str(e)}")
-            # Continue with other updates even if global variables fail
 
         try:
             await _update_langflow_model_values(config, flows_service)

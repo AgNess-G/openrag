@@ -8,23 +8,38 @@ logger = get_logger(__name__)
 
 class ConnectorRouter:
     """
-    Router that automatically chooses between LangflowConnectorService and ConnectorService
-    based on the DISABLE_INGEST_WITH_LANGFLOW configuration.
+    Router that automatically chooses between LangflowConnectorService,
+    traditional ConnectorService, or composable-pipeline ConnectorService.
 
-    - If DISABLE_INGEST_WITH_LANGFLOW is False (default): uses LangflowConnectorService
-    - If DISABLE_INGEST_WITH_LANGFLOW is True: uses traditional ConnectorService
+    Priority: composable > DISABLE_INGEST_WITH_LANGFLOW > Langflow default.
     """
 
-    def __init__(self, langflow_connector_service, openrag_connector_service):
+    def __init__(
+        self,
+        langflow_connector_service,
+        openrag_connector_service,
+        pipeline_service=None,
+        pipeline_config=None,
+    ):
         self.langflow_connector_service = langflow_connector_service
         self.openrag_connector_service = openrag_connector_service
+        self._pipeline_service = pipeline_service
+        self._pipeline_config = pipeline_config
+        self._is_composable = (
+            pipeline_config is not None
+            and pipeline_config.ingestion_mode == "composable"
+        )
         logger.debug(
             "ConnectorRouter initialized",
             disable_langflow_ingest=DISABLE_INGEST_WITH_LANGFLOW,
+            composable=self._is_composable,
         )
 
     def get_active_service(self):
         """Get the currently active connector service based on configuration."""
+        if self._is_composable:
+            logger.debug("Using traditional OpenRAG connector service (composable mode)")
+            return self.openrag_connector_service
         if DISABLE_INGEST_WITH_LANGFLOW:
             logger.debug("Using traditional OpenRAG connector service")
             return self.openrag_connector_service

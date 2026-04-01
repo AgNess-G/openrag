@@ -23,7 +23,8 @@ class DoclingParser:
         self._client = httpx_client
         self._owns_client = httpx_client is None
         self._service_url = service_url or os.getenv(
-            "DOCLING_SERVICE_URL", "http://localhost:5001"
+            "DOCLING_SERVE_URL",
+            os.getenv("DOCLING_SERVICE_URL", "http://localhost:5001"),
         )
         self._ocr = ocr
         self._ocr_engine = ocr_engine

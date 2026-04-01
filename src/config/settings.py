@@ -370,51 +370,56 @@ class AppClients:
             )
         )
 
-        # Initialize Langflow HTTP client with extended timeouts for large documents
-        # Must be created before wait_for_langflow / get_langflow_api_key
-        # Use explicit timeout configuration to handle large PDF ingestion (300+ pages)
-        self.langflow_http_client = httpx.AsyncClient(
-            base_url=LANGFLOW_URL,
-            timeout=httpx.Timeout(
-                timeout=LANGFLOW_TIMEOUT,  # Total timeout
-                connect=LANGFLOW_CONNECT_TIMEOUT,  # Connection timeout
-                read=LANGFLOW_TIMEOUT,  # Read timeout (most important for large PDFs)
-                write=LANGFLOW_CONNECT_TIMEOUT,  # Write timeout
-                pool=LANGFLOW_CONNECT_TIMEOUT,  # Pool timeout
+        # Check composable mode -- skip Langflow init entirely if active
+        skip_langflow = False
+        try:
+            from pipeline.config import PipelineConfigManager
+            _pcm = PipelineConfigManager()
+            _pcfg = _pcm.load()
+            skip_langflow = _pcfg.ingestion_mode == "composable"
+        except Exception:
+            pass
+
+        if skip_langflow:
+            logger.info("Composable mode: skipping Langflow client initialization")
+        else:
+            self.langflow_http_client = httpx.AsyncClient(
+                base_url=LANGFLOW_URL,
+                timeout=httpx.Timeout(
+                    timeout=LANGFLOW_TIMEOUT,
+                    connect=LANGFLOW_CONNECT_TIMEOUT,
+                    read=LANGFLOW_TIMEOUT,
+                    write=LANGFLOW_CONNECT_TIMEOUT,
+                    pool=LANGFLOW_CONNECT_TIMEOUT,
+                )
             )
-        )
-        logger.info(
-            "Initialized Langflow HTTP client with extended timeouts",
-            timeout_seconds=LANGFLOW_TIMEOUT,
-            connect_timeout_seconds=LANGFLOW_CONNECT_TIMEOUT,
-        )
-
-        # Wait for Langflow to be healthy before generating API key
-        from utils.langflow_utils import wait_for_langflow
-        await wait_for_langflow(langflow_http_client=self.langflow_http_client)
-
-        # Generate Langflow API key now that Langflow is confirmed ready
-        await get_langflow_api_key()
-
-        # Initialize Langflow client with generated/provided API key
-        if LANGFLOW_KEY and self.langflow_client is None:
-            try:
-                if not OPENSEARCH_PASSWORD and not IBM_AUTH_ENABLED:
-                    raise ValueError("OPENSEARCH_PASSWORD is not set")
-                else:
-                    await self.ensure_langflow_client()
-                    # Note: OPENSEARCH_PASSWORD global variable should be created automatically
-                    # via LANGFLOW_VARIABLES_TO_GET_FROM_ENVIRONMENT in docker-compose
-                    logger.info(
-                        "Langflow client initialized - OPENSEARCH_PASSWORD should be available via environment variables"
-                    )
-            except Exception as e:
-                logger.warning("Failed to initialize Langflow client", error=str(e))
-                self.langflow_client = None
-        if self.langflow_client is None:
-            logger.warning(
-                "No Langflow client initialized yet, will attempt later on first use"
+            logger.info(
+                "Initialized Langflow HTTP client with extended timeouts",
+                timeout_seconds=LANGFLOW_TIMEOUT,
+                connect_timeout_seconds=LANGFLOW_CONNECT_TIMEOUT,
             )
+
+            from utils.langflow_utils import wait_for_langflow
+            await wait_for_langflow(langflow_http_client=self.langflow_http_client)
+
+            await get_langflow_api_key()
+
+            if LANGFLOW_KEY and self.langflow_client is None:
+                try:
+                    if not OPENSEARCH_PASSWORD and not IBM_AUTH_ENABLED:
+                        raise ValueError("OPENSEARCH_PASSWORD is not set")
+                    else:
+                        await self.ensure_langflow_client()
+                        logger.info(
+                            "Langflow client initialized - OPENSEARCH_PASSWORD should be available via environment variables"
+                        )
+                except Exception as e:
+                    logger.warning("Failed to initialize Langflow client", error=str(e))
+                    self.langflow_client = None
+            if self.langflow_client is None:
+                logger.warning(
+                    "No Langflow client initialized yet, will attempt later on first use"
+                )
 
         return self
 

@@ -78,11 +78,13 @@ class OpenSearchBulkIndexer:
         allowed_users = acl.get("allowed_users", [owner] if owner else [])
         allowed_groups = acl.get("allowed_groups", [])
 
+        doc_id_base = metadata.document_id or metadata.file_hash
+
         for chunk in chunks:
-            doc_id = f"{metadata.file_hash}_{chunk.index}"
+            doc_id = f"{doc_id_base}_{chunk.index}"
             actions.append({"index": {"_index": index_name, "_id": doc_id}})
-            actions.append({
-                "document_id": metadata.file_hash,
+            body: dict = {
+                "document_id": doc_id_base,
                 "filename": metadata.filename,
                 "mimetype": metadata.mimetype,
                 "page": chunk.page,
@@ -98,7 +100,16 @@ class OpenSearchBulkIndexer:
                 "owner": owner,
                 "allowed_users": allowed_users,
                 "allowed_groups": allowed_groups,
-            })
+            }
+            if metadata.owner_name:
+                body["owner_name"] = metadata.owner_name
+            if metadata.owner_email:
+                body["owner_email"] = metadata.owner_email
+            if metadata.source_url:
+                body["source_url"] = metadata.source_url
+            if metadata.is_sample_data:
+                body["is_sample_data"] = True
+            actions.append(body)
         return actions
 
     async def _send_bulk(self, actions: list[dict], index_name: str) -> int:

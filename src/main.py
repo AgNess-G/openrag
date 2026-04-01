@@ -406,6 +406,26 @@ def _should_use_url_default_docs_ingest() -> bool:
     return DEFAULT_DOCS_INGEST_SOURCE == "url" and bool(DEFAULT_DOCS_URL)
 
 
+_app_services: dict | None = None
+
+
+def _is_composable_mode() -> bool:
+    """Return True when the pipeline is configured for composable ingestion."""
+    try:
+        cfg = (_app_services or {}).get("pipeline_config")
+        return cfg is not None and cfg.ingestion_mode == "composable"
+    except Exception:
+        return False
+
+
+def _get_pipeline_service():
+    """Return the PipelineService from app state, or None."""
+    try:
+        return (_app_services or {}).get("pipeline_service")
+    except Exception:
+        return None
+
+
 async def ingest_openrag_docs_when_ready(
     document_service,
     task_service,
@@ -416,12 +436,21 @@ async def ingest_openrag_docs_when_ready(
     """Ingest OpenRAG docs during onboarding."""
     use_url_ingest = _should_use_url_default_docs_ingest()
     task_id = None
+    composable = _is_composable_mode()
     if use_url_ingest:
         try:
             await TelemetryClient.send_event(
                 Category.DOCUMENT_INGESTION, MessageId.ORB_DOC_DEFAULT_URL_START
             )
-            if DISABLE_INGEST_WITH_LANGFLOW:
+            if composable:
+                pipeline_service = _get_pipeline_service()
+                task_id = await _ingest_default_documents_url_composable(
+                    pipeline_service=pipeline_service,
+                    docs_url=DEFAULT_DOCS_URL,
+                    crawl_depth=DEFAULT_DOCS_CRAWL_DEPTH,
+                    jwt_token=jwt_token,
+                )
+            elif DISABLE_INGEST_WITH_LANGFLOW:
                 task_id = await _ingest_default_documents_url(
                     document_service=document_service,
                     docs_url=DEFAULT_DOCS_URL,
@@ -506,7 +535,15 @@ async def ingest_default_documents_when_ready(
         if not file_paths:
             raise FileNotFoundError(f"No default documents found in {base_dir}")
 
-        if DISABLE_INGEST_WITH_LANGFLOW:
+        if _is_composable_mode():
+            pipeline_service = _get_pipeline_service()
+            new_task_id = await _ingest_default_documents_composable(
+                pipeline_service,
+                file_paths,
+                jwt_token=jwt_token,
+            )
+            task_id = new_task_id or task_id
+        elif DISABLE_INGEST_WITH_LANGFLOW:
             new_task_id = await _ingest_default_documents_openrag(
                 document_service,
                 task_service,
@@ -1161,6 +1198,111 @@ async def _ingest_default_documents_openrag(
     return task_id
 
 
+async def _ingest_default_documents_composable(
+    pipeline_service,
+    file_paths: list[str],
+    jwt_token=None,
+):
+    """Ingest default documents using the composable pipeline (no Langflow)."""
+    import hashlib
+    import mimetypes as mt_mod
+
+    from pipeline.types import FileMetadata
+    from session_manager import AnonymousUser
+
+    anonymous_user = AnonymousUser()
+    file_metas: list[FileMetadata] = []
+
+    for fp in file_paths:
+        with open(fp, "rb") as f:
+            content = f.read()
+        file_hash = hashlib.sha256(content).hexdigest()
+        mime, _ = mt_mod.guess_type(fp)
+        fm = FileMetadata(
+            file_path=fp,
+            filename=os.path.basename(fp),
+            file_hash=file_hash,
+            file_size=len(content),
+            mimetype=mime or "application/octet-stream",
+            owner_user_id=None,
+            jwt_token=jwt_token,
+            connector_type="openrag_docs",
+            is_sample_data=True,
+            owner_name=anonymous_user.name,
+            owner_email=anonymous_user.email,
+        )
+        file_metas.append(fm)
+
+    if not file_metas:
+        logger.warning("No default documents to ingest via composable pipeline")
+        return None
+
+    batch_id = await pipeline_service.run_files(file_metas)
+    logger.info(
+        "Started composable pipeline ingestion for default docs",
+        batch_id=batch_id,
+        file_count=len(file_metas),
+    )
+    return batch_id
+
+
+async def _ingest_default_documents_url_composable(
+    pipeline_service,
+    docs_url: str,
+    crawl_depth: int,
+    jwt_token=None,
+):
+    """Ingest default docs from URL using the composable pipeline (no Langflow)."""
+    if not docs_url:
+        raise ValueError("DEFAULT_DOCS_URL is not configured")
+
+    logger.info(
+        "Running default URL docs ingestion via composable pipeline",
+        docs_url=docs_url,
+        crawl_depth=crawl_depth,
+    )
+    temp_file_path = await _materialize_default_docs_url_as_text_file(
+        docs_url=docs_url,
+        crawl_depth=crawl_depth,
+    )
+    try:
+        import hashlib
+        import mimetypes as mt_mod
+
+        from pipeline.types import FileMetadata
+        from session_manager import AnonymousUser
+
+        anonymous_user = AnonymousUser()
+        with open(temp_file_path, "rb") as f:
+            content = f.read()
+        file_hash = hashlib.sha256(content).hexdigest()
+        mime, _ = mt_mod.guess_type(temp_file_path)
+
+        fm = FileMetadata(
+            file_path=temp_file_path,
+            filename="openrag-url-default.txt",
+            file_hash=file_hash,
+            file_size=len(content),
+            mimetype=mime or "text/plain",
+            owner_user_id=None,
+            jwt_token=jwt_token,
+            connector_type="openrag_docs",
+            is_sample_data=True,
+            owner_name=anonymous_user.name,
+            owner_email=anonymous_user.email,
+            source_url=docs_url,
+        )
+        batch_id = await pipeline_service.run_files([fm])
+        logger.info("Composable URL ingestion submitted", batch_id=batch_id)
+        return batch_id
+    except Exception:
+        try:
+            os.unlink(temp_file_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 async def _update_mcp_servers_with_provider_credentials(services):
     """Update MCP servers with provider credentials at startup.
 
@@ -1235,45 +1377,57 @@ async def startup_tasks(services):
         Category.APPLICATION_STARTUP, MessageId.ORB_APP_START_INIT
     )
 
+    composable = _is_composable_mode()
+
     if IBM_AUTH_ENABLED:
         logger.info(
             "IBM auth mode: skipping startup OpenSearch checks. "
             "OpenSearch will be initialized during onboarding with user credentials."
         )
     else:
-        # Only initialize basic OpenSearch connection, not the index
-        # Index will be created after onboarding when we know the embedding model
         await wait_for_opensearch()
 
-        if DISABLE_INGEST_WITH_LANGFLOW:
-            await _ensure_opensearch_index()
+        if composable:
+            try:
+                pipeline_cfg = (services or {}).get("pipeline_config")
+                if pipeline_cfg:
+                    from pipeline.index_management import init_composable_index
+                    config = get_openrag_config()
+                    if config.edited and config.knowledge.embedding_model:
+                        pipeline_cfg.sync_from_openrag_config(config)
+                        await init_composable_index(clients.opensearch, pipeline_cfg)
+                        logger.info("Composable-mode index ensured at startup")
+            except Exception as e:
+                logger.error("Failed to ensure composable index at startup", error=str(e))
+                raise
+        else:
+            if DISABLE_INGEST_WITH_LANGFLOW:
+                await _ensure_opensearch_index()
 
-        # Ensure that the OpenSearch index exists if onboarding was already completed
-        # - Handles the case where OpenSearch is reset (e.g., volume deleted) after onboarding
-        embedding_model = None
-        try:
-            config = get_openrag_config()
-            embedding_model = config.knowledge.embedding_model
+            embedding_model = None
+            try:
+                config = get_openrag_config()
+                embedding_model = config.knowledge.embedding_model
 
-            if config.edited and embedding_model:
-                logger.info(
-                    "Ensuring that the OpenSearch index exists (after onboarding)...",
+                if config.edited and embedding_model:
+                    logger.info(
+                        "Ensuring that the OpenSearch index exists (after onboarding)...",
+                        embedding_model=embedding_model,
+                    )
+
+                    await init_index()
+
+                    logger.info(
+                        "Successfully ensured that the OpenSearch index exists (after onboarding).",
+                        embedding_model=embedding_model,
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to ensure that the OpenSearch index exists (after onboarding).",
                     embedding_model=embedding_model,
+                    error=str(e),
                 )
-
-                await init_index()
-
-                logger.info(
-                    "Successfully ensured that the OpenSearch index exists (after onboarding).",
-                    embedding_model=embedding_model,
-                )
-        except Exception as e:
-            logger.error(
-                "Failed to ensure that the OpenSearch index exists (after onboarding).",
-                embedding_model=embedding_model,
-                error=str(e),
-            )
-            raise
+                raise
 
         # Configure alerting security
         await configure_alerting_security()
@@ -1303,62 +1457,61 @@ async def startup_tasks(services):
         except Exception as e:
             logger.error("OpenRAG docs startup refresh failed", error=str(e))
 
-    # Update MCP servers with provider credentials (especially important for no-auth mode)
-    await _update_mcp_servers_with_provider_credentials(services)
+    if not composable:
+        # Update MCP servers with provider credentials (especially important for no-auth mode)
+        await _update_mcp_servers_with_provider_credentials(services)
 
-    # Ensure all configured flows exist in Langflow (create-only, never overwrites).
-    # This replaces LANGFLOW_LOAD_FLOWS_PATH, which performed a blind upsert on
-    # every container start and discarded any user edits made in the Langflow UI.
-    newly_created: set[str] = set()
-    try:
-        flows_service = services["flows_service"]
-        newly_created = await flows_service.ensure_flows_exist()
-    except Exception as e:
-        logger.error(
-            "Failed to ensure Langflow flows exist at startup — "
-            "flows may be missing until the next restart",
-            error=str(e),
-        )
-
-    # Check if flows were reset and reapply settings if config is edited
-    try:
-        config = get_openrag_config()
-        if config.edited:
-            logger.info("Checking if Langflow flows were reset")
+    if composable:
+        logger.info("Composable mode: skipping Langflow flow sync at startup")
+    else:
+        # Ensure all configured flows exist in Langflow (create-only, never overwrites).
+        newly_created: set[str] = set()
+        try:
             flows_service = services["flows_service"]
-            reset_flows = await flows_service.check_flows_reset()
-            # Exclude flows that were just seeded — they match the JSON by design,
-            # not because they were externally reset.
-            reset_flows = [f for f in reset_flows if f not in newly_created]
+            newly_created = await flows_service.ensure_flows_exist()
+        except Exception as e:
+            logger.error(
+                "Failed to ensure Langflow flows exist at startup — "
+                "flows may be missing until the next restart",
+                error=str(e),
+            )
 
-            if reset_flows:
-                logger.info(
-                    f"Detected reset flows: {', '.join(reset_flows)}. Reapplying all settings."
-                )
-                await TelemetryClient.send_event(
-                    Category.FLOW_OPERATIONS, MessageId.ORB_FLOW_RESET_DETECTED
-                )
-                from api.settings import reapply_all_settings
+        # Check if flows were reset and reapply settings if config is edited
+        try:
+            config = get_openrag_config()
+            if config.edited:
+                logger.info("Checking if Langflow flows were reset")
+                flows_service = services["flows_service"]
+                reset_flows = await flows_service.check_flows_reset()
+                reset_flows = [f for f in reset_flows if f not in newly_created]
 
-                await reapply_all_settings(session_manager=services["session_manager"])
-                logger.info(
-                    "Successfully reapplied settings after detecting flow resets"
-                )
-                await TelemetryClient.send_event(
-                    Category.FLOW_OPERATIONS, MessageId.ORB_FLOW_SETTINGS_REAPPLIED
-                )
+                if reset_flows:
+                    logger.info(
+                        f"Detected reset flows: {', '.join(reset_flows)}. Reapplying all settings."
+                    )
+                    await TelemetryClient.send_event(
+                        Category.FLOW_OPERATIONS, MessageId.ORB_FLOW_RESET_DETECTED
+                    )
+                    from api.settings import reapply_all_settings
+
+                    await reapply_all_settings(session_manager=services["session_manager"])
+                    logger.info(
+                        "Successfully reapplied settings after detecting flow resets"
+                    )
+                    await TelemetryClient.send_event(
+                        Category.FLOW_OPERATIONS, MessageId.ORB_FLOW_SETTINGS_REAPPLIED
+                    )
+                else:
+                    logger.info(
+                        "No flows detected as reset, skipping settings reapplication"
+                    )
             else:
-                logger.info(
-                    "No flows detected as reset, skipping settings reapplication"
-                )
-        else:
-            logger.debug("Configuration not yet edited, skipping flow reset check")
-    except Exception as e:
-        logger.error(f"Failed to check flows reset or reapply settings: {str(e)}")
-        await TelemetryClient.send_event(
-            Category.FLOW_OPERATIONS, MessageId.ORB_FLOW_RESET_CHECK_FAIL
-        )
-        # Don't fail startup if this check fails
+                logger.debug("Configuration not yet edited, skipping flow reset check")
+        except Exception as e:
+            logger.error(f"Failed to check flows reset or reapply settings: {str(e)}")
+            await TelemetryClient.send_event(
+                Category.FLOW_OPERATIONS, MessageId.ORB_FLOW_RESET_CHECK_FAIL
+            )
 
 
 async def initialize_services():
@@ -1411,7 +1564,7 @@ async def initialize_services():
         session_manager=session_manager,
     )
 
-    # Create connector router that chooses based on configuration
+    # Create connector router (pipeline args set after pipeline init below)
     connector_service = ConnectorRouter(
         langflow_connector_service=langflow_connector_service,
         openrag_connector_service=openrag_connector_service,
@@ -1478,6 +1631,13 @@ async def initialize_services():
     except Exception as e:
         logger.warning("Failed to initialize composable pipeline", error=str(e))
 
+    if pipeline_config_obj:
+        connector_service._pipeline_service = pipeline_service
+        connector_service._pipeline_config = pipeline_config_obj
+        connector_service._is_composable = (
+            pipeline_config_obj.ingestion_mode == "composable"
+        )
+
     return {
         "document_service": document_service,
         "search_service": search_service,
@@ -1499,10 +1659,12 @@ async def initialize_services():
 
 async def create_app():
     """Create and configure the FastAPI application"""
+    global _app_services
     services = await initialize_services()
+    _app_services = services
 
     app = FastAPI(title="OpenRAG API", version=OPENRAG_VERSION, debug=True)
-    app.state.services = services  # Store services for cleanup
+    app.state.services = services
     app.state.background_tasks = set()
 
     # Register route handlers — auth and service injection done via FastAPI Depends() in each handler

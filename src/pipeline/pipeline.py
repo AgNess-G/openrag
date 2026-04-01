@@ -100,11 +100,14 @@ class PipelineBuilder:
         cls = self._registry.get(cfg.type.value, "parser")
 
         if cfg.type.value == "docling":
-            return cls(
-                ocr=cfg.docling.ocr,
-                ocr_engine=cfg.docling.ocr_engine,
-                table_structure=cfg.docling.table_structure,
-            )
+            kwargs: dict = {
+                "ocr": cfg.docling.ocr,
+                "ocr_engine": cfg.docling.ocr_engine,
+                "table_structure": cfg.docling.table_structure,
+            }
+            if cfg.docling.serve_url:
+                kwargs["service_url"] = cfg.docling.serve_url
+            return cls(**kwargs)
         return cls()
 
     def _build_preprocessors(self, opensearch_client=None) -> list:

@@ -16,6 +16,11 @@ class FileMetadata:
     jwt_token: str | None = None
     connector_type: str = "local"
     acl: dict | None = None
+    owner_name: str | None = None
+    owner_email: str | None = None
+    source_url: str | None = None
+    document_id: str | None = None
+    is_sample_data: bool = False
 
 
 @dataclass(slots=True)

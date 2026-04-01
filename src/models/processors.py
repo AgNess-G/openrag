@@ -193,11 +193,30 @@ class TaskProcessor:
         Standard processing pipeline for non-Langflow processors:
         docling conversion + embeddings + OpenSearch indexing.
 
+        In composable mode, delegates to the IngestionPipeline instead.
+
         Args:
             embedding_model: Embedding model to use (defaults to the current
                 embedding model from settings)
             acl: DocumentACL instance with access control information
         """
+        from main import _is_composable_mode
+
+        if _is_composable_mode():
+            return await self._process_via_composable_pipeline(
+                file_path=file_path,
+                file_hash=file_hash,
+                owner_user_id=owner_user_id,
+                original_filename=original_filename,
+                jwt_token=jwt_token,
+                owner_name=owner_name,
+                owner_email=owner_email,
+                file_size=file_size,
+                connector_type=connector_type,
+                is_sample_data=is_sample_data,
+                acl=acl,
+            )
+
         import datetime
         from config.settings import (
             clients,
@@ -330,6 +349,57 @@ class TaskProcessor:
                 logger.error("Chunk document details", chunk_doc=chunk_doc)
                 raise
         return {"status": "indexed", "id": file_hash}
+
+    async def _process_via_composable_pipeline(
+        self,
+        file_path: str,
+        file_hash: str,
+        owner_user_id: str = None,
+        original_filename: str = None,
+        jwt_token: str = None,
+        owner_name: str = None,
+        owner_email: str = None,
+        file_size: int = None,
+        connector_type: str = "local",
+        is_sample_data: bool = False,
+        acl: "DocumentACL" = None,
+    ) -> dict:
+        """Delegate document processing to the composable IngestionPipeline."""
+        import mimetypes as mt_mod
+
+        from main import _get_pipeline_service
+        from pipeline.types import FileMetadata
+
+        pipeline_service = _get_pipeline_service()
+        if pipeline_service is None:
+            raise RuntimeError("PipelineService not available in composable mode")
+
+        mime, _ = mt_mod.guess_type(file_path)
+        acl_dict = None
+        if acl:
+            acl_dict = {
+                "owner": acl.owner if hasattr(acl, "owner") else owner_user_id,
+                "allowed_users": getattr(acl, "allowed_users", []),
+                "allowed_groups": getattr(acl, "allowed_groups", []),
+            }
+
+        fm = FileMetadata(
+            file_path=file_path,
+            filename=original_filename or file_path,
+            file_hash=file_hash,
+            file_size=file_size or 0,
+            mimetype=mime or "application/octet-stream",
+            owner_user_id=owner_user_id,
+            jwt_token=jwt_token,
+            connector_type=connector_type,
+            acl=acl_dict,
+            owner_name=owner_name,
+            owner_email=owner_email,
+            is_sample_data=is_sample_data,
+        )
+
+        batch_id = await pipeline_service.run_files([fm])
+        return {"status": "indexed", "id": file_hash, "batch_id": batch_id}
 
     async def process_item(
         self, upload_task: UploadTask, item: Any, file_task: FileTask

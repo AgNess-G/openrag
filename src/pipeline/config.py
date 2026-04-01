@@ -32,6 +32,7 @@ class ChunkerType(str, Enum):
 
 
 class DoclingOptions(BaseModel):
+    serve_url: str = ""
     ocr: bool = False
     ocr_engine: Literal["easyocr", "tesseract"] = "easyocr"
     table_structure: bool = True
@@ -114,6 +115,19 @@ class PipelineConfig(BaseModel):
                 ]
         return data
 
+    def sync_from_openrag_config(self, openrag_config) -> None:
+        """Update embedder settings from the main OpenRAG config.
+
+        Called during onboarding so the composable pipeline uses whatever
+        embedding model/provider the user selected in the UI.
+        """
+        em = getattr(openrag_config.knowledge, "embedding_model", None)
+        ep = getattr(openrag_config.knowledge, "embedding_provider", None)
+        if em:
+            self.embedder.model = em
+        if ep:
+            self.embedder.provider = ep
+
 
 _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "PIPELINE_INGESTION_MODE": ("ingestion_mode", str),
@@ -127,6 +141,7 @@ _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "PIPELINE_EXECUTION_CONCURRENCY": ("execution.concurrency", int),
     "PIPELINE_EXECUTION_TIMEOUT": ("execution.timeout", int),
     "RAY_ADDRESS": ("execution.ray.address", str),
+    "DOCLING_SERVE_URL": ("parser.docling.serve_url", str),
 }
 
 
