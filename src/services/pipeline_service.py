@@ -38,13 +38,22 @@ class PipelineService:
         if pipeline_config.execution.backend == "ray":
             from pipeline.execution.ray_backend import RayBackend
 
-            self._backend = RayBackend(config=pipeline_config.execution.ray)
+            self._backend = RayBackend(pipeline_config=pipeline_config)
         else:
             self._backend = LocalBackend(
                 concurrency=pipeline_config.execution.concurrency
             )
 
-        self._pipeline = self._builder.build()
+        self._pipeline = None
+
+    def _get_pipeline(self):
+        """Lazy-build the pipeline on first use so startup succeeds even
+        when provider credentials aren't configured yet."""
+        if self._pipeline is None:
+            from config.settings import clients
+            os_client = getattr(clients, "opensearch", None)
+            self._pipeline = self._builder.build(opensearch_client=os_client)
+        return self._pipeline
 
     async def enqueue(
         self,
@@ -79,7 +88,7 @@ class PipelineService:
             )
             file_metas.append(fm)
 
-        batch_id = await self._backend.submit(self._pipeline, file_metas)
+        batch_id = await self._backend.submit(self._get_pipeline(), file_metas)
         logger.info(
             "Pipeline batch submitted",
             batch_id=batch_id,
@@ -92,7 +101,7 @@ class PipelineService:
         file_metas: list,
     ) -> str:
         """Submit pre-built FileMetadata objects for pipeline processing."""
-        batch_id = await self._backend.submit(self._pipeline, file_metas)
+        batch_id = await self._backend.submit(self._get_pipeline(), file_metas)
         logger.info(
             "Pipeline batch submitted (run_files)",
             batch_id=batch_id,
@@ -100,8 +109,21 @@ class PipelineService:
         )
         return batch_id
 
+    def rebuild(self) -> None:
+        """Force a pipeline rebuild (e.g. after config/credentials change)."""
+        self._pipeline = None
+
     async def get_status(self, task_id: str) -> dict:
         return await self._backend.get_progress(task_id)
+
+    async def wait_for_batch(self, batch_id: str) -> dict:
+        """Block until a submitted batch completes (local or Ray backend)."""
+        wait = getattr(self._backend, "wait_for_batch", None)
+        if not callable(wait):
+            raise NotImplementedError(
+                "wait_for_batch is not implemented for this execution backend"
+            )
+        return await wait(batch_id)
 
     async def cancel(self, task_id: str) -> None:
         await self._backend.cancel(task_id)

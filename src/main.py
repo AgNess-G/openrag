@@ -408,6 +408,33 @@ def _should_use_url_default_docs_ingest() -> bool:
 
 _app_services: dict | None = None
 
+# Process-wide cache so lazy PipelineService is never recreated when ``_app_services``
+# is missing on this module object (duplicate ``main`` imports) or not yet assigned.
+_lazy_pipeline_service = None
+
+
+def _mirror_app_services_to_imported_main_module(services: dict | None) -> None:
+    """Sync ``_app_services`` onto the ``main`` module when this file runs as ``__main__``.
+
+    ``python src/main.py`` executes this file as ``__main__``, but code that does
+    ``from main import ingest_default_documents_when_ready`` loads a second ``main``
+    module object. Without mirroring, ``main._app_services`` stays ``None``, lazy
+    ``PipelineService`` creation repeats, and composable batch IDs are not found.
+    """
+    if services is None:
+        return
+    import sys
+
+    this_mod = sys.modules.get(__name__)
+    main_mod = sys.modules.get("main")
+    ps = services.get("pipeline_service")
+    if ps is not None:
+        for mod in (this_mod, main_mod):
+            if mod is not None:
+                mod._lazy_pipeline_service = ps
+    if main_mod is not None and main_mod is not this_mod:
+        main_mod._app_services = services
+
 
 def _is_composable_mode() -> bool:
     """Return True when the pipeline is configured for composable ingestion."""
@@ -421,10 +448,37 @@ def _is_composable_mode() -> bool:
 
 
 def _get_pipeline_service():
-    """Return the PipelineService from app state, or None."""
+    """Return the PipelineService, creating one lazily if needed."""
+    global _lazy_pipeline_service
+
+    svc = (_app_services or {}).get("pipeline_service")
+    if svc is not None:
+        _lazy_pipeline_service = svc
+        return svc
+    if _lazy_pipeline_service is not None:
+        return _lazy_pipeline_service
     try:
-        return (_app_services or {}).get("pipeline_service")
-    except Exception:
+        from pipeline.config import PipelineConfigManager
+        cfg = PipelineConfigManager().load()
+        if cfg.ingestion_mode != "composable":
+            return None
+        from services.pipeline_service import PipelineService
+        svc = PipelineService(pipeline_config=cfg)
+        _lazy_pipeline_service = svc
+        if _app_services is not None:
+            _app_services["pipeline_service"] = svc
+        else:
+            import sys
+
+            mm = sys.modules.get("main")
+            if mm is not None and isinstance(
+                getattr(mm, "_app_services", None), dict
+            ):
+                mm._app_services["pipeline_service"] = svc
+        logger.info("PipelineService created lazily on first use")
+        return svc
+    except Exception as e:
+        logger.error("Failed to create PipelineService lazily", error=str(e))
         return None
 
 
@@ -483,6 +537,29 @@ async def ingest_openrag_docs_when_ready(
     return task_id
 
 
+async def _wait_composable_batches(
+    pipeline_service,
+    batch_ids: list[str | None],
+) -> None:
+    """Block until composable pipeline batches finish; raise if any file failed."""
+    if not pipeline_service:
+        return
+    for bid in batch_ids:
+        if not bid:
+            continue
+        progress = await pipeline_service.wait_for_batch(bid)
+        failed = progress.get("failed", 0)
+        if failed:
+            errs: list[str] = []
+            for r in progress.get("results", []):
+                if getattr(r, "status", None) == "failed" and getattr(
+                    r, "error", None
+                ):
+                    errs.append(str(r.error))
+            msg = errs[0] if errs else f"{failed} file(s) failed"
+            raise RuntimeError(f"Sample document ingestion failed: {msg}")
+
+
 async def ingest_default_documents_when_ready(
     document_service,
     task_service,
@@ -501,6 +578,7 @@ async def ingest_default_documents_when_ready(
             Category.DOCUMENT_INGESTION, MessageId.ORB_DOC_DEFAULT_START
         )
         task_id = None
+        composable_batches: list[str | None] = []
         if _should_use_url_default_docs_ingest():
             task_id = await ingest_openrag_docs_when_ready(
                 document_service,
@@ -509,13 +587,8 @@ async def ingest_default_documents_when_ready(
                 session_manager,
                 jwt_token=jwt_token,
             )
-        await ingest_openrag_docs_when_ready(
-            document_service,
-            task_service,
-            langflow_file_service,
-            session_manager,
-            jwt_token=jwt_token,
-        )
+            if _is_composable_mode() and task_id:
+                composable_batches.append(task_id)
 
         base_dir = _get_documents_dir()
         if not os.path.isdir(base_dir):
@@ -539,12 +612,17 @@ async def ingest_default_documents_when_ready(
 
         if _is_composable_mode():
             pipeline_service = _get_pipeline_service()
-            new_task_id = await _ingest_default_documents_composable(
+            local_batch_id = await _ingest_default_documents_composable(
                 pipeline_service,
                 file_paths,
                 jwt_token=jwt_token,
             )
-            task_id = new_task_id or task_id
+            if local_batch_id:
+                composable_batches.append(local_batch_id)
+            await _wait_composable_batches(pipeline_service, composable_batches)
+            # Do not return pipeline batch_id as task_id — the onboarding UI
+            # polls /tasks for TaskService IDs only; batch UUIDs would stall the flow.
+            task_id = None
         elif DISABLE_INGEST_WITH_LANGFLOW:
             new_task_id = await _ingest_default_documents_openrag(
                 document_service,
@@ -1672,6 +1750,7 @@ async def create_app():
     global _app_services
     services = await initialize_services()
     _app_services = services
+    _mirror_app_services_to_imported_main_module(services)
 
     app = FastAPI(title="OpenRAG API", version=OPENRAG_VERSION, debug=True)
     app.state.services = services

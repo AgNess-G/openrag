@@ -2,7 +2,7 @@ version: "1"
 ingestion_mode: composable
 
 parser:
-  type: docling
+  type: auto
 
 chunker:
   type: recursive

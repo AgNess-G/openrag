@@ -92,6 +92,11 @@ async def ensure_embedding_field_exists(
     if index_name is None:
         index_name = get_index_name()
 
+    if opensearch_client is None:
+        raise RuntimeError(
+            "OpenSearch client is not initialized; cannot ensure embedding field mapping"
+        )
+
     field_name = get_embedding_field_name(model_name)
     dimensions = await get_embedding_dimensions(model_name)
 

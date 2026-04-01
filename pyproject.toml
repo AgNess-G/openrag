@@ -47,10 +47,10 @@ dependencies = [
     "tiktoken>=0.7.0",
     "pydantic>=2.0",
     "langchain-text-splitters>=0.3",
+    "ray[default]>=2.44",
 ]
 
 [project.optional-dependencies]
-ray = ["ray[default]>=2.44"]
 markitdown = ["markitdown>=0.1"]
 huggingface = ["sentence-transformers>=3.0"]
 

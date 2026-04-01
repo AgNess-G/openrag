@@ -6,6 +6,9 @@ import asyncio
 from datetime import datetime, timezone
 
 from pipeline.types import EmbeddedChunk, FileMetadata, IndexResult
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class OpenSearchBulkIndexer:
@@ -22,6 +25,12 @@ class OpenSearchBulkIndexer:
         self._batch_size = bulk_batch_size
         self._retry_attempts = retry_attempts
         self._retry_backoff = retry_backoff
+
+    def _resolve_client(self):
+        if self._client is not None:
+            return self._client
+        from config.settings import clients
+        return getattr(clients, "opensearch", None)
 
     async def index(
         self, chunks: list[EmbeddedChunk], metadata: FileMetadata
@@ -43,19 +52,48 @@ class OpenSearchBulkIndexer:
         index_name = get_index_name()
         model_name = chunks[0].embedding_model
 
-        await ensure_embedding_field_exists(
-            self._client, model_name, index_name
-        )
+        client = self._resolve_client()
+        if client is None:
+            raise RuntimeError(
+                "OpenSearch client is not initialized; cannot index documents"
+            )
+
+        await ensure_embedding_field_exists(client, model_name, index_name)
         embed_field = get_embedding_field_name(model_name)
 
         actions = self._build_actions(
             chunks, metadata, index_name, embed_field
         )
 
+        step = self._batch_size * 2
+        num_batches = (len(actions) + step - 1) // step if actions else 0
+        logger.info(
+            "OpenSearch bulk indexer: starting bulk writes",
+            file=metadata.filename,
+            chunk_count=len(chunks),
+            bulk_batches=num_batches,
+            index=index_name,
+            embedding_field=embed_field,
+        )
+
         indexed = 0
         for batch_start in range(0, len(actions), self._batch_size * 2):
             batch = actions[batch_start : batch_start + self._batch_size * 2]
-            indexed += await self._send_bulk(batch, index_name)
+            batch_num = batch_start // step + 1
+            logger.info(
+                "OpenSearch bulk: sending batch",
+                file=metadata.filename,
+                batch_num=batch_num,
+                of=max(num_batches, 1),
+                ops=len(batch) // 2,
+            )
+            indexed += await self._send_bulk(client, batch, index_name)
+
+        logger.info(
+            "OpenSearch bulk indexer: finished",
+            file=metadata.filename,
+            chunks_indexed=indexed,
+        )
 
         return IndexResult(
             document_id=metadata.file_hash,
@@ -112,11 +150,13 @@ class OpenSearchBulkIndexer:
             actions.append(body)
         return actions
 
-    async def _send_bulk(self, actions: list[dict], index_name: str) -> int:
+    async def _send_bulk(
+        self, client, actions: list[dict], index_name: str
+    ) -> int:
         last_exc: Exception | None = None
         for attempt in range(self._retry_attempts):
             try:
-                resp = await self._client.bulk(body=actions, index=index_name)
+                resp = await client.bulk(body=actions, index=index_name)
                 if resp.get("errors"):
                     failed = sum(
                         1 for item in resp.get("items", [])

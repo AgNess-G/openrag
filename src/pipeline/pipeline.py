@@ -6,6 +6,9 @@ import time
 from typing import TYPE_CHECKING
 
 from pipeline.types import FileMetadata, PipelineResult
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from pipeline.chunkers.base import Chunker
@@ -36,14 +39,46 @@ class IngestionPipeline:
 
     async def run(self, file_path: str, metadata: FileMetadata) -> PipelineResult:
         start = time.monotonic()
-        try:
-            doc = await self.parser.parse(file_path, metadata)
+        label = metadata.filename or file_path
 
-            for pp in self.preprocessors:
+        def _elapsed() -> float:
+            return round(time.monotonic() - start, 2)
+
+        try:
+            logger.info(
+                "Pipeline stage: parse",
+                file=label,
+                parser=type(self.parser).__name__,
+            )
+            doc = await self.parser.parse(file_path, metadata)
+            logger.info(
+                "Pipeline stage: parse done",
+                file=label,
+                content_chars=len(doc.content or ""),
+                elapsed_s=_elapsed(),
+            )
+
+            for i, pp in enumerate(self.preprocessors):
+                logger.info(
+                    "Pipeline stage: preprocess",
+                    file=label,
+                    preprocessor=type(pp).__name__,
+                    index=i,
+                )
                 doc = await pp.process(doc)
 
+            logger.info(
+                "Pipeline stage: chunk",
+                file=label,
+                chunker=type(self.chunker).__name__,
+            )
             chunks = await self.chunker.chunk(doc)
             if not chunks:
+                logger.warning(
+                    "Pipeline stage: no chunks produced",
+                    file=label,
+                    elapsed_s=_elapsed(),
+                )
                 return PipelineResult(
                     file_path=file_path,
                     document_id=metadata.file_hash,
@@ -55,8 +90,33 @@ class IngestionPipeline:
                     duration_seconds=time.monotonic() - start,
                 )
 
+            logger.info(
+                "Pipeline stage: embed",
+                file=label,
+                chunk_count=len(chunks),
+                embedder=type(self.embedder).__name__,
+            )
             embedded = await self.embedder.embed(chunks)
+            logger.info(
+                "Pipeline stage: embed done",
+                file=label,
+                embedded_count=len(embedded),
+                elapsed_s=_elapsed(),
+            )
+
+            logger.info(
+                "Pipeline stage: index",
+                file=label,
+                indexer=type(self.indexer).__name__,
+            )
             result = await self.indexer.index(embedded, metadata)
+            logger.info(
+                "Pipeline stage: index done",
+                file=label,
+                chunks_indexed=result.chunks_indexed,
+                index_name=result.index_name,
+                elapsed_s=_elapsed(),
+            )
 
             return PipelineResult(
                 file_path=file_path,
@@ -68,6 +128,13 @@ class IngestionPipeline:
                 duration_seconds=time.monotonic() - start,
             )
         except Exception as exc:
+            logger.error(
+                "Pipeline stage: exception",
+                file=label,
+                error=str(exc),
+                error_type=type(exc).__name__,
+                elapsed_s=_elapsed(),
+            )
             return PipelineResult(
                 file_path=file_path,
                 document_id=metadata.file_hash,
