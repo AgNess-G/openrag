@@ -236,6 +236,8 @@ async def connector_sync(
                         {"status": "no_files", "message": "No files found in the selected buckets."},
                         status_code=200,
                     )
+                from .documents import _ensure_index_exists
+                await _ensure_index_exists(jwt_token)
                 task_id = await connector_service.sync_specific_files(
                     working_connection.connection_id,
                     user.user_id,
@@ -244,6 +246,8 @@ async def connector_sync(
                 )
             else:
                 # sync_all: ingest everything the connector can see
+                from .documents import _ensure_index_exists
+                await _ensure_index_exists(jwt_token)
                 task_id = await connector_service.sync_connector_files(
                     working_connection.connection_id,
                     user.user_id,
@@ -271,6 +275,8 @@ async def connector_sync(
 
             # If we have document_ids (connector file IDs), use sync_specific_files
             # Otherwise, use filename filtering with sync_connector_files
+            from .documents import _ensure_index_exists
+            await _ensure_index_exists(jwt_token)
             if existing_file_ids:
                 logger.info(
                     "Syncing specific files by document_id",
@@ -514,6 +520,8 @@ async def connector_webhook(
                     jwt_token = None
 
                 # Trigger incremental sync for affected files
+                from .documents import _ensure_index_exists
+                await _ensure_index_exists(jwt_token)
                 task_id = await connector_service.sync_specific_files(
                     connection.connection_id,
                     connection.user_id,
@@ -729,6 +737,8 @@ async def sync_all_connectors(
                     continue
 
                 # Sync using document_ids if available, else use filename filter
+                from .documents import _ensure_index_exists
+                await _ensure_index_exists(jwt_token)
                 if existing_file_ids:
                     logger.info(
                         "Syncing specific files by document_id",
