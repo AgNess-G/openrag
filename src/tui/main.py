@@ -772,6 +772,22 @@ def setup_host_directories():
         directory.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Ensured directory exists: {directory}")
 
+    # Backend volume-mounted directories must be writable by the container user
+    # (appuser, UID 1000). Podman handles this via :U in docker-compose.yml, but
+    # Docker ignores :U. Applying 0o775 means any process in the directory's group
+    # can write; the entrypoint.sh in the image also re-chowns these at startup as
+    # a belt-and-suspenders fallback.
+    backend_writable = [
+        base_dir / "documents",
+        base_dir / "flows",
+        base_dir / "keys",
+        base_dir / "config",
+        base_dir / "data",
+    ]
+    for directory in backend_writable:
+        os.chmod(directory, 0o775)
+        logger.debug(f"Set permissions 775 on: {directory}")
+
     # Resolve the configured LANGFLOW_DATA_PATH so we pre-create the exact
     # directory that Docker/Podman will mount, regardless of user customisation.
     langflow_data_dir = _resolve_langflow_data_path(base_dir)
