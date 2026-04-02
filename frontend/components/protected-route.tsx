@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/auth-context";
 
 interface ProtectedRouteProps {
@@ -13,6 +13,8 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [redirectAttempts, setRedirectAttempts] = useState(0);
+  const [hasRedirected, setHasRedirected] = useState(false);
 
   console.log(
     "ProtectedRoute - isLoading:",
@@ -25,21 +27,44 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     isIbmAuthMode,
     "pathname:",
     pathname,
+    "redirectAttempts:",
+    redirectAttempts,
   );
+
+  // Reset redirect tracking when pathname changes
+  useEffect(() => {
+    setHasRedirected(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (isLoading) return;
 
+    // Prevent redirect loops
+    if (redirectAttempts >= 3) {
+      console.error("Too many redirect attempts, stopping to prevent loop");
+      return;
+    }
+
     if (!isAuthenticated) {
       if (isNoAuthMode) return;
+      
       if (isIbmAuthMode) {
-        router.push("/unauthorized");
+        if (!hasRedirected) {
+          setHasRedirected(true);
+          setRedirectAttempts((prev) => prev + 1);
+          router.push("/unauthorized");
+        }
         return;
       }
-      const redirectUrl = `/login?redirect=${encodeURIComponent(pathname)}`;
-      router.push(redirectUrl);
+      
+      if (!hasRedirected) {
+        setHasRedirected(true);
+        setRedirectAttempts((prev) => prev + 1);
+        const redirectUrl = `/login?redirect=${encodeURIComponent(pathname)}`;
+        router.push(redirectUrl);
+      }
     }
-  }, [isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode, router, pathname]);
+  }, [isLoading, isAuthenticated, isNoAuthMode, isIbmAuthMode, router, pathname, redirectAttempts, hasRedirected]);
 
   if (isLoading) {
     return (

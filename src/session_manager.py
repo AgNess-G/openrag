@@ -235,6 +235,9 @@ class SessionManager:
 
     def get_user_from_token(self, token: str) -> Optional[User]:
         """Get user from JWT token"""
+        # Strip "Bearer " prefix if present (for tokens from cookies)
+        if token and token.startswith("Bearer "):
+            token = token[7:]
         payload = self.verify_token(token)
         if payload:
             return self.get_user(payload["user_id"])
@@ -266,7 +269,10 @@ class SessionManager:
         return self.user_opensearch_clients[user_id]
 
     def get_effective_jwt_token(self, user_id: str, jwt_token: str) -> str:
-        """Get the effective JWT token, creating anonymous JWT if needed in no-auth mode"""
+        """Get the effective JWT token, creating anonymous JWT if needed in no-auth mode
+        
+        Ensures JWT tokens have "Bearer " prefix for non-IBM auth mode.
+        """
         from config.settings import IBM_AUTH_ENABLED, is_no_auth_mode
 
         # IBM JWT is used as-is — never override with an anonymous OpenRAG JWT
@@ -274,6 +280,9 @@ class SessionManager:
             return jwt_token
 
         if jwt_token is not None:
+            # Ensure "Bearer " prefix for non-IBM auth tokens
+            if not jwt_token.startswith("Bearer "):
+                jwt_token = f"Bearer {jwt_token}"
             return jwt_token
 
         # No token — create one

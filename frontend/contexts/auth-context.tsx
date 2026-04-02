@@ -51,7 +51,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isNoAuthMode, setIsNoAuthMode] = useState(false);
   const [isIbmAuthMode, setIsIbmAuthMode] = useState(false);
 
-  const checkAuth = useCallback(async () => {
+  const checkAuth = useCallback(async (retryCount = 0, maxRetries = 3) => {
     setIsLoading(true);
     try {
       const response = await fetch("/api/auth/me");
@@ -59,7 +59,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // If we can't reach the backend, keep loading
       if (!response.ok && (response.status === 0 || response.status >= 500)) {
         console.log("Backend not ready, retrying in 2 seconds...");
-        setTimeout(checkAuth, 2000);
+        setTimeout(() => checkAuth(retryCount, maxRetries), 2000);
         return;
       }
 
@@ -95,9 +95,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.log("[checkAuth] done — isLoading: false");
     } catch (error) {
       console.error("Auth check failed:", error);
-      // Network error - backend not ready, keep loading and retry
-      console.log("Backend not ready, retrying in 2 seconds...");
-      setTimeout(checkAuth, 2000);
+      
+      // Retry logic for transient failures
+      if (retryCount < maxRetries) {
+        const delay = 1000 * (retryCount + 1); // Exponential backoff
+        console.log(`Retrying auth check (${retryCount + 1}/${maxRetries}) in ${delay}ms...`);
+        setTimeout(() => checkAuth(retryCount + 1, maxRetries), delay);
+      } else {
+        // After max retries, assume not authenticated
+        console.log("Max retries reached, assuming not authenticated");
+        setIsLoading(false);
+        setUser(null);
+      }
     }
   }, []);
 

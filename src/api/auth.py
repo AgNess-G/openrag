@@ -72,6 +72,10 @@ async def auth_callback(
 
         # If this is app auth, set JWT cookie
         if result.get("purpose") == "app_auth" and result.get("jwt_token"):
+            from config.settings import IBM_AUTH_ENABLED
+            from utils.logging_config import get_logger
+            
+            logger = get_logger(__name__)
             await TelemetryClient.send_event(Category.AUTHENTICATION, MessageId.ORB_AUTH_SUCCESS)
             response = JSONResponse(
                 {k: v for k, v in result.items() if k != "jwt_token"}
@@ -80,10 +84,12 @@ async def auth_callback(
                 key="auth_token",
                 value=result["jwt_token"],
                 httponly=True,
-                secure=False,
+                secure=False,  # Keep False for local HTTP
                 samesite="lax",
                 max_age=7 * 24 * 60 * 60,  # 7 days
+                path="/",  # Explicitly set path
             )
+            logger.info(f"Set auth_token cookie (IBM_AUTH_ENABLED={IBM_AUTH_ENABLED})")
             return response
         else:
             return JSONResponse(result)

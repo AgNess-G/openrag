@@ -35,6 +35,48 @@ function AuthCallbackContent() {
     }
     sessionStorage.setItem(callbackKey, "true");
 
+    // Helper function to verify auth state
+    const waitForAuthConfirmation = async (
+      maxAttempts = 20,
+      delayMs = 500,
+    ): Promise<boolean> => {
+      console.log(`Starting auth verification (max ${maxAttempts} attempts, ${delayMs}ms delay)`);
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const response = await fetch("/api/auth/me", {
+            credentials: 'include', // Ensure cookies are sent
+          });
+          console.log(`Auth verification attempt ${attempt + 1}/${maxAttempts}: status=${response.status}`);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`Auth verification attempt ${attempt + 1} response:`, data);
+            
+            if (data.authenticated && data.user) {
+              console.log("✓ Auth confirmed after", attempt + 1, "attempts");
+              return true;
+            } else {
+              console.log(`Auth not yet confirmed (authenticated=${data.authenticated}, user=${!!data.user})`);
+            }
+          } else {
+            console.log(`Auth check returned non-OK status: ${response.status}`);
+          }
+          
+          // Wait before next attempt
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        } catch (error) {
+          console.error(`Auth verification attempt ${attempt + 1} failed:`, error);
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+      }
+      console.error(`✗ Auth verification failed after ${maxAttempts} attempts`);
+      return false;
+    };
+
     const handleCallback = async () => {
       try {
         // Get parameters from URL
@@ -143,24 +185,33 @@ function AuthCallbackContent() {
           setStatus("success");
 
           if (result.purpose === "app_auth" || detectedPurpose === "app_auth") {
-            // App authentication - refresh auth context and redirect to home/original page
-            await refreshAuth();
+            // App authentication - wait for auth state to be confirmed
+            console.log("Waiting for auth confirmation...");
+            const authConfirmed = await waitForAuthConfirmation();
 
-            const redirectTo =
-              localStorage.getItem("auth_redirect_to") ||
-              searchParams.get("redirect") ||
-              "/chat";
+            if (authConfirmed) {
+              const redirectTo =
+                localStorage.getItem("auth_redirect_to") ||
+                searchParams.get("redirect") ||
+                "/chat";
 
-            // Clean up localStorage
-            localStorage.removeItem("connecting_connector_id");
-            localStorage.removeItem("connecting_connector_type");
-            localStorage.removeItem("auth_purpose");
-            localStorage.removeItem("auth_redirect_to");
+              // Clean up localStorage
+              localStorage.removeItem("connecting_connector_id");
+              localStorage.removeItem("connecting_connector_type");
+              localStorage.removeItem("auth_purpose");
+              localStorage.removeItem("auth_redirect_to");
 
-            // Redirect to the original page or home
-            setTimeout(() => {
+              // Redirect immediately since auth is confirmed
+              console.log("Auth confirmed, redirecting to:", redirectTo);
               router.push(redirectTo);
-            }, 2000);
+            } else {
+              console.error("Auth verification failed - cookie may not have been set properly");
+              console.error("Check backend logs for cookie setting and /api/auth/me endpoint");
+              throw new Error(
+                "Authentication verification failed. The auth cookie may not have been set properly. " +
+                "Please check browser console and backend logs for details."
+              );
+            }
           } else {
             // Connector authentication - redirect to connectors page
 
