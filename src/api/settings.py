@@ -12,12 +12,13 @@ from config.settings import (
     DISABLE_INGEST_WITH_LANGFLOW,
     INGEST_SAMPLE_DATA,
     LANGFLOW_URL,
-    LANGFLOW_CHAT_FLOW_ID,
-    LANGFLOW_INGEST_FLOW_ID,
     LANGFLOW_PUBLIC_URL,
     LOCALHOST_URL,
     clients,
     get_openrag_config,
+    get_active_chat_flow_id,
+    get_active_ingest_flow_id,
+    get_knowledge_backend,
     config_manager,
     is_no_auth_mode,
 )
@@ -138,6 +139,7 @@ class ProvidersConfig(BaseModel):
     ollama: OllamaProviderConfig
 
 class KnowledgeConfig(BaseModel):
+    backend: Optional[str]
     embedding_model: Optional[str]
     embedding_provider: Optional[str]
     chunk_size: Optional[int]
@@ -254,22 +256,24 @@ async def get_settings(
 
         knowledge_config = openrag_config.knowledge
         agent_config = openrag_config.agent
+        chat_flow_id = get_active_chat_flow_id()
+        ingest_flow_id = get_active_ingest_flow_id()
 
         # Only expose edit URLs when a public URL is configured
         langflow_edit_url = None
-        if LANGFLOW_PUBLIC_URL and LANGFLOW_CHAT_FLOW_ID:
-            langflow_edit_url = f"{LANGFLOW_PUBLIC_URL.rstrip('/')}/flow/{LANGFLOW_CHAT_FLOW_ID}"
+        if LANGFLOW_PUBLIC_URL and chat_flow_id:
+            langflow_edit_url = f"{LANGFLOW_PUBLIC_URL.rstrip('/')}/flow/{chat_flow_id}"
 
         langflow_ingest_edit_url = None
-        if LANGFLOW_PUBLIC_URL and LANGFLOW_INGEST_FLOW_ID:
-            langflow_ingest_edit_url = f"{LANGFLOW_PUBLIC_URL.rstrip('/')}/flow/{LANGFLOW_INGEST_FLOW_ID}"
+        if LANGFLOW_PUBLIC_URL and ingest_flow_id:
+            langflow_ingest_edit_url = f"{LANGFLOW_PUBLIC_URL.rstrip('/')}/flow/{ingest_flow_id}"
 
         ingestion_defaults_obj = None
         # Fetch ingestion flow configuration to get actual component defaults
-        if LANGFLOW_INGEST_FLOW_ID and openrag_config.edited:
+        if ingest_flow_id and openrag_config.edited:
             try:
                 response = await clients.langflow_request(
-                    "GET", f"/api/v1/flows/{LANGFLOW_INGEST_FLOW_ID}"
+                    "GET", f"/api/v1/flows/{ingest_flow_id}"
                 )
                 if response.status_code == 200:
                     flow_data = response.json()
@@ -319,8 +323,8 @@ async def get_settings(
 
         return SettingsResponse(
             langflow_url=LANGFLOW_URL,
-            flow_id=LANGFLOW_CHAT_FLOW_ID,
-            ingest_flow_id=LANGFLOW_INGEST_FLOW_ID,
+            flow_id=chat_flow_id,
+            ingest_flow_id=ingest_flow_id,
             langflow_public_url=LANGFLOW_PUBLIC_URL,
             edited=openrag_config.edited,
             onboarding=OnboardingStateConfig(
@@ -355,6 +359,7 @@ async def get_settings(
                 ),
             ),
             knowledge=KnowledgeConfig(
+                backend=get_knowledge_backend(),
                 embedding_model=knowledge_config.embedding_model,
                 embedding_provider=knowledge_config.embedding_provider,
                 chunk_size=knowledge_config.chunk_size,

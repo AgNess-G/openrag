@@ -117,11 +117,14 @@ async def check_filename_exists(
     user: User = Depends(get_current_user),
 ):
     """Check if a document with a specific filename already exists"""
-    from config.settings import get_index_name
+    from config.settings import get_index_name, is_astra_backend
 
     jwt_token = user.jwt_token
 
     try:
+        if is_astra_backend():
+            return JSONResponse({"exists": False, "filename": filename}, status_code=200)
+
         opensearch_client = session_manager.get_user_opensearch_client(
             user.user_id, jwt_token
         )

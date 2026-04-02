@@ -72,6 +72,7 @@ class ProvidersConfig:
 class KnowledgeConfig:
     """Knowledge/ingestion configuration."""
 
+    backend: str = "opensearch"
     embedding_model: str = ""
     embedding_provider: str = "openai"  # Which provider to use for embeddings
     chunk_size: int = 1000
@@ -270,6 +271,8 @@ class ConfigManager:
             config_data["providers"]["ollama"]["endpoint"] = os.getenv("OLLAMA_ENDPOINT")
 
         # Knowledge settings
+        if os.getenv("VECTOR_BACKEND"):
+            config_data["knowledge"]["backend"] = os.getenv("VECTOR_BACKEND")
         if os.getenv("EMBEDDING_MODEL"):
             config_data["knowledge"]["embedding_model"] = os.getenv("EMBEDDING_MODEL")
         if os.getenv("EMBEDDING_PROVIDER"):

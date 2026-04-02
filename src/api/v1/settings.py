@@ -11,7 +11,7 @@ from fastapi import Depends
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from utils.logging_config import get_logger
-from config.settings import get_openrag_config
+from config.settings import get_knowledge_backend, get_openrag_config
 from dependencies import get_api_key_user_async, get_session_manager
 from session_manager import User
 
@@ -23,6 +23,7 @@ class AgentSettings(BaseModel):
     system_prompt: Optional[str] = None
 
 class KnowledgeSettings(BaseModel):
+    backend: Optional[str] = None
     embedding_provider: Optional[str] = None
     embedding_model: Optional[str] = None
     chunk_size: Optional[int] = None
@@ -48,6 +49,7 @@ async def get_settings_endpoint(
                 system_prompt=config.agent.system_prompt,
             ),
             knowledge=KnowledgeSettings(
+                backend=get_knowledge_backend(),
                 embedding_provider=config.knowledge.embedding_provider,
                 embedding_model=config.knowledge.embedding_model,
                 chunk_size=config.knowledge.chunk_size,

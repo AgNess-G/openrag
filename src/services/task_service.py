@@ -416,8 +416,10 @@ class TaskService:
                 # the newly indexed chunks without hitting the near-real-time refresh window.
                 if upload_task.successful_files > 0:
                     try:
-                        from config.settings import clients, get_index_name
-                        await clients.opensearch.indices.refresh(index=get_index_name())
+                        from config.settings import clients, get_index_name, is_astra_backend
+
+                        if not is_astra_backend():
+                            await clients.opensearch.indices.refresh(index=get_index_name())
                     except Exception as e:
                         logger.debug("Index refresh after ingest failed (non-fatal)", error=str(e))
 
@@ -789,4 +791,3 @@ class TaskService:
             for i, result in enumerate(results):
                 if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
                     logger.warning("Background task raised exception during shutdown", error=str(result))
-

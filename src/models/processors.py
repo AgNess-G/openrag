@@ -764,24 +764,31 @@ class LangflowFileProcessor(TaskProcessor):
             # This ensures we check/store the original filename with spaces, etc.
             original_filename = file_task.filename or os.path.basename(item)
 
-            # Check if document with same filename already exists
-            opensearch_client = self.session_manager.get_user_opensearch_client(
-                self.owner_user_id, self.jwt_token
-            )
+            from config.settings import is_astra_backend
 
-            filename_exists = await self.check_filename_exists(original_filename, opensearch_client)
+            if not is_astra_backend():
+                # Check if document with same filename already exists
+                opensearch_client = self.session_manager.get_user_opensearch_client(
+                    self.owner_user_id, self.jwt_token
+                )
 
-            if filename_exists and not self.replace_duplicates:
-                # Duplicate exists and user hasn't confirmed replacement
-                file_task.status = TaskStatus.FAILED
-                file_task.error = f"File with name '{original_filename}' already exists"
-                file_task.updated_at = time.time()
-                upload_task.failed_files += 1
-                return
-            elif filename_exists and self.replace_duplicates:
-                # Delete existing document before uploading new one
-                logger.info(f"Replacing existing document: {original_filename}")
-                await self.delete_document_by_filename(original_filename, opensearch_client)
+                filename_exists = await self.check_filename_exists(
+                    original_filename, opensearch_client
+                )
+
+                if filename_exists and not self.replace_duplicates:
+                    # Duplicate exists and user hasn't confirmed replacement
+                    file_task.status = TaskStatus.FAILED
+                    file_task.error = f"File with name '{original_filename}' already exists"
+                    file_task.updated_at = time.time()
+                    upload_task.failed_files += 1
+                    return
+                if filename_exists and self.replace_duplicates:
+                    # Delete existing document before uploading new one
+                    logger.info(f"Replacing existing document: {original_filename}")
+                    await self.delete_document_by_filename(
+                        original_filename, opensearch_client
+                    )
 
             # Read file content for processing
             with open(item, 'rb') as f:

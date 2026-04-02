@@ -79,14 +79,16 @@ from config.settings import (
     FETCH_OPENRAG_DOCS_AT_STARTUP,
     INGESTION_TIMEOUT,
     INDEX_BODY,
-    LANGFLOW_URL_INGEST_FLOW_ID,
     SESSION_SECRET,
     clients,
     config_manager,
+    get_active_url_ingest_flow_id,
+    get_active_vector_store_node_id,
     get_embedding_model,
     get_index_name,
     is_no_auth_mode,
     get_openrag_config,
+    validate_knowledge_backend_config,
 )
 from services.auth_service import AuthService
 from services.langflow_mcp_service import LangflowMCPService
@@ -600,8 +602,12 @@ async def _ingest_default_documents_langflow(
             effective_jwt = session_manager._anonymous_jwt
 
     # Prepare tweaks for default documents with anonymous user metadata
+    vector_store_node_id = get_active_vector_store_node_id("ingest")
+    if not vector_store_node_id:
+        raise ValueError("The active ingest flow does not define a vector store node ID")
+
     default_tweaks = {
-        "OpenSearchVectorStoreComponentMultimodalMultiEmbedding-By9U4": {
+        vector_store_node_id: {
             "docs_metadata": [
                 {"key": "owner", "value": None},
                 {"key": "owner_name", "value": anonymous_user.name},
@@ -668,8 +674,12 @@ async def _ingest_default_documents_url_langflow(
         if hasattr(session_manager, "_anonymous_jwt"):
             effective_jwt = session_manager._anonymous_jwt
 
+    vector_store_node_id = get_active_vector_store_node_id("url_ingest")
+    if not vector_store_node_id:
+        raise ValueError("The active URL ingest flow does not define a vector store node ID")
+
     default_tweaks = {
-        "OpenSearchVectorStoreComponentMultimodalMultiEmbedding-By9U4": {
+        vector_store_node_id: {
             "docs_metadata": [
                 {"key": "owner", "value": None},
                 {"key": "owner_name", "value": anonymous_user.name},
@@ -978,7 +988,7 @@ async def refresh_default_openrag_docs(
                 "Skipping OpenRAG docs refresh: URL ingestion is not active",
                 ingest_source=DEFAULT_DOCS_INGEST_SOURCE,
                 disable_langflow_ingest=DISABLE_INGEST_WITH_LANGFLOW,
-                has_url_ingest_flow_id=bool(LANGFLOW_URL_INGEST_FLOW_ID),
+                has_url_ingest_flow_id=bool(get_active_url_ingest_flow_id()),
                 has_docs_url=bool(DEFAULT_DOCS_URL),
             )
             await TelemetryClient.send_event(
@@ -1397,6 +1407,7 @@ async def initialize_services():
     )
     # Generate JWT keys if they don't exist
     generate_jwt_keys()
+    validate_knowledge_backend_config()
 
     from config.settings import IBM_AUTH_ENABLED
 
