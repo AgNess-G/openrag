@@ -15,13 +15,13 @@ version: "1"
 ingestion_mode: composable
 
 parser:
-  type: auto
+  type: docling
 
 preprocessors:
   - type: cleaning
 
 chunker:
-  type: recursive
+  type: docling_hybrid
   chunk_size: 1000
   chunk_overlap: 200
 

@@ -51,9 +51,11 @@ class IngestionPipeline:
                 parser=type(self.parser).__name__,
             )
             doc = await self.parser.parse(file_path, metadata)
+            actual_parser = getattr(self.parser, "last_used", None) or type(self.parser).__name__
             logger.info(
                 "Pipeline stage: parse done",
                 file=label,
+                parser_used=actual_parser,
                 content_chars=len(doc.content or ""),
                 elapsed_s=_elapsed(),
             )
@@ -71,6 +73,8 @@ class IngestionPipeline:
                 "Pipeline stage: chunk",
                 file=label,
                 chunker=type(self.chunker).__name__,
+                chunk_size=getattr(self.chunker, "chunk_size", None),
+                chunk_overlap=getattr(self.chunker, "chunk_overlap", None),
             )
             chunks = await self.chunker.chunk(doc)
             if not chunks:
