@@ -1,0 +1,170 @@
+{{- if .Values.networkPolicy.enabled }}
+# ── OpenSearch NetworkPolicy ───────────────────────────────────────────────
+# Only backend API pods and pipeline worker jobs may reach OpenSearch.
+# All other ingress to port 9200/9300/9600 is denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openrag.fullname" . }}-opensearch
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.opensearch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openrag.opensearch.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from backend API
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "openrag.backend.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.opensearch.service.httpPort }}
+          protocol: TCP
+        - port: {{ .Values.opensearch.service.transportPort }}
+          protocol: TCP
+    # Allow from pipeline workers (Jobs have worker selectorLabels)
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "openrag.worker.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.opensearch.service.httpPort }}
+          protocol: TCP
+  egress:
+    # OpenSearch pods may only talk to the DNS resolver
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow inter-node transport (needed if replicas > 1)
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "openrag.opensearch.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.opensearch.service.transportPort }}
+          protocol: TCP
+---
+# ── Redis NetworkPolicy (in-cluster Redis only) ────────────────────────────
+{{- if .Values.redis.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openrag.fullname" . }}-redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from backend API
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "openrag.backend.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 6379
+          protocol: TCP
+    # Allow from pipeline workers
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "openrag.worker.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 6379
+          protocol: TCP
+{{- end }}
+---
+# ── Backend egress policy ──────────────────────────────────────────────────
+# Backend may reach OpenSearch, Redis, and external services (AI APIs).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openrag.fullname" . }}-backend-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.backend.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openrag.backend.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # OpenSearch
+    {{- if .Values.opensearch.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "openrag.opensearch.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.opensearch.service.httpPort }}
+          protocol: TCP
+    {{- end }}
+    # Redis (in-cluster)
+    {{- if .Values.redis.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: 6379
+          protocol: TCP
+    {{- end }}
+    # External HTTPS — AI APIs, IBM COS, IBM Databases for Redis, etc.
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6380
+          protocol: TCP
+---
+# ── Frontend egress policy ─────────────────────────────────────────────────
+# Frontend (SSR) only needs to reach the backend API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openrag.fullname" . }}-frontend-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.frontend.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openrag.frontend.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Backend API
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "openrag.backend.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: {{ .Values.backend.service.port }}
+          protocol: TCP
+{{- end }}

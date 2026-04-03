@@ -1,0 +1,99 @@
+# KEDA ScaledJob — creates one K8s Job per N items in the Redis pipeline queue.
+#
+# Design decisions:
+#   - minReplicaCount is implicitly 0 — no idle worker pods, zero cost when queue empty
+#   - backoffLimit: 0 — application-level retries are preferred; K8s re-scheduling
+#     a failed job risks double-processing
+#   - activeDeadlineSeconds guards against stuck workers consuming resources
+#   - scalingStrategy: accurate — ensures job count exactly matches queue depth
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "openrag.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.worker.labels" . | nindent 4 }}
+spec:
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    activeDeadlineSeconds: {{ .Values.worker.activeDeadlineSeconds }}
+    backoffLimit: {{ .Values.worker.backoffLimit }}
+    template:
+      metadata:
+        labels:
+          {{- include "openrag.worker.selectorLabels" . | nindent 10 }}
+      spec:
+        restartPolicy: Never
+        {{- include "openrag.imagePullSecrets" . | nindent 8 }}
+        serviceAccountName: {{ include "openrag.serviceAccountName" . }}
+        automountServiceAccountToken: false
+        {{- with .Values.worker.podSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+
+        containers:
+          - name: pipeline-worker
+            image: {{ include "openrag.worker.image" . }}
+            imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+            command:
+              - python
+              - -m
+              - pipeline.worker.job_worker
+            {{- with .Values.worker.containerSecurityContext }}
+            securityContext:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            # Non-secret config from ConfigMap
+            envFrom:
+              - configMapRef:
+                  name: {{ include "openrag.fullname" . }}-config
+              {{- include "openrag.secretEnvFrom" . | nindent 14 }}
+            env:
+              # Override mode to "worker" for Jobs (drains from queue)
+              - name: REDIS_WORKER_MODE
+                value: "worker"
+              - name: WORKER_IDLE_TIMEOUT
+                value: {{ .Values.worker.idleTimeout | quote }}
+            {{- with .Values.worker.resources }}
+            resources:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            volumeMounts:
+              - name: tmp
+                mountPath: /tmp
+
+        volumes:
+          - name: tmp
+            emptyDir: {}
+
+        {{- with .Values.worker.nodeSelector }}
+        nodeSelector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.worker.tolerations }}
+        tolerations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+
+  # ── Scaling triggers ─────────────────────────────────────────────────────
+  triggers:
+    - type: redis
+      authenticationRef:
+        name: {{ include "openrag.fullname" . }}-redis-triggerauth
+      metadata:
+        address: {{ include "openrag.redis.host" . }}:{{ include "openrag.redis.port" . }}
+        listName: pipeline:queue
+        listLength: {{ .Values.worker.targetQueueLength | quote }}
+        {{- if and (not .Values.redis.enabled) .Values.redis_external.tls }}
+        enableTLS: "true"
+        {{- end }}
+
+  # ── Scaling behaviour ────────────────────────────────────────────────────
+  pollingInterval: {{ .Values.worker.pollingInterval }}
+  maxReplicaCount: {{ .Values.worker.maxReplicas }}
+  successfulJobsHistoryLimit: {{ .Values.worker.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.worker.failedJobsHistoryLimit }}
+  scalingStrategy:
+    strategy: accurate

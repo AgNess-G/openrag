@@ -1,0 +1,38 @@
+{{- if and .Values.backend.autoscaling.hpa.enabled (not .Values.backend.autoscaling.keda.enabled) }}
+# HPA fallback — used only when KEDA is NOT installed.
+# When KEDA is available, use the ScaledObject instead (scaledobject.yaml).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "openrag.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.backend.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "openrag.fullname" . }}-backend
+  minReplicas: {{ .Values.backend.autoscaling.hpa.minReplicas }}
+  maxReplicas: {{ .Values.backend.autoscaling.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.backend.autoscaling.hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+{{- end }}

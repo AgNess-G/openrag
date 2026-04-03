@@ -1,0 +1,466 @@
+# =============================================================================
+# OpenRAG Helm Chart — Default Values
+#
+# All sensitive values are empty by default. Set them via:
+#   --set config.ai.openaiApiKey=sk-...
+#   --values my-secrets.yaml
+#   existingSecret: <name>  (recommended for production)
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Global settings — shared across sub-charts and overrides
+# ---------------------------------------------------------------------------
+global:
+  # Optional prefix for all image repositories (e.g. "us.icr.io/openrag" or "")
+  imageRegistry: ""
+  # List of pull-secret names, e.g. [{name: my-registry-creds}]
+  imagePullSecrets: []
+  # Default StorageClass; overridden per component when needed
+  storageClass: ""
+
+# ---------------------------------------------------------------------------
+# Chart-wide name overrides
+# ---------------------------------------------------------------------------
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# Container image definitions
+# ---------------------------------------------------------------------------
+image:
+  backend:
+    repository: langflowai/openrag-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: langflowai/openrag-frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  opensearch:
+    repository: langflowai/openrag-opensearch
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+# ---------------------------------------------------------------------------
+# Service Account
+# ---------------------------------------------------------------------------
+serviceAccount:
+  # If true, a ServiceAccount is created; if false, the default SA is used
+  create: true
+  # Override the generated name; defaults to fullname
+  name: ""
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Backend (FastAPI)
+# ---------------------------------------------------------------------------
+backend:
+  replicaCount: 2
+
+  # Provide the name of an existing K8s Secret instead of having the chart
+  # create one from config.* values. The secret must contain the same keys
+  # as the chart-managed secret (OPENAI_API_KEY, SESSION_SECRET, etc.).
+  existingSecret: ""
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+  service:
+    type: ClusterIP
+    port: 8000
+    # annotations: {}
+
+  autoscaling:
+    keda:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 10
+      # CPU trigger: scale up when average utilisation exceeds this percentage
+      cpuTarget: 70
+      # Redis trigger: scale up by 1 replica per N queued items
+      queueScaleRatio: 50
+      pollingInterval: 15
+      cooldownPeriod: 60
+    hpa:
+      # HPA fallback — only takes effect when keda.enabled is false
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  # Topology spread — spread pods across nodes to survive node failures
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: backend
+
+  # Rolling update strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  # Probes
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    failureThreshold: 30
+    periodSeconds: 10
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 0
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Pod-level security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Container-level security context
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  # Extra environment variables (key: value pairs injected as env)
+  env: {}
+  #  MY_EXTRA_VAR: "value"
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Persistence for documents, keys, and config
+  persistence:
+    documents:
+      enabled: true
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 50Gi
+      mountPath: /app/openrag-documents
+    keys:
+      enabled: true
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 1Gi
+      mountPath: /app/keys
+    config:
+      enabled: true
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 1Gi
+      mountPath: /app/config
+
+# ---------------------------------------------------------------------------
+# Frontend (Next.js)
+# ---------------------------------------------------------------------------
+frontend:
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: frontend
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  startupProbe:
+    httpGet:
+      path: /
+      port: 3000
+    failureThreshold: 30
+    periodSeconds: 10
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 0
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  env: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# OpenSearch (in-cluster single-node or small cluster)
+# ---------------------------------------------------------------------------
+opensearch:
+  # Set false to use an externally managed OpenSearch (IBM OpenSearch, AWS OS, etc.)
+  enabled: true
+
+  replicas: 1
+
+  storage:
+    size: 50Gi
+    # Override here or via global.storageClass
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+  # JVM heap size — set to ~50% of container memory limit
+  jvmHeap: "1g"
+
+  service:
+    httpPort: 9200
+    transportPort: 9300
+    performanceAnalyzerPort: 9600
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# External OpenSearch — used when opensearch.enabled=false
+# ---------------------------------------------------------------------------
+opensearch_external:
+  host: ""
+  port: 9200
+  scheme: "https"
+  username: "admin"
+  # password is read from config.opensearch.password / existingSecret
+
+# ---------------------------------------------------------------------------
+# Redis (Bitnami sub-chart)
+# Enabled for local/dev — disabled when using IBM Databases for Redis
+# ---------------------------------------------------------------------------
+redis:
+  # When false, redis_external values are used instead
+  enabled: false
+
+  # These values are forwarded to the bitnami/redis sub-chart
+  architecture: standalone
+  auth:
+    enabled: true
+    # Password is taken from config.redis.password when chart creates the secret
+    existingSecret: ""
+    existingSecretPasswordKey: "redis-password"
+  master:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    persistence:
+      enabled: true
+      size: 8Gi
+  replica:
+    replicaCount: 0
+
+# ---------------------------------------------------------------------------
+# External Redis — used when redis.enabled=false (e.g. IBM Databases for Redis)
+# ---------------------------------------------------------------------------
+redis_external:
+  host: ""
+  port: 6379
+  tls: true
+  # password is read from config.redis.password / existingSecret
+
+# ---------------------------------------------------------------------------
+# KEDA pipeline worker Jobs
+# ---------------------------------------------------------------------------
+worker:
+  # Override image; defaults to backend image+tag when empty
+  image: ""
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+  # KEDA ScaledJob parameters
+  maxReplicas: 20
+  # Number of queued items that trigger one new Job
+  targetQueueLength: 5
+  # Seconds a worker waits for new items before exiting
+  idleTimeout: 15
+  # Seconds before KEDA considers the job stale
+  activeDeadlineSeconds: 3600
+  # Number of retries at the K8s Job level (app handles retries internally)
+  backoffLimit: 0
+  pollingInterval: 15
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+
+  # Pin workers to spot/preemptible nodes for cost efficiency
+  nodeSelector: {}
+  #  openrag/pool: pipeline-workers
+
+  tolerations: []
+  #  - key: "spot"
+  #    operator: "Equal"
+  #    value: "true"
+  #    effect: "NoSchedule"
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  #  nginx.ingress.kubernetes.io/proxy-body-size: "200m"
+  #  nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  #  nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+
+  host: openrag.example.com
+
+  tls:
+    enabled: true
+    secretName: openrag-tls
+    clusterIssuer: letsencrypt-prod
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Application secrets and configuration
+# All keys are empty by default — must be supplied at deploy time.
+# ---------------------------------------------------------------------------
+config:
+  opensearch:
+    username: "admin"
+    password: ""
+
+  redis:
+    password: ""
+
+  pipeline:
+    ingestionMode: "composable"
+    executionBackend: "redis"
+    workerMode: "worker"
+    configFile: "src/pipeline/presets/composable-redis.yaml"
+
+  ai:
+    openaiApiKey: ""
+    watsonxApiKey: ""
+    watsonxProjectId: ""
+    watsonxEndpoint: "https://us-south.ml.cloud.ibm.com"
+
+  cos:
+    hmacAccessKeyId: ""
+    hmacSecretAccessKey: ""
+    endpoint: ""
+
+  app:
+    sessionSecret: ""
+    encryptionKey: ""

@@ -1,0 +1,69 @@
+Thank you for installing {{ .Chart.Name }} v{{ .Chart.AppVersion }}!
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+=== Component Status =====================================================
+
+  Backend  : {{ include "openrag.backend.serviceName" . }}:{{ .Values.backend.service.port }}
+  Frontend : {{ include "openrag.frontend.serviceName" . }}:{{ .Values.frontend.service.port }}
+{{- if .Values.opensearch.enabled }}
+  OpenSearch: {{ include "openrag.opensearch.serviceName" . }}:{{ .Values.opensearch.service.httpPort }}
+{{- else }}
+  OpenSearch: EXTERNAL → {{ .Values.opensearch_external.host }}:{{ .Values.opensearch_external.port }}
+{{- end }}
+{{- if .Values.redis.enabled }}
+  Redis    : {{ include "openrag.fullname" . }}-redis-master:6379 (in-cluster)
+{{- else }}
+  Redis    : EXTERNAL → {{ .Values.redis_external.host }}:{{ .Values.redis_external.port }}
+{{- end }}
+
+=== Access ===============================================================
+
+{{- if .Values.ingress.enabled }}
+  Frontend URL : https://{{ .Values.ingress.host }}/
+  Backend API  : https://{{ .Values.ingress.host }}/api/
+{{- else }}
+  Ingress is disabled. Use port-forward to access locally:
+
+    kubectl port-forward -n {{ .Release.Namespace }} \
+      svc/{{ include "openrag.frontend.serviceName" . }} 3000:{{ .Values.frontend.service.port }}
+
+    kubectl port-forward -n {{ .Release.Namespace }} \
+      svc/{{ include "openrag.backend.serviceName" . }} 8000:{{ .Values.backend.service.port }}
+{{- end }}
+
+=== KEDA Workers =========================================================
+
+  Pipeline workers are scaled by KEDA ScaledJob on queue: pipeline:queue
+  Max concurrent jobs : {{ .Values.worker.maxReplicas }}
+  Items per job       : {{ .Values.worker.targetQueueLength }}
+
+  Verify KEDA is installed:
+    kubectl get crd scaledjobs.keda.sh
+
+=== Security =============================================================
+
+{{- if .Values.backend.existingSecret }}
+  Using existing secret: {{ .Values.backend.existingSecret }}
+{{- else }}
+  Chart-managed secret: {{ include "openrag.secretName" . }}
+  *** Review and rotate secrets in production! ***
+{{- end }}
+
+{{- if not .Values.networkPolicy.enabled }}
+  WARNING: NetworkPolicy is DISABLED. Enable for production deployments.
+{{- end }}
+
+=== Troubleshooting ======================================================
+
+  # Check pod status
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+  # Backend logs
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/component=backend --tail=100
+
+  # KEDA ScaledJob status
+  kubectl describe scaledjob -n {{ .Release.Namespace }} {{ include "openrag.fullname" . }}-worker
+
+=========================================================================

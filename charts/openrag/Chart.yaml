@@ -1,0 +1,41 @@
+apiVersion: v2
+name: openrag
+description: >
+  Production-ready Helm chart for OpenRAG — an open-source agentic RAG platform
+  with composable ingestion pipelines, KEDA-driven worker autoscaling, and
+  first-class IBM Cloud support.
+type: application
+version: 1.0.0
+appVersion: "0.2.0"
+keywords:
+  - openrag
+  - rag
+  - retrieval-augmented-generation
+  - opensearch
+  - ai
+  - llm
+  - keda
+  - pipeline
+home: https://github.com/langflow-ai/openrag
+sources:
+  - https://github.com/langflow-ai/openrag
+maintainers:
+  - name: OpenRAG Team
+    url: https://github.com/langflow-ai/openrag
+icon: https://raw.githubusercontent.com/langflow-ai/openrag/main/docs/openrag-logo.png
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: Production-ready chart with KEDA ScaledJob workers
+    - kind: added
+      description: IBM Cloud values overlay
+    - kind: added
+      description: NetworkPolicy support
+    - kind: added
+      description: PodDisruptionBudget for backend and frontend
+
+dependencies:
+  - name: redis
+    version: "20.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled

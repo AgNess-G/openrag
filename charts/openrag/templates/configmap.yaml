@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openrag.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.labels" . | nindent 4 }}
+data:
+  # ── OpenSearch connection (non-secret) ────────────────────────────────
+  OPENSEARCH_HOST: {{ include "openrag.opensearch.host" . | quote }}
+  OPENSEARCH_PORT: {{ include "openrag.opensearch.port" . | quote }}
+
+  # ── Redis connection (non-secret) ─────────────────────────────────────
+  REDIS_HOST: {{ include "openrag.redis.host" . | quote }}
+  REDIS_PORT: {{ include "openrag.redis.port" . | quote }}
+  {{- if and (not .Values.redis.enabled) .Values.redis_external.tls }}
+  REDIS_TLS: "true"
+  {{- end }}
+
+  # ── Pipeline configuration ─────────────────────────────────────────────
+  PIPELINE_INGESTION_MODE: {{ .Values.config.pipeline.ingestionMode | quote }}
+  PIPELINE_EXECUTION_BACKEND: {{ .Values.config.pipeline.executionBackend | quote }}
+  REDIS_WORKER_MODE: {{ .Values.config.pipeline.workerMode | quote }}
+  PIPELINE_CONFIG_FILE: {{ .Values.config.pipeline.configFile | quote }}
+
+  # ── Feature flags ──────────────────────────────────────────────────────
+  DISABLE_LANGFLOW: "true"

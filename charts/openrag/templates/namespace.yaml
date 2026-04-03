@@ -1,0 +1,21 @@
+{{/*
+  Namespace is intentionally NOT created by the chart because:
+    1. Helm install --create-namespace is the standard way to create namespaces.
+    2. Creating namespaces inside a chart prevents re-use of existing namespaces
+       and causes conflicts on upgrades.
+
+  If you want the chart to manage the namespace, uncomment the block below
+  and remove the --create-namespace flag from your helm install command.
+*/}}
+
+{{/*
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+*/}}

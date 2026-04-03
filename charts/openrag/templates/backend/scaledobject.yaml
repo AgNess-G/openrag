@@ -1,0 +1,45 @@
+{{- if .Values.backend.autoscaling.keda.enabled }}
+# KEDA ScaledObject for the backend API — dual triggers:
+#   1. CPU utilisation (prevents request latency spikes)
+#   2. Redis queue depth (scale ahead of worker saturation)
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "openrag.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.backend.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "openrag.fullname" . }}-backend
+  minReplicaCount: {{ .Values.backend.autoscaling.keda.minReplicas }}
+  maxReplicaCount: {{ .Values.backend.autoscaling.keda.maxReplicas }}
+  pollingInterval:  {{ .Values.backend.autoscaling.keda.pollingInterval }}
+  cooldownPeriod:   {{ .Values.backend.autoscaling.keda.cooldownPeriod }}
+  # Prevent KEDA from touching the replica count during downtime windows
+  fallback:
+    failureThreshold: 3
+    replicas: {{ .Values.backend.autoscaling.keda.minReplicas }}
+  triggers:
+    # ── Trigger 1: CPU-based (standard HPA-style) ────────────────────────
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.backend.autoscaling.keda.cpuTarget | quote }}
+
+    # ── Trigger 2: Redis queue depth ─────────────────────────────────────
+    # Adds one backend replica per queueScaleRatio items in the queue,
+    # ensuring the API can handle enqueue/dequeue load as the queue grows.
+    - type: redis
+      authenticationRef:
+        name: {{ include "openrag.fullname" . }}-redis-triggerauth
+      metadata:
+        address: {{ include "openrag.redis.host" . }}:{{ include "openrag.redis.port" . }}
+        listName: pipeline:queue
+        listLength: {{ .Values.backend.autoscaling.keda.queueScaleRatio | quote }}
+        {{- if and (not .Values.redis.enabled) .Values.redis_external.tls }}
+        enableTLS: "true"
+        {{- end }}
+{{- end }}

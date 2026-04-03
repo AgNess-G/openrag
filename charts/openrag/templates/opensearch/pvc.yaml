@@ -1,0 +1,71 @@
+{{/*
+  OpenSearch data is managed by the StatefulSet's volumeClaimTemplates.
+  This file manages additional PVCs for backend components.
+*/}}
+
+{{- if .Values.backend.persistence.documents.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "openrag.fullname" . }}-documents
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.backend.labels" . | nindent 4 }}
+  annotations:
+    # Retain PVC on helm uninstall to protect uploaded documents
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.backend.persistence.documents.accessMode }}
+  {{- $sc := coalesce .Values.backend.persistence.documents.storageClass .Values.global.storageClass }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backend.persistence.documents.size }}
+{{- end }}
+---
+{{- if .Values.backend.persistence.keys.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "openrag.fullname" . }}-keys
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.backend.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.backend.persistence.keys.accessMode }}
+  {{- $sc := coalesce .Values.backend.persistence.keys.storageClass .Values.global.storageClass }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backend.persistence.keys.size }}
+{{- end }}
+---
+{{- if .Values.backend.persistence.config.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "openrag.fullname" . }}-config-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.backend.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.backend.persistence.config.accessMode }}
+  {{- $sc := coalesce .Values.backend.persistence.config.storageClass .Values.global.storageClass }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backend.persistence.config.size }}
+{{- end }}

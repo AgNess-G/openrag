@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openrag.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.backend.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.backend.autoscaling.keda.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "openrag.backend.selectorLabels" . | nindent 6 }}
+  {{- with .Values.backend.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "openrag.backend.selectorLabels" . | nindent 8 }}
+        # Trigger pod restart when ConfigMap or Secret content changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | trunc 16 | quote }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum | trunc 16 | quote }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      {{- include "openrag.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "openrag.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.backend.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      # ── Init containers ────────────────────────────────────────────────
+      initContainers:
+        - name: wait-for-opensearch
+          image: curlimages/curl:8.7.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for OpenSearch at {{ include "openrag.opensearch.host" . }}:{{ include "openrag.opensearch.port" . }}"
+              until curl -sf \
+                -u "$(OPENSEARCH_USERNAME):$(OPENSEARCH_PASSWORD)" \
+                "http://{{ include "openrag.opensearch.host" . }}:{{ include "openrag.opensearch.port" . }}/_cluster/health?wait_for_status=yellow&timeout=5s" \
+                > /dev/null 2>&1; do
+                echo "OpenSearch not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "OpenSearch is ready."
+          env:
+            - name: OPENSEARCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openrag.secretName" . }}
+                  key: OPENSEARCH_USERNAME
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openrag.secretName" . }}
+                  key: OPENSEARCH_PASSWORD
+
+      # ── Main containers ────────────────────────────────────────────────
+      containers:
+        - name: backend
+          image: {{ include "openrag.backend.image" . }}
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          {{- with .Values.backend.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          # Load non-secret config from ConfigMap, secrets from Secret
+          envFrom:
+            - configMapRef:
+                name: {{ include "openrag.fullname" . }}-config
+            {{- include "openrag.secretEnvFrom" . | nindent 12 }}
+
+          # Extra env vars from values.backend.env (key: value map)
+          {{- if .Values.backend.env }}
+          env:
+            {{- range $key, $val := .Values.backend.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          {{- end }}
+
+          {{- with .Values.backend.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .Values.backend.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          volumeMounts:
+            {{- if .Values.backend.persistence.documents.enabled }}
+            - name: documents
+              mountPath: {{ .Values.backend.persistence.documents.mountPath }}
+            {{- end }}
+            {{- if .Values.backend.persistence.keys.enabled }}
+            - name: keys
+              mountPath: {{ .Values.backend.persistence.keys.mountPath }}
+            {{- end }}
+            {{- if .Values.backend.persistence.config.enabled }}
+            - name: config-data
+              mountPath: {{ .Values.backend.persistence.config.mountPath }}
+            {{- end }}
+            # Writable tmp for runtime scratch space
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        {{- if .Values.backend.persistence.documents.enabled }}
+        - name: documents
+          persistentVolumeClaim:
+            claimName: {{ include "openrag.fullname" . }}-documents
+        {{- end }}
+        {{- if .Values.backend.persistence.keys.enabled }}
+        - name: keys
+          persistentVolumeClaim:
+            claimName: {{ include "openrag.fullname" . }}-keys
+        {{- end }}
+        {{- if .Values.backend.persistence.config.enabled }}
+        - name: config-data
+          persistentVolumeClaim:
+            claimName: {{ include "openrag.fullname" . }}-config-data
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

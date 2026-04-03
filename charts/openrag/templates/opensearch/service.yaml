@@ -1,0 +1,50 @@
+{{- if .Values.opensearch.enabled }}
+# ClusterIP service — used by backend and workers
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openrag.opensearch.serviceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.opensearch.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "openrag.opensearch.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.opensearch.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: transport
+      port: {{ .Values.opensearch.service.transportPort }}
+      targetPort: transport
+      protocol: TCP
+    - name: perf-analyzer
+      port: {{ .Values.opensearch.service.performanceAnalyzerPort }}
+      targetPort: perf-analyzer
+      protocol: TCP
+---
+# Headless service — required by StatefulSet for stable pod DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openrag.opensearch.serviceName" . }}-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.opensearch.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "openrag.opensearch.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.opensearch.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: transport
+      port: {{ .Values.opensearch.service.transportPort }}
+      targetPort: transport
+      protocol: TCP
+{{- end }}

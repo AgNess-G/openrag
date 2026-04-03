@@ -1,0 +1,48 @@
+# Copy to terraform.tfvars and fill in values
+# Never commit terraform.tfvars to git
+
+ibmcloud_api_key = "YOUR_IBM_CLOUD_API_KEY"
+region           = "us-south"
+resource_group   = "openrag-rg"
+prefix           = "openrag"
+
+# Cluster
+cluster_name       = "openrag-cluster"
+worker_pool_flavor = "bx2.4x16"
+worker_count       = 2
+zone               = "us-south-1"
+
+# OpenSearch
+opensearch_password = "MyStrongPassword1234!"
+opensearch_storage_gb = 50
+
+# Redis (IBM Databases)
+redis_plan      = "standard"
+redis_memory_mb = 1024
+
+# AI providers (set at least one)
+openai_api_key     = ""
+watsonx_api_key    = ""
+watsonx_project_id = ""
+watsonx_endpoint   = ""
+
+# Security
+session_secret  = "change-me-random-32-chars-minimum"
+encryption_key  = "change-me-random-32-chars-minimum"
+
+# Worker scaling
+worker_max_replicas        = 20
+worker_target_queue_length = 5
+
+# Backend scaling
+backend_min_replicas       = 2
+backend_max_replicas       = 10
+backend_cpu_target         = 70
+backend_queue_scale_ratio  = 50
+
+# COS
+cos_bucket_name    = "openrag-documents"
+registry_namespace = "openrag"
+
+# Image version
+openrag_version = "latest"

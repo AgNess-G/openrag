@@ -1,0 +1,16 @@
+# TriggerAuthentication — shared by both ScaledJob (worker) and ScaledObject (backend)
+# It references the chart-managed (or existing) secret for Redis credentials.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "openrag.fullname" . }}-redis-triggerauth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openrag.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    {{- if .Values.config.redis.password }}
+    - parameter: password
+      name: {{ include "openrag.secretName" . }}
+      key: REDIS_PASSWORD
+    {{- end }}
