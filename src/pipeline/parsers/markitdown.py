@@ -31,6 +31,7 @@ class MarkItDownParser:
             filename=metadata.filename or os.path.basename(file_path),
             content=result.text_content,
             mimetype=metadata.mimetype or "text/markdown",
+            file_path=file_path,
         )
 
     @staticmethod

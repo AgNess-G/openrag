@@ -31,6 +31,7 @@ class ParsedDocument:
     pages: list[dict] | None = None
     tables: list[dict] | None = None
     metadata: dict = field(default_factory=dict)
+    file_path: str | None = None  # original file path, used by DoclingHybridChunker
 
 
 @dataclass(slots=True)

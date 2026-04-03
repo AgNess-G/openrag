@@ -77,4 +77,5 @@ class DoclingParser:
             pages=pages or None,
             tables=tables or None,
             metadata={"docling_id": slim_doc.get("id")},
+            file_path=file_path,
         )

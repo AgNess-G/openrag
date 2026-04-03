@@ -61,6 +61,7 @@ class ChunkerConfig(BaseModel):
     separators: list[str] = Field(
         default_factory=lambda: ["\n\n", "\n", " "]
     )
+    max_tokens: int = Field(default=512, ge=64, le=4096)  # docling_hybrid only
 
 
 class EmbedderConfig(BaseModel):
@@ -144,6 +145,7 @@ _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "PIPELINE_CHUNKER": ("chunker.type", str),
     "PIPELINE_CHUNK_SIZE": ("chunker.chunk_size", int),
     "PIPELINE_CHUNK_OVERLAP": ("chunker.chunk_overlap", int),
+    "PIPELINE_CHUNK_MAX_TOKENS": ("chunker.max_tokens", int),
     "PIPELINE_EMBEDDER_PROVIDER": ("embedder.provider", str),
     "PIPELINE_EMBEDDER_MODEL": ("embedder.model", str),
     "PIPELINE_EXECUTION_BACKEND": ("execution.backend", str),

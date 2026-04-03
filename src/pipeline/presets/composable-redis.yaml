@@ -22,8 +22,9 @@ preprocessors:
 
 chunker:
   type: docling_hybrid
-  chunk_size: 1000
-  chunk_overlap: 200
+  chunk_size: 1000    # fallback only (used when docling-serve is unreachable)
+  chunk_overlap: 200  # fallback only
+  max_tokens: 512     # used by docling-serve HybridChunker
 
 embedder:
   provider: openai

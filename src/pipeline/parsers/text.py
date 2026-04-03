@@ -18,4 +18,5 @@ class PlainTextParser:
             filename=metadata.filename or os.path.basename(file_path),
             content=content,
             mimetype="text/plain",
+            file_path=file_path,
         )

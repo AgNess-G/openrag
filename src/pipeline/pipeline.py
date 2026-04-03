@@ -202,6 +202,8 @@ class PipelineBuilder:
             kwargs["separators"] = cfg.separators
         if cfg.type.value == "character":
             kwargs["separator"] = cfg.separators[0] if cfg.separators else "\n\n"
+        if cfg.type.value == "docling_hybrid":
+            kwargs["max_tokens"] = cfg.max_tokens
         return cls(**kwargs)
 
     def _build_embedder(self):
