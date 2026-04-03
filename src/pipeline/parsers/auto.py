@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from pipeline.types import FileMetadata, ParsedDocument
+
+logger = logging.getLogger(__name__)
 
 _DOCLING_EXTENSIONS = frozenset({
     ".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm",
@@ -48,7 +51,15 @@ class AutoParser:
             return await self._text.parse(file_path, metadata)
 
         if ext in _DOCLING_EXTENSIONS:
-            return await self._docling.parse(file_path, metadata)
+            try:
+                return await self._docling.parse(file_path, metadata)
+            except Exception as e:
+                if self._markitdown is not None:
+                    logger.warning(
+                        "DoclingParser failed, falling back to MarkItDownParser: %s", e
+                    )
+                    return await self._markitdown.parse(file_path, metadata)
+                raise
 
         if self._markitdown is not None:
             try:

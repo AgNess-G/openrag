@@ -437,7 +437,17 @@ def _mirror_app_services_to_imported_main_module(services: dict | None) -> None:
 
 
 def _is_composable_mode() -> bool:
-    """Return True when the pipeline is configured for composable ingestion."""
+    """Return True when the pipeline is configured for composable ingestion.
+
+    Checks the PIPELINE_INGESTION_MODE env var first (no file I/O) so startup
+    behaviour is predictable even if the pipeline config YAML is missing.
+    Falls back to loading the config file for cases where the mode is set
+    only in the YAML and not in the environment.
+    """
+    # Fast path: env var set directly — no file loading needed
+    if os.getenv("PIPELINE_INGESTION_MODE", "").lower() == "composable":
+        return True
+    # Fallback: read from pipeline.yaml / PIPELINE_CONFIG_FILE
     try:
         from pipeline.config import PipelineConfigManager
         cfg = PipelineConfigManager().load()

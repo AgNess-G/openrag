@@ -63,6 +63,18 @@ DISABLE_INGEST_WITH_LANGFLOW = os.getenv(
     "DISABLE_INGEST_WITH_LANGFLOW", "false"
 ).lower() in ("true", "1", "yes")
 
+# Feature flag: skip ALL Langflow initialisation (health check, API key retry,
+# client creation).  Set explicitly, or it is implied when:
+#   PIPELINE_INGESTION_MODE=composable   (composable pipeline — no Langflow needed)
+#   DISABLE_INGEST_WITH_LANGFLOW=true    (traditional path without Langflow)
+# Checked via env vars directly so startup never blocks on a missing/broken
+# pipeline config YAML.
+DISABLE_LANGFLOW: bool = (
+    os.getenv("DISABLE_LANGFLOW", "false").lower() in ("true", "1", "yes")
+    or os.getenv("PIPELINE_INGESTION_MODE", "").lower() == "composable"
+    or DISABLE_INGEST_WITH_LANGFLOW
+)
+
 # Ingest sample data configuration
 INGEST_SAMPLE_DATA = os.getenv(
     "INGEST_SAMPLE_DATA", "true"
@@ -217,6 +229,14 @@ async def get_langflow_api_key(force_regenerate: bool = False):
     """
     global LANGFLOW_KEY
 
+    # Guard: DISABLE_LANGFLOW covers composable mode, DISABLE_INGEST_WITH_LANGFLOW,
+    # and the explicit DISABLE_LANGFLOW=true flag.  Return early from ALL call
+    # paths — not just the one in AppClients.initialize() — so lazy callers
+    # (ensure_langflow_client, langflow_request, etc.) are also protected.
+    if DISABLE_LANGFLOW:
+        logger.debug("Langflow disabled: skipping API key generation")
+        return None
+
     logger.debug(
         "get_langflow_api_key called",
         current_key_present=bool(LANGFLOW_KEY),
@@ -370,18 +390,13 @@ class AppClients:
             )
         )
 
-        # Check composable mode -- skip Langflow init entirely if active
-        skip_langflow = False
-        try:
-            from pipeline.config import PipelineConfigManager
-            _pcm = PipelineConfigManager()
-            _pcfg = _pcm.load()
-            skip_langflow = _pcfg.ingestion_mode == "composable"
-        except Exception as e:
-            logger.warning("Failed to check composable mode in AppClients", error=str(e))
-
-        if skip_langflow:
-            logger.info("Composable mode: skipping Langflow client initialization")
+        if DISABLE_LANGFLOW:
+            logger.info(
+                "Langflow disabled via feature flag: skipping health check, "
+                "API key init, and client creation",
+                disable_langflow=True,
+                pipeline_ingestion_mode=os.getenv("PIPELINE_INGESTION_MODE", ""),
+            )
         else:
             self.langflow_http_client = httpx.AsyncClient(
                 base_url=LANGFLOW_URL,
@@ -425,6 +440,9 @@ class AppClients:
 
     async def ensure_langflow_client(self):
         """Ensure Langflow client exists; try to generate key and create client lazily."""
+        if DISABLE_LANGFLOW:
+            logger.debug("Langflow disabled: skipping ensure_langflow_client")
+            return None
         if self.langflow_client is not None:
             return self.langflow_client
         # Try generating key again (with retries)

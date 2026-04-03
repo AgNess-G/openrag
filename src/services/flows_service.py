@@ -159,6 +159,11 @@ class FlowsService:
         Returns:
             dict: Summary of backup operations with success/failure status
         """
+        from config.settings import DISABLE_LANGFLOW
+        if DISABLE_LANGFLOW:
+            logger.debug("Langflow disabled: skipping flow backup")
+            return {"success": True, "backed_up": [], "skipped": [], "failed": []}
+
         backup_results = {
             "success": True,
             "backed_up": [],

@@ -42,6 +42,9 @@ _background_tasks: set[asyncio.Task] = set()
 
 def _is_composable_mode() -> bool:
     """Return True when the pipeline is configured for composable ingestion."""
+    import os
+    if os.getenv("PIPELINE_INGESTION_MODE", "").lower() == "composable":
+        return True
     try:
         from pipeline.config import PipelineConfigManager
         cfg = PipelineConfigManager().load()

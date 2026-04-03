@@ -30,9 +30,21 @@ async def wait_for_langflow(
     Raises:
         LangflowNotReadyError: If Langflow fails to become ready within the retry limit.
     """
+    from config.settings import DISABLE_LANGFLOW
+    if DISABLE_LANGFLOW:
+        logger.debug("Langflow disabled: skipping wait_for_langflow")
+        return
+
     if langflow_http_client is None:
         from config.settings import clients
         langflow_http_client = clients.langflow_http_client
+
+    if langflow_http_client is None:
+        raise LangflowNotReadyError(
+            "Langflow HTTP client is not initialised. "
+            "Set DISABLE_LANGFLOW=true or PIPELINE_INGESTION_MODE=composable "
+            "to skip Langflow entirely."
+        )
 
     for attempt in range(max_retries):
         display_attempt: int = attempt + 1

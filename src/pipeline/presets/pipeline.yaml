@@ -3,11 +3,11 @@ version: "1"
 ingestion_mode: composable
 
 parser:
-  type: docling
+  type: auto
   docling:
-    ocr: true
+    ocr: false
     ocr_engine: easyocr
-    table_structure: true
+    table_structure: false
 
 preprocessors:
   - type: cleaning
@@ -26,5 +26,5 @@ indexer:
   bulk_batch_size: 500
 
 execution:
-  backend: local
+  backend: redis
   concurrency: 4
