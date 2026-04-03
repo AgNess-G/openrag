@@ -1,0 +1,109 @@
+---
+# KEDA ScaledJob — creates one K8s Job per N items in the Redis queue.
+#
+# Prerequisites:
+#   kubectl apply -f https://github.com/kedacore/keda/releases/download/v2.15.1/keda-2.15.1.yaml
+#
+# Key scaling properties:
+#   pollingInterval   How often KEDA checks the queue depth (seconds)
+#   maxReplicaCount   Hard ceiling on concurrent Jobs
+#   targetQueueLength Files per Job — tune based on avg file processing time
+#   cooldownPeriod    Seconds to wait after queue empties before removing Jobs
+#
+# Cost optimisation:
+#   - minReplicaCount is implicitly 0 — no idle workers
+#   - Use spot/preemptible node pools for the pipeline-worker node selector
+#   - Each Job exits when its queue slice is empty → memory fully released
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: openrag-pipeline-worker
+spec:
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    activeDeadlineSeconds: 3600   # matches execution.timeout
+    backoffLimit: 0               # application-level retries handle failures;
+                                  # K8s Job restart is a last resort only
+    template:
+      metadata:
+        labels:
+          app: openrag-pipeline-worker
+      spec:
+        restartPolicy: Never
+        # Pin workers to spot/preemptible nodes to reduce cost
+        # nodeSelector:
+        #   cloud.google.com/gke-spot: "true"           # GKE
+        #   eks.amazonaws.com/capacityType: SPOT         # EKS
+        #   ibm-cloud.kubernetes.io/worker-pool: spot    # IKS
+        containers:
+          - name: pipeline-worker
+            image: langflowai/openrag-backend:latest   # same image as the API
+            command: ["python", "-m", "pipeline.worker.job_worker"]
+            resources:
+              requests:
+                cpu: "1"
+                memory: "2Gi"
+              limits:
+                cpu: "2"
+                memory: "4Gi"
+            env:
+              - name: REDIS_HOST
+                value: openrag-redis          # ClusterIP Service name
+              - name: REDIS_PORT
+                value: "6379"
+              - name: REDIS_WORKER_MODE
+                value: worker
+              - name: PIPELINE_EXECUTION_BACKEND
+                value: redis
+              - name: WORKER_IDLE_TIMEOUT
+                value: "15"
+              # Inject secrets from K8s Secret / ConfigMap
+              - name: OPENSEARCH_HOST
+                valueFrom:
+                  secretKeyRef:
+                    name: openrag-secrets
+                    key: OPENSEARCH_HOST
+              - name: OPENSEARCH_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: openrag-secrets
+                    key: OPENSEARCH_PASSWORD
+              - name: OPENAI_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: openrag-secrets
+                    key: OPENAI_API_KEY
+                    optional: true
+              - name: WATSONX_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: openrag-secrets
+                    key: WATSONX_API_KEY
+                    optional: true
+              - name: WATSONX_PROJECT_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: openrag-secrets
+                    key: WATSONX_PROJECT_ID
+                    optional: true
+              - name: WATSONX_ENDPOINT
+                valueFrom:
+                  secretKeyRef:
+                    name: openrag-secrets
+                    key: WATSONX_ENDPOINT
+                    optional: true
+  # ── Scaling triggers ────────────────────────────────────────────────
+  triggers:
+    - type: redis
+      metadata:
+        address: openrag-redis:6379
+        listName: pipeline:queue
+        listLength: "5"           # create 1 Job per 5 queued items
+  # ── Scaling behaviour ───────────────────────────────────────────────
+  pollingInterval: 15             # check queue every 15 seconds
+  maxReplicaCount: 50             # at most 50 concurrent Jobs
+  successfulJobsHistoryLimit: 3   # keep last 3 completed Jobs for debugging
+  failedJobsHistoryLimit: 5
+  scalingStrategy:
+    strategy: accurate

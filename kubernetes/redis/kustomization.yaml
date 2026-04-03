@@ -1,0 +1,3 @@
+resources:
+  - redis-deployment.yaml
+  - keda-scaledjob.yaml

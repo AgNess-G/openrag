@@ -1,12 +1,15 @@
 # OpenRAG Ingestion Architecture — Evolution Diagram
 
-Compares two generations of the ingestion architecture: the original dual-path system and the composable pipeline with Ray.
+Three generations of the ingestion architecture, from the original dual-path
+system through the composable Ray-based pipeline, to the current
+Redis/KEDA queue-driven design.
 
 ---
 
 ## 1. Generation 1 — Original Dual-Path Architecture
 
-The baseline before the composable pipeline. Two hardcoded paths, no pluggable stages, all in-process.
+The baseline before the composable pipeline. Two hardcoded paths, no pluggable
+stages, all in-process.
 
 ```mermaid
 flowchart TB
@@ -55,9 +58,14 @@ flowchart TB
 
 ---
 
-## 2. Generation 2 — Composable Pipeline with Ray
+## 2. Generation 2 — Composable Pipeline with Ray *(superseded)*
 
-Protocol-based pluggable pipeline. Execution is an abstraction with two implementations: local asyncio and Ray.
+Protocol-based pluggable pipeline with two execution backends: local asyncio and
+Ray for distributed processing.
+
+> **Note:** Ray has been removed in Generation 3. This section documents the
+> intermediate state for historical reference. See `Arch/why-not-ray.md` for
+> the full reasoning.
 
 ```mermaid
 flowchart TB
@@ -65,16 +73,10 @@ flowchart TB
 
     subgraph api [API Layer]
         Upload["POST /ingest"]
-        TaskSvc["TaskService\n+ ComposableFileProcessor\nfull /tasks tracking"]
         Switch{"ingestion_mode?"}
     end
 
-    subgraph existing [Existing Paths — Untouched]
-        Langflow["Langflow Pipeline"]
-        Traditional["Traditional Pipeline"]
-    end
-
-    subgraph backend_choice [Execution Backend — pipeline.yaml]
+    subgraph backend_choice [Execution Backend]
         BackendSwitch{"execution.backend?"}
     end
 
@@ -82,177 +84,193 @@ flowchart TB
         LocalSem["asyncio.Semaphore\nexecution.concurrency\nin-process"]
     end
 
-    subgraph ray_backend [ray — Scalable · Distributed]
-        RayInit["ray.init\nauto | address"]
-        subgraph ray_cluster [Ray Cluster]
-            RayHead["Ray Head\nGCS + Dashboard :8265"]
-            RayW1["Ray Worker 1\nisolated process"]
-            RayW2["Ray Worker 2\nisolated process"]
-            RayWN["Ray Worker N\nisolated process"]
-            RayHead --> RayW1 & RayW2 & RayWN
-        end
-        RayInit --> RayHead
+    subgraph ray_backend [ray — Scalable · Distributed ⚠ removed]
+        RayCluster["Ray Cluster\nHead + Workers\nAlways-on head node cost"]
     end
 
-    subgraph pipeline [Composable Pipeline — Rebuilt per Worker]
+    subgraph pipeline [Composable Pipeline]
         direction LR
-        Parser2["Parser\nauto | docling\nmarkitdown | text"]
-        Pre2["Preprocessors\ncleaning | dedup\nmetadata"]
-        Chunker2["Chunker\nrecursive | semantic\ncharacter | docling_hybrid"]
-        Embedder2["Embedder\nopenai | watsonx\nollama | huggingface"]
-        Indexer2["Indexer\nopensearch_bulk"]
-        Parser2 --> Pre2 --> Chunker2 --> Embedder2 --> Indexer2
+        Parser2["Parser"]
+        Chunker2["Chunker"]
+        Embedder2["Embedder"]
+        Indexer2["Indexer"]
+        Parser2 --> Chunker2 --> Embedder2 --> Indexer2
     end
 
-    subgraph cfg2 [Config — pipeline.yaml]
-        YAML2["ingestion_mode: composable\nexecution:\n  backend: local | ray\n  concurrency: N\n  ray:\n    address: auto"]
-    end
-
-    Client --> Upload --> TaskSvc --> Switch
-    Switch -->|"langflow"| Langflow
-    Switch -->|"traditional"| Traditional
+    Client --> Upload --> Switch
     Switch -->|"composable"| BackendSwitch
-    BackendSwitch -->|"local"| LocalSem
-    BackendSwitch -->|"ray"| RayInit
-    LocalSem --> Parser2
-    RayW1 & RayW2 & RayWN --> Parser2
-    cfg2 -.->|"drives"| pipeline
-    cfg2 -.->|"drives"| BackendSwitch
+    BackendSwitch -->|"local"| LocalSem --> pipeline
+    BackendSwitch -->|"ray ⚠"| RayCluster --> pipeline
 ```
 
----
-
-## 3. Side-by-Side Comparison
-
-```mermaid
-flowchart LR
-    subgraph gen1 [Gen 1 — Dual Path]
-        direction TB
-        G1A["Upload"]
-        G1B{"DISABLE_\nLANGFLOW?"}
-        G1C["Langflow\nhardcoded stages"]
-        G1D["Traditional\nhardcoded stages"]
-        G1E["asyncio.Semaphore\nin-process only"]
-        G1A --> G1B
-        G1B -->|false| G1C
-        G1B -->|true| G1D
-        G1C & G1D --> G1E
-    end
-
-    subgraph gen2 [Gen 2 — Composable + Ray]
-        direction TB
-        G3A["Upload → TaskService\n/tasks tracking"]
-        G3B{"ingestion_mode?"}
-        G3C["Langflow / Traditional\nunchanged"]
-        G3D{"execution.backend?"}
-        G3E["LocalBackend\nasyncio · zero deps"]
-        G3F["RayBackend\ndistributed · GPU-aware"]
-        G3G["Pluggable stages\nrebuilt per worker\nPipelineConfig only"]
-        G3A --> G3B
-        G3B -->|"langflow/traditional"| G3C
-        G3B -->|"composable"| G3D
-        G3D -->|"local"| G3E --> G3G
-        G3D -->|"ray"| G3F --> G3G
-    end
-```
+**Why Gen 2 was improved:**
+- Ray head node always running — fixed monthly cost even at zero load
+- Memory not released between tasks in long-lived Ray workers
+- KubeRay cluster adds operational complexity (head CRD, worker auto-scaler)
+- Ray dependency (~300 MB) bloats the container image
 
 ---
 
-## 4. Key Differences — Gen 1 vs Gen 2
+## 3. Generation 3 — Redis Queue + KEDA *(current)*
 
-| Concern | Gen 1 (Dual Path) | Gen 2 (Composable + Ray) |
-|---|---|---|
-| Stages | Hardcoded per path | Pluggable via `pipeline.yaml` |
-| Parsers | Docling only | auto, docling, markitdown, text |
-| Chunkers | Hardcoded (char / page-table) | recursive, semantic, character, docling_hybrid |
-| Embedders | Hardcoded provider | openai, watsonx, ollama, huggingface |
-| Indexing | Per-chunk writes | Bulk `_bulk` API |
-| Concurrency | `asyncio.Semaphore` (fixed) | `execution.concurrency` or Ray scheduler |
-| Scale | Single process | Local → Docker → IKS → Code Engine |
-| GPU scheduling | None | Native via Ray |
-| Fault tolerance | None | Built-in Ray retries + lineage |
-| Monitoring | None | Ray Dashboard (:8265) |
-| Task tracking | TaskService | TaskService (same + richer result) |
-| Infra (local) | None | None (`local` backend needs zero extras) |
-| Infra (scale) | N/A | Ray cluster (Docker / KubeRay) |
-
----
-
-## 5. Deployment Topology — Ray Backend
+Stateless, ephemeral workers triggered by queue depth. True scale-to-zero.
+Same pipeline code; new execution layer below it.
 
 ```mermaid
 flowchart TB
-    subgraph local_dev [Local Dev · ray.init auto]
-        DevApp["openrag-backend\n+ Ray head\n(same process)"]
+    Client(["Client\nFile Upload"])
+
+    subgraph api [API Tier — always-on, minimal]
+        Upload["POST /ingest"]
+        Switch{"ingestion_mode?"}
+        PipelineSvc["PipelineService\nRedisBackend"]
     end
 
-    subgraph docker [Docker Compose · --profile ray]
-        DocApp["openrag-backend"]
-        DocHead["ray-head :6379 :8265"]
-        DocWorkers["ray-worker × N\n(langflowai/openrag-backend image)"]
-        DocApp -->|"ray://ray-head:10001"| DocHead
-        DocHead --> DocWorkers
+    subgraph queue [Redis Queue — 128–512 MB fixed]
+        Q[("pipeline:queue\nLIST")]
+        Results[("pipeline:results:{id}\npipeline:dlq:{id}\nHASH / LIST")]
     end
 
-    subgraph iks [IBM Cloud IKS · KubeRay]
-        IKSApp["openrag-backend pod"]
-        IKSHead["RayCluster head"]
-        IKSCPU["cpu-workers\nautoscale 1–20"]
-        IKSGPU["gpu-workers\nIKS GPU pool"]
-        IKSApp -->|"ray://head-svc:10001"| IKSHead
-        IKSHead --> IKSCPU & IKSGPU
+    subgraph scaler [KEDA ScaledJob]
+        KEDA["Polls queue every 15 s\n0 → 50 Jobs based on depth\nScale-to-zero when empty"]
     end
 
-    subgraph ce [IBM Code Engine · Serverless]
-        CEApp["openrag-backend app"]
-        CEHead["ray-head app\n(fixed scale 1)"]
-        CEWorkers["ray-workers job\n(scale 0 → N)"]
-        CEApp -->|"private endpoint"| CEHead
-        CEHead --> CEWorkers
+    subgraph workers [K8s Jobs — ephemeral]
+        W1["Job 1\n1 CPU / 2 GB\nexits when done\nmemory released"]
+        W2["Job 2\n1 CPU / 2 GB\nexits when done\nmemory released"]
+        WN["Job N\n1 CPU / 2 GB\nexits when done\nmemory released"]
+    end
+
+    subgraph pipeline [Composable Pipeline — per Job]
+        direction LR
+        Parser3["Parser\nauto | docling\nmarkitdown | text"]
+        Pre3["Preprocessors\ncleaning | dedup"]
+        Chunker3["Chunker\nrecursive | semantic\ncharacter | docling_hybrid"]
+        Embedder3["Embedder\nopenai | watsonx\nollama | huggingface"]
+        Indexer3["Indexer\nopensearch_bulk"]
+        Parser3 --> Pre3 --> Chunker3 --> Embedder3 --> Indexer3
+    end
+
+    subgraph storage [Storage]
+        OS[("OpenSearch\nVector Index")]
+    end
+
+    Client --> Upload --> Switch
+    Switch -->|"composable"| PipelineSvc
+    PipelineSvc -->|"RPUSH"| Q
+    Q -->|"queue depth"| KEDA
+    KEDA -->|"creates"| W1 & W2 & WN
+    W1 & W2 & WN -->|"BLPOP"| Q
+    W1 & W2 & WN --> pipeline
+    pipeline --> OS
+    W1 & W2 & WN -->|"HSET result / DLQ"| Results
+```
+
+**Also supported — local mode (no K8s needed):**
+
+```mermaid
+flowchart LR
+    API["FastAPI\nPipelineService\nRedisBackend mode=local"]
+    Redis[("Redis\nlocalhost:6379")]
+    Workers["asyncio Tasks\nN concurrent\nsame process"]
+    Pipeline["Composable Pipeline"]
+
+    API -->|"RPUSH"| Redis
+    API -->|"spawns"| Workers
+    Workers -->|"BLPOP"| Redis
+    Workers --> Pipeline
+```
+
+---
+
+## 4. Comparison — All Three Generations
+
+| Concern | Gen 1 | Gen 2 (Ray) | Gen 3 (Redis/KEDA) |
+|---|---|---|---|
+| Stages | Hardcoded | Pluggable YAML | Pluggable YAML |
+| Idle cost | ~$0 | $$$ (Ray head always on) | $ (Redis only) |
+| Scale to zero | N/A | No | Yes |
+| Memory release | On restart | Partial (long-lived workers) | Yes (Job exits) |
+| Fault tolerance | None | Ray retries | App retries + DLQ |
+| Batch state | In-memory | In-memory | Redis (survives restart) |
+| Local dev infra | None | None (`local` backend) | Redis Docker only |
+| Cloud infra | N/A | KubeRay cluster | KEDA + Redis |
+| Dependency size | N/A | +300 MB (Ray) | +2 MB (`redis`) |
+| Horizontal API scale | No | No (shared Ray refs) | Yes (shared Redis queue) |
+| GPU scheduling | No | Yes (Ray native) | Via node selectors |
+
+---
+
+## 5. Deployment Topology — Gen 3
+
+```mermaid
+flowchart TB
+    subgraph local_dev [Local Dev — mode: local]
+        DevAPI["openrag-backend\n+ asyncio workers inline"]
+        DevRedis["Redis\ndocker run redis:7-alpine"]
+        DevAPI <-->|"queue"| DevRedis
+    end
+
+    subgraph docker_workers [Docker Compose — profile: redis-worker]
+        DocAPI["openrag-backend\nmode: worker\nenqueue only"]
+        DocRedis["redis service"]
+        DocW1["pipeline-worker ×1"]
+        DocW2["pipeline-worker ×2"]
+        DocWN["pipeline-worker ×N"]
+        DocAPI -->|"RPUSH"| DocRedis
+        DocW1 & DocW2 & DocWN -->|"BLPOP"| DocRedis
+    end
+
+    subgraph kubernetes [Kubernetes — KEDA ScaledJob]
+        K8sAPI["openrag-backend\nDeployment\nmode: worker"]
+        K8sRedis["Redis\nClusterIP Service"]
+        K8sKEDA["KEDA ScaledJob\n0 → 50 Jobs\npolling: 15 s"]
+        K8sJobs["K8s Jobs\nspot node pool\nephemeral"]
+        K8sAPI -->|"RPUSH"| K8sRedis
+        K8sRedis -->|"queue depth"| K8sKEDA
+        K8sKEDA -->|"creates"| K8sJobs
+        K8sJobs -->|"BLPOP"| K8sRedis
     end
 ```
 
 ---
 
-## 6. Data Flow — Single File Through Ray Backend
+## 6. Data Flow — Single File Through Redis Backend (worker mode)
 
 ```mermaid
 sequenceDiagram
     participant UI as Client
     participant API as FastAPI
-    participant TS as TaskService
-    participant CFP as ComposableFileProcessor
     participant PS as PipelineService
-    participant RB as RayBackend
-    participant RW as Ray Worker (isolated process)
+    participant RB as RedisBackend
+    participant RQ as Redis Queue
+    participant KEDA as KEDA
+    participant Job as K8s Job Worker
     participant OS as OpenSearch
 
     UI->>API: POST /ingest (file)
-    API->>TS: create_langflow_upload_task()
-    TS-->>UI: 202 { task_id }
-    TS->>CFP: process_all_items(upload_task, [file])
-
-    CFP->>PS: run_files([FileMetadata])
+    API->>PS: run_files([FileMetadata])
     PS->>RB: submit(pipeline, [fm])
-    Note over RB: serialises PipelineConfig as dict<br/>no HTTP clients / locks pickled
+    RB->>RQ: RPUSH pipeline:queue {batch_id, file, attempt:0}
+    RB->>RQ: HSET pipeline:meta:{batch_id} total=1
     RB-->>PS: batch_id
-    PS-->>CFP: batch_id
+    PS-->>UI: 202 { batch_id }
 
-    CFP->>PS: wait_for_batch(batch_id)
-    PS->>RB: wait_for_batch(batch_id)
+    RQ-->>KEDA: queue depth ≥ 1
+    KEDA->>Job: create K8s Job
+    Job->>RQ: BLPOP pipeline:queue
+    Job->>Job: parse → chunk → embed
 
-    RB->>RW: ray.remote(config_dict, file_path, metadata_dict)
-    Note over RW: rebuilds PipelineConfig<br/>initialises fresh OpenSearch client<br/>(new event loop per task)
-    RW->>RW: parse → preprocess → chunk → embed
-    RW->>OS: opensearch_bulk _bulk
-    OS-->>RW: indexed
-    RW-->>RB: PipelineResult
+    alt success
+        Job->>OS: opensearch _bulk
+        Job->>RQ: HSET pipeline:results:{batch_id}
+    else failure (attempt < max_retries)
+        Job->>RQ: RPUSH pipeline:queue {attempt+1}
+        Note over Job: exponential backoff sleep
+    else exhausted (attempt == max_retries)
+        Job->>RQ: RPUSH pipeline:dlq:{batch_id}
+    end
 
-    RB-->>PS: progress dict
-    PS-->>CFP: progress dict
-    CFP->>TS: file_task.status = COMPLETED\nchunks_indexed, duration_seconds
-
-    UI->>API: GET /tasks/{task_id}
-    API->>TS: get_task_status()
-    TS-->>UI: { status, files, chunks_indexed, ... }
+    Job->>Job: exit 0 (memory released)
+    KEDA->>KEDA: queue empty → 0 Jobs
 ```

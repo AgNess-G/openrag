@@ -35,10 +35,10 @@ class PipelineService:
         self._registry = get_default_registry()
         self._builder = PipelineBuilder(pipeline_config, self._registry)
 
-        if pipeline_config.execution.backend == "ray":
-            from pipeline.execution.ray_backend import RayBackend
+        if pipeline_config.execution.backend == "redis":
+            from pipeline.execution.redis_backend import RedisBackend
 
-            self._backend = RayBackend(pipeline_config=pipeline_config)
+            self._backend = RedisBackend(pipeline_config=pipeline_config)
         else:
             self._backend = LocalBackend(
                 concurrency=pipeline_config.execution.concurrency
@@ -117,7 +117,7 @@ class PipelineService:
         return await self._backend.get_progress(task_id)
 
     async def wait_for_batch(self, batch_id: str) -> dict:
-        """Block until a submitted batch completes (local or Ray backend)."""
+        """Block until a submitted batch completes (local or redis backend)."""
         wait = getattr(self._backend, "wait_for_batch", None)
         if not callable(wait):
             raise NotImplementedError(

@@ -438,7 +438,7 @@ class TaskService:
 
             # Composable processors implement process_all_items() to submit the
             # whole batch in one pipeline call so the backend's own concurrency
-            # control (execution.concurrency / Ray scheduler) is used rather than
+            # control (execution.concurrency / Redis worker pool) is used rather than
             # the per-file TaskService semaphore.
             if hasattr(processor, "process_all_items") and callable(
                 getattr(processor, "process_all_items")

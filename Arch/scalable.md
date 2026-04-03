@@ -1,319 +1,237 @@
-# OpenRAG — Scalable Composable Architecture (Proposed)
+# OpenRAG — Scalable Composable Architecture
 
-Proposed future enhancement to the Gen 2 composable pipeline for large-scale, crash-resilient document ingestion:
+How the composable pipeline scales from a single laptop to a Kubernetes cluster
+with zero idle cost, using Redis as the work queue and KEDA to drive ephemeral
+K8s Job workers.
 
-1. **S3-backed file staging** — uploaded files are written to object storage (S3 / IBM COS) before processing; Ray workers pull from S3 rather than accessing local temp files.
-2. **Redis-persisted Ray task queue** — Ray task submissions are durable via a Redis Streams queue; unprocessed tasks survive Ray cluster restarts.
-
----
-
-## 1. Motivation
-
-| Limitation in Gen 2 | Impact | Proposed Fix |
-|---|---|---|
-| Files are temp files on the API host | Ray workers on other nodes can't access them; lost on restart | Stage files to S3 before submission |
-| Ray task refs live only in `RayBackend._batches` (in-memory) | Tasks lost if the API process restarts | Persist task queue to Redis Streams |
-| Worker pulls work via `ray.remote()` only | No replay, no dead-letter, no cross-restart durability | Redis consumer groups + ACK pattern |
-| Single file upload temp path is node-local | Can't scale API tier horizontally without shared filesystem | S3 as shared staging layer |
+> **Previous version of this document** proposed S3 staging + Redis Streams on
+> top of Ray. That design has been superseded: Ray has been removed entirely and
+> replaced with a simpler Redis LIST queue + KEDA ScaledJob pattern.
+> See `Arch/why-not-ray.md` for the reasoning.
 
 ---
 
-## 2. High-Level Architecture
+## 1. Core Insight
 
-```mermaid
-flowchart TB
-    Client(["Client\nFile Upload"])
+The composable pipeline is already stateless — each file is a self-contained
+unit processed by parse → chunk → embed → index with no shared state between
+files. The only requirement for scaling is **how work is distributed** to
+processing units, and **how those units are torn down when idle**.
 
-    subgraph api [API Tier — horizontally scalable]
-        Upload["POST /ingest"]
-        TaskSvc["TaskService\n+ ComposableFileProcessor"]
-        S3Stage["S3 / IBM COS\nFile Staging Bucket"]
-        RedisQ[("Redis Streams\nDurable Task Queue\nConsumer Groups")]
-    end
-
-    subgraph pipeline_svc [PipelineService]
-        PS["PipelineService\nRayBackend"]
-    end
-
-    subgraph ray_cluster [Ray Cluster]
-        RayHead["Ray Head\nGCS + Dashboard :8265"]
-        subgraph workers [Ray Workers — isolated processes]
-            RW1["Worker 1"]
-            RW2["Worker 2"]
-            RWN["Worker N"]
-        end
-        RayHead --> RW1 & RW2 & RWN
-    end
-
-    subgraph pipeline_stages [Composable Pipeline — per Worker]
-        direction LR
-        Parser["Parser\nauto | docling\nmarkitdown | text"]
-        Pre["Preprocessors\ncleaning | dedup\nmetadata"]
-        Chunker["Chunker\nrecursive | semantic\ndocling_hybrid"]
-        Embedder["Embedder\nopenai | watsonx\nollama | huggingface"]
-        Indexer["Indexer\nopensearch_bulk"]
-        Parser --> Pre --> Chunker --> Embedder --> Indexer
-    end
-
-    subgraph storage [Storage Layer]
-        OS[("OpenSearch\nVector Index")]
-        S3Store[("S3 / IBM COS\nDocument Storage")]
-    end
-
-    Client -->|"multipart upload"| Upload
-    Upload -->|"1 write file"| S3Stage
-    Upload --> TaskSvc
-    TaskSvc -->|"2 enqueue task\n{s3_key, metadata}"| RedisQ
-    TaskSvc -->|"202 { task_id }"| Client
-
-    RedisQ -->|"3 claim task\nXREADGROUP"| PS
-    PS -->|"4 ray.remote(s3_key, config)"| RayHead
-
-    RW1 & RW2 & RWN -->|"5 download file\nfrom S3"| S3Store
-    RW1 & RW2 & RWN --> Parser
-    Indexer -->|"6 bulk index"| OS
-    RW1 & RW2 & RWN -->|"7 XACK task"| RedisQ
-    RW1 & RW2 & RWN -->|"8 delete staged file"| S3Stage
-```
+The answer: a Redis LIST as the queue; KEDA ScaledJob to create ephemeral K8s
+Jobs that drain the queue and exit.
 
 ---
 
-## 3. File Staging Flow — S3
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant API as FastAPI
-    participant S3 as S3 / IBM COS
-    participant RQ as Redis Streams
-    participant PS as PipelineService
-    participant RW as Ray Worker
-
-    C->>API: POST /ingest (multipart file)
-    API->>S3: put_object(key=uploads/{task_id}/{filename})
-    S3-->>API: s3_key
-    API->>RQ: XADD tasks {task_id, s3_key, config_hash, metadata}
-    API-->>C: 202 { task_id }
-
-    Note over RQ,PS: Consumer group "pipeline-workers"
-    RQ->>PS: XREADGROUP (claim next task)
-    PS->>RW: ray.remote(s3_key, config_dict, metadata_dict)
-
-    RW->>S3: get_object(s3_key) → stream to local /tmp
-    Note over RW: file is local to this worker now
-    RW->>RW: parse → preprocess → chunk → embed → index
-    RW->>RQ: XACK tasks {task_id}
-    RW->>S3: delete_object(s3_key)   ← cleanup after ACK
-    RW-->>PS: PipelineResult
-```
-
----
-
-## 4. Redis Streams Queue — Durable Task Persistence
-
-### Why Redis Streams (not a plain Ray queue)
-
-| Concern | Ray refs only (Gen 2) | Redis Streams (proposed) |
-|---|---|---|
-| Survives API restart | No — refs lost in memory | Yes — XREADGROUP re-delivers |
-| Survives Ray cluster restart | No | Yes — unACKed tasks re-claimed |
-| Dead-letter / failed tasks | No | Yes — XPENDING + DLQ stream |
-| Horizontal API scaling | No — each instance has own refs | Yes — shared consumer group |
-| Task replay | No | Yes — XRANGE from any ID |
-| Visibility / monitoring | Ray Dashboard only | Redis CLI + any Redis UI |
-
-### Consumer Group Pattern
-
-```mermaid
-flowchart LR
-    subgraph streams [Redis Streams]
-        TaskStream[("STREAM: openrag:tasks\nXADD on upload")]
-        DLQStream[("STREAM: openrag:tasks:dlq\nfailed after N retries")]
-    end
-
-    subgraph consumers [Consumer Group: pipeline-workers]
-        C1["PipelineService\nInstance 1\nXREADGROUP"]
-        C2["PipelineService\nInstance 2\nXREADGROUP"]
-    end
-
-    subgraph redelivery [Redelivery]
-        Reclaim["XAUTOCLAIM\npending > 60s → reclaim\n(worker crashed)"]
-    end
-
-    TaskStream -->|"claim"| C1 & C2
-    C1 & C2 -->|"XACK on success"| TaskStream
-    C1 & C2 -->|"retry > 3 → DLQ"| DLQStream
-    Reclaim -->|"scan XPENDING"| TaskStream
-```
-
-### Message Schema
-
-```json
-{
-  "task_id":    "uuid4",
-  "s3_bucket":  "openrag-staging",
-  "s3_key":     "uploads/2026/04/01/{task_id}/{filename}",
-  "filename":   "IBM Cloud April 2026.pdf",
-  "mimetype":   "application/pdf",
-  "file_size":  2048576,
-  "file_hash":  "sha256:abc123...",
-  "owner_user_id": "user-xyz",
-  "connector_type": "local",
-  "config_hash": "sha256:pipeline-yaml-hash",
-  "enqueued_at": "2026-04-01T10:00:00Z",
-  "retry_count": 0
-}
-```
-
----
-
-## 5. S3 Bucket Layout
-
-```
-openrag-staging/
-└── uploads/
-    └── {YYYY}/{MM}/{DD}/
-        └── {task_id}/
-            └── {original_filename}       ← deleted after successful XACK
-
-openrag-archive/                          ← optional long-term storage
-└── {connector_type}/
-    └── {owner_user_id}/
-        └── {document_id}/
-            └── original/{filename}
-            └── parsed/{filename}.json    ← ParsedDocument for re-indexing
-```
-
----
-
-## 6. Component Changes Required
-
-### New Components
-
-| Component | Where | Purpose |
-|---|---|---|
-| `S3StagingService` | `src/services/s3_staging_service.py` | Upload/download/delete from S3; wraps `boto3` / `ibm-cos-sdk` |
-| `RedisPipelineQueue` | `src/pipeline/queue/redis_queue.py` | XADD, XREADGROUP, XACK, XAUTOCLAIM, DLQ routing |
-| `QueueConsumerWorker` | `src/pipeline/queue/consumer.py` | Long-running asyncio loop; claims tasks, dispatches to RayBackend |
-| `S3FileDownloader` | inside `ray_backend.py` worker fn | Downloads S3 file to worker-local `/tmp` before pipeline runs |
-
-### Modified Components
-
-| Component | Change |
-|---|---|
-| `ComposableFileProcessor.process_all_items` | Write to S3, enqueue to Redis instead of calling `run_files()` directly |
-| `_execute_pipeline_file_on_worker` | Accept `s3_key` instead of `file_path`; download from S3 first |
-| `RayBackend.submit` | Optionally accept pre-enqueued Redis message IDs |
-| `docker-compose.yml` | Add `redis` service under `profiles: ["ray"]` |
-| `pipeline.yaml` | Add `queue.backend: redis` + `staging.backend: s3` sections |
-
----
-
-## 7. Updated `pipeline.yaml` Schema (Proposed)
-
-```yaml
-ingestion_mode: composable
-
-staging:
-  backend: s3               # local (Gen 2 default) | s3
-  s3:
-    bucket: openrag-staging
-    prefix: uploads/
-    region: us-south
-    # credentials from env: AWS_ACCESS_KEY_ID / IBMCLOUD_COS_APIKEY
-
-queue:
-  backend: redis            # memory (Gen 2 default) | redis
-  redis:
-    url: redis://redis:6379
-    stream: openrag:tasks
-    consumer_group: pipeline-workers
-    pending_timeout_seconds: 60   # reclaim after this long
-    max_retries: 3
-    dlq_stream: openrag:tasks:dlq
-
-execution:
-  backend: ray
-  concurrency: 16
-  ray:
-    address: auto
-    num_cpus_per_task: 1
-    max_retries: 3
-```
-
----
-
-## 8. Full Scalable Deployment
+## 2. Architecture
 
 ```mermaid
 flowchart TB
     subgraph clients [Clients]
         C1["Web UI"]
         C2["API Client"]
-        C3["Connector Sync\n(S3 / SharePoint / GDrive)"]
+        C3["Connector Sync\nS3 / SharePoint / GDrive"]
     end
 
-    subgraph api_tier [API Tier — N replicas]
-        API1["openrag-backend :1"]
-        API2["openrag-backend :2"]
+    subgraph api_tier [API Tier — N replicas, always-on, minimal]
+        API1["openrag-backend\nFastAPI\nRedisBackend mode=worker"]
+        API2["openrag-backend\nFastAPI\nRedisBackend mode=worker"]
     end
 
-    subgraph storage [Object Storage]
-        S3[("S3 / IBM COS\nStaging + Archive")]
+    subgraph queue [Redis — 256 MB, fixed cost]
+        Q[("pipeline:queue\nLIST — work items")]
+        Meta[("pipeline:meta:{id}\npipeline:results:{id}\npipeline:dlq:{id}")]
     end
 
-    subgraph queue_tier [Queue — Redis]
-        RQ[("Redis Streams\nopenrag:tasks\nopenrag:tasks:dlq")]
+    subgraph keda [KEDA — zero-cost control plane]
+        ScaledJob["ScaledJob\npolls queue every 15 s\n1 Job per 5 items\nmax 50 Jobs\nmin 0 Jobs"]
     end
 
-    subgraph pipeline_tier [Pipeline Consumer Tier]
-        QC1["QueueConsumerWorker :1"]
-        QC2["QueueConsumerWorker :2"]
+    subgraph workers [K8s Jobs — spot nodes, ephemeral]
+        W1["Job 1\n1 CPU / 2 GB\nspot"]
+        W2["Job 2\n1 CPU / 2 GB\nspot"]
+        WN["Job N\n1 CPU / 2 GB\nspot"]
     end
 
-    subgraph ray_tier [Ray Cluster]
-        RHead["Ray Head\n:6379 :8265"]
-        RW1["Worker 1\nCPU"]
-        RW2["Worker 2\nCPU"]
-        RWGPU["Worker 3\nGPU"]
-        RHead --> RW1 & RW2 & RWGPU
+    subgraph pipeline [Composable Pipeline — rebuilt per Job]
+        direction LR
+        Parser["Parser\nauto | docling\nmarkitdown | text"]
+        Pre["Preprocessors\ncleaning | dedup"]
+        Chunker["Chunker\nrecursive | semantic\ndocling_hybrid"]
+        Embedder["Embedder\nopenai | watsonx\nollama | huggingface"]
+        Indexer["Indexer\nopensearch_bulk"]
+        Parser --> Pre --> Chunker --> Embedder --> Indexer
     end
 
-    subgraph index_tier [Index]
+    subgraph storage [Storage]
         OS[("OpenSearch\nVector Index")]
     end
 
     C1 & C2 & C3 --> API1 & API2
-    API1 & API2 -->|"stage file"| S3
-    API1 & API2 -->|"XADD"| RQ
+    API1 & API2 -->|"RPUSH"| Q
 
-    QC1 & QC2 -->|"XREADGROUP"| RQ
-    QC1 & QC2 -->|"ray.remote(s3_key)"| RHead
+    Q -->|"queue depth"| ScaledJob
+    ScaledJob -->|"creates"| W1 & W2 & WN
 
-    RW1 & RW2 & RWGPU -->|"get_object"| S3
-    RW1 & RW2 & RWGPU -->|"bulk index"| OS
-    RW1 & RW2 & RWGPU -->|"XACK"| RQ
+    W1 & W2 & WN -->|"BLPOP"| Q
+    W1 & W2 & WN --> pipeline
+    pipeline --> OS
+    W1 & W2 & WN -->|"write result / DLQ"| Meta
+
+    W1 & W2 & WN -->|"exit 0\nmemory released"| W1
 ```
 
 ---
 
-## 9. Migration Path from Gen 2
+## 3. Why This Scales Well
 
-No breaking changes — the new components are opt-in via `pipeline.yaml`:
+### Scale to zero
+When no files are queued, KEDA creates **zero Jobs**. The only always-on cost
+is the API pod (0.1 CPU / 256 MB) and Redis (128–512 MB managed service,
+~$5–15/mo). The processing tier costs nothing when idle.
+
+### Memory always released
+Each K8s Job processes one slice of the queue then **exits**. The OS reclaims
+all memory (Python heaps, ML model weights if loaded, HTTP client pools).
+There is no memory leak path. KEDA destroys the completed Job pod.
+This is what makes node scale-down reliable: pods with fully-released memory
+do not block the cluster autoscaler.
+
+### Unit economics
+| Resource | Rate | Per-document estimate |
+|---|---|---|
+| vCPU (spot) | ~$0.02–0.05 / vCPU-hr | ~2–5 CPU-sec/doc → **~$0.00004–0.0001** |
+| Embedding API | OpenAI text-embedding-3-small | ~$0.00002 / 1k tokens |
+| Redis | ~$10/mo fixed | Amortises over all docs |
+
+### Horizontal API scaling
+Because batch state lives in Redis (not in the API process's memory), multiple
+API replicas can share the same queue. Submitting via API replica 1 and
+polling progress via API replica 2 works correctly — both read from the same
+Redis keys.
+
+### Fault tolerance
+```
+File failure path
+─────────────────
+attempt 0 → pipeline.run() → status="failed"
+  → retry after 1 s  (backoff: base * 2^0)
+attempt 1 → pipeline.run() → status="failed"
+  → retry after 2 s  (backoff: base * 2^1)
+attempt 2 → pipeline.run() → status="failed"
+  → retry after 4 s  (backoff: base * 2^2)
+attempt 3 (= max_retries) → exhausted
+  → RPUSH pipeline:dlq:{batch_id}
+  → surfaced as status="failed" [DLQ] in get_progress()
+```
+
+If the Job pod itself is killed (OOM, preemption on spot node), the queue item
+is **not ACKed** (BLPOP is atomic — the item was already popped). This means
+a spot eviction loses the in-flight item. For production resilience, use
+`BRPOPLPUSH` (pop and push to an in-flight list) or upgrade to Redis Streams
+with consumer group ACK semantics. For most deployments, job-level K8s
+`backoffLimit: 1` provides sufficient recovery.
+
+---
+
+## 4. Redis Key Schema
 
 ```
-Gen 2 (current)                    →   Scalable (proposed)
-─────────────────────────────────────────────────────────────
-staging.backend: local (default)   →   staging.backend: s3
-queue.backend: memory (default)    →   queue.backend: redis
-execution.backend: local | ray     →   execution.backend: ray (unchanged)
+pipeline:queue                  LIST   Global work queue
+                                       RPUSH by API, BLPOP by workers
+
+pipeline:meta:{batch_id}        HASH   total, submitted_at
+pipeline:inflight:{batch_id}    SET    Labels currently being processed
+pipeline:results:{batch_id}     HASH   file_hash → PipelineResult JSON
+pipeline:dlq:{batch_id}         LIST   Items that exhausted all retries
+pipeline:cancelled:{batch_id}   STRING Set to "1" on cancel
+
+All keys expire after result_ttl seconds (default 3600).
 ```
 
-Existing deployments continue to work with `staging.backend: local` + `queue.backend: memory` (current Gen 2 behaviour). Opt into S3 staging and Redis queue independently.
+---
 
-```mermaid
-flowchart LR
-    A["Gen 2\nlocal files\nmemory queue\nray execution"]
-    -->|"add S3"| B["Gen 2 + S3\ns3 staging\nmemory queue\nray execution"]
-    -->|"add Redis"| C["Full Scalable\ns3 staging\nredis queue\nray execution"]
+## 5. Queue Item Schema
+
+```json
+{
+  "batch_id":    "uuid4",
+  "file_hash":   "sha256:abc...",
+  "metadata": {
+    "file_path":     "/tmp/pipeline_xyz_report.pdf",
+    "filename":      "report.pdf",
+    "mimetype":      "application/pdf",
+    "file_size":     204800,
+    "owner_user_id": "user-xyz",
+    "connector_type": "local"
+  },
+  "attempt":     0,
+  "max_retries": 3
+}
+```
+
+---
+
+## 6. Deployment Tiers
+
+| Tier | Command | Workers | Idle cost |
+|---|---|---|---|
+| Local dev (inline) | `PIPELINE_EXECUTION_BACKEND=redis uv run uvicorn ...` | asyncio tasks in API process | Redis Docker only |
+| Local dev (separate) | `docker compose --profile redis-worker up` | `pipeline-worker` containers | Redis + worker images |
+| Kubernetes | `kubectl apply -k kubernetes/redis/` | KEDA K8s Jobs on spot nodes | Redis ClusterIP only |
+| Managed Redis | Replace `redis-deployment.yaml` with managed endpoint | Same | Lower ops overhead |
+
+---
+
+## 7. Scaling Parameters (KEDA ScaledJob)
+
+Located in `kubernetes/redis/keda-scaledjob.yaml`:
+
+```yaml
+triggers:
+  - type: redis
+    metadata:
+      listLength: "5"       # 1 Job per 5 queued items — tune per avg file size
+pollingInterval: 15         # check queue every 15 s — lower = faster response
+maxReplicaCount: 50         # ceiling — match your node pool capacity
+```
+
+Rule of thumb:
+- Small files (< 1 MB): `listLength: 10`, `maxReplicaCount: 100`
+- Large files (PDFs > 10 MB, Docling OCR): `listLength: 1`, `maxReplicaCount: 20`
+- Mixed: `listLength: 5` (default)
+
+---
+
+## 8. Migration Path
+
+No breaking changes. The Redis backend is a new opt-in execution backend:
+
+```
+Gen 2 (local asyncio)
+  execution.backend: local
+  No Redis needed
+
+Gen 3 local mode (Redis + inline workers)
+  execution.backend: redis
+  execution.redis.mode: local
+  Requires: Redis on localhost
+
+Gen 3 worker mode (Redis + external K8s Jobs)
+  execution.backend: redis
+  execution.redis.mode: worker
+  Requires: Redis + KEDA + pipeline-worker image
+```
+
+Switch between modes with a single env var:
+
+```bash
+# Local (no Redis)
+PIPELINE_EXECUTION_BACKEND=local
+
+# Redis local mode
+PIPELINE_EXECUTION_BACKEND=redis REDIS_WORKER_MODE=local
+
+# Redis worker mode (KEDA)
+PIPELINE_EXECUTION_BACKEND=redis REDIS_WORKER_MODE=worker
 ```

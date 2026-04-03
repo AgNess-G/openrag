@@ -47,7 +47,7 @@ dependencies = [
     "tiktoken>=0.7.0",
     "pydantic>=2.0",
     "langchain-text-splitters>=0.3",
-    "ray[default]>=2.44",
+    "redis[asyncio]>=5.0",
     "markitdown[all]>=0.1",
 ]
 

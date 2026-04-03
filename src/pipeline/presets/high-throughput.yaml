@@ -1,4 +1,20 @@
-# Ray backend for 1M+ document ingestion
+# High-throughput preset — Redis worker mode
+# --------------------------------------------------
+# Designed for large document batches (100k+ files).
+# Relies on external pipeline-worker containers (K8s Jobs via KEDA,
+# or docker-compose --profile redis-worker) to drain the queue.
+#
+# Idle cost: Redis only (~$5–15/mo managed).
+# Scale: 0 → 50 workers automatically; each worker exits after its
+#        slice, fully releasing CPU + memory.
+#
+# Usage (docker-compose):
+#   PIPELINE_WORKER_REPLICAS=8 docker compose --profile redis-worker up
+#
+# Usage (Kubernetes):
+#   kubectl apply -k kubernetes/redis/
+#   kubectl set env deployment/openrag-backend \
+#     PIPELINE_EXECUTION_BACKEND=redis REDIS_WORKER_MODE=worker
 version: "1"
 ingestion_mode: composable
 
@@ -8,7 +24,6 @@ parser:
 preprocessors:
   - type: cleaning
   - type: dedup
-    strategy: content_hash
 
 chunker:
   type: recursive
@@ -18,19 +33,23 @@ chunker:
 embedder:
   provider: openai
   model: text-embedding-3-small
-  batch_size: 200
-  max_tokens: 8000
+  batch_size: 200          # larger batches → fewer API round-trips
 
 indexer:
   type: opensearch_bulk
-  bulk_batch_size: 1000
-  retry_attempts: 5
+  bulk_batch_size: 1000    # larger bulk writes → lower OpenSearch overhead
+  retry_attempts: 3
+  retry_backoff: 2.0
 
 execution:
-  backend: ray
-  concurrency: 16
-  timeout: 7200
-  ray:
-    address: auto
-    num_cpus_per_task: 1
+  backend: redis
+  concurrency: 1           # irrelevant in worker mode; 1 file per Job by default
+  timeout: 7200            # 2-hour hard timeout per file
+  redis:
+    host: localhost        # override with REDIS_HOST
+    port: 6379
+    mode: worker           # API only enqueues; external workers drain
     max_retries: 3
+    retry_backoff_base: 1.0
+    retry_backoff_max: 60.0
+    result_ttl: 7200

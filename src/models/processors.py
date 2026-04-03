@@ -1018,7 +1018,7 @@ class ComposableFileProcessor(TaskProcessor):
 
         Called by TaskService instead of per-file process_item() so the pipeline
         backend's own concurrency setting (execution.concurrency for LocalBackend,
-        Ray task scheduler for RayBackend) controls parallelism rather than the
+        Redis worker pool for RedisBackend) controls parallelism rather than the
         TaskService semaphore.
         """
         import hashlib

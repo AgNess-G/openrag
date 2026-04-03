@@ -1,69 +1,87 @@
 # Composable Ingestion Pipeline -- Complete Architecture
 
-## 1. Execution Backend: Why Ray (and not Redis or Kafka)
+## 1. Execution Backend: Why Redis/KEDA (and not Ray)
+
+> **Decision log:** Ray was the original execution backend (Gen 2). It was
+> removed in Gen 3 and replaced with Redis + KEDA. See `Arch/why-not-ray.md`
+> for the full analysis. The short answer: Ray's always-on head node and
+> long-lived workers have the opposite cost model from a bursty, cost-sensitive
+> ingestion service that needs to scale to zero.
 
 ### Comparison
 
-- **Redis Streams**: Lightweight but requires a separate Redis server even for local dev. No built-in support for GPU scheduling, object passing between stages, or compute-aware placement. You end up building a task framework on top of a data structure.
-- **Kafka**: Designed for event streaming between microservices, not compute orchestration. Extremely heavy for local dev (JVM, Zookeeper/KRaft). Overkill for "run this pipeline on a file". Good for log/event pipelines, wrong tool for document processing.
-- **Celery + Redis/RabbitMQ**: Battle-tested but has well-known issues with asyncio, complex configuration, and poor support for ML/GPU workloads. Two moving parts (Celery + broker).
-- **Ray**: Python-native distributed computing. `ray.init()` starts a local cluster with zero infrastructure -- just a pip install. Scales from laptop to 1000-node GPU cluster with the same code. Built-in fault tolerance, retries, object store for intermediate data, and a monitoring dashboard.
+| Option | Verdict | Reason |
+|---|---|---|
+| **Redis LIST + KEDA** | ✅ **Chosen** | Ephemeral workers, true scale-to-zero, 2 MB dep, any K8s |
+| **Ray** | ❌ Removed | Always-on head node cost; memory not released; 300 MB dep |
+| **Celery + Redis/RabbitMQ** | ❌ Skipped | Asyncio friction; two moving parts; no scale-to-zero |
+| **Kafka** | ❌ Skipped | JVM + Zookeeper; overkill for file-at-a-time processing |
 
-### Why Ray wins for OpenRAG
+### Why Redis + KEDA for OpenRAG
 
-| Concern              | Ray                                                    |
-| -------------------- | ------------------------------------------------------ |
-| Local dev (no infra) | `ray.init()` -- zero external services needed          |
-| Cloud / K8s          | KubeRay on IBM IKS, IBM Code Engine, or any K8s        |
-| GPU-aware scheduling | Native -- place embedding tasks on GPU nodes           |
-| Async compatible     | `ray.remote(async)` works with asyncio                 |
-| Fault tolerance      | Built-in task retry, lineage reconstruction            |
-| Intermediate data    | Ray Object Store -- no serialization to Redis          |
-| Monitoring           | Ray Dashboard (bundled)                                |
-| OSS                  | Apache 2.0 licensed                                    |
-| Dependency           | `pip install ray[default]` (~50MB, not 300MB for full) |
+| Concern | How Redis/KEDA handles it |
+|---|---|
+| Scale to zero | KEDA creates 0 Jobs when queue is empty — no idle cost |
+| Memory release | K8s Job exits after processing slice — OS reclaims all memory |
+| Local dev | `mode: local` — asyncio workers in-process, Redis via Docker |
+| Cloud / K8s | KEDA ScaledJob — same Job image, no custom CRDs |
+| Fault tolerance | App-level 3× retry + exponential backoff + Dead Letter Queue |
+| Batch persistence | Redis HASH — survives API restart; shared across API replicas |
+| Dependency weight | `redis[asyncio]` ~2 MB vs Ray ~300 MB |
+| GPU scheduling | K8s node selectors on the KEDA Job spec |
+| Ops overhead | One Redis service + one KEDA manifest |
 
 ### Abstracted Backend Interface
 
-We define a thin `ExecutionBackend` protocol so the pipeline is not hard-coupled to Ray. This enables a fallback to plain asyncio for zero-dep local dev:
+The `ExecutionBackend` protocol remains unchanged — Ray removal was a swap
+of one implementation for another with no changes to callers:
 
 ```python
 class ExecutionBackend(Protocol):
-    async def submit(self, pipeline: IngestionPipeline, tasks: list[FileTask]) -> BatchResult: ...
-    async def get_progress(self, batch_id: str) -> BatchProgress: ...
+    async def submit(self, pipeline: IngestionPipeline, tasks: list[FileMetadata]) -> str: ...
+    async def get_progress(self, batch_id: str) -> dict: ...
     async def cancel(self, batch_id: str) -> None: ...
 ```
 
-Two implementations ship out of the box:
+Two implementations ship:
 
-- **`local`** (default): Runs pipelines in-process with `asyncio.Semaphore` -- current behavior, no extra deps. Good for small deployments and dev.
-- **`ray`**: Distributes pipeline runs across a Ray cluster. Each file becomes a Ray task. Each stage within a pipeline can be a nested Ray task for stage-level parallelism (e.g., embed 500 chunks across 4 GPUs).
+- **`local`** (default): Runs pipelines in-process with `asyncio.Semaphore`.
+  Zero dependencies beyond the pipeline itself. Good for small deployments
+  and development without Redis.
+- **`redis`**: Queue-backed execution with two sub-modes:
+  - `mode: local` — spawns asyncio worker tasks inside the API process.
+    Redis required; no K8s needed. Adds retry + DLQ on top of LocalBackend.
+  - `mode: worker` — API only enqueues; external K8s Jobs (KEDA) drain the
+    queue. True scale-to-zero in Kubernetes.
 
 ```mermaid
 flowchart LR
     subgraph config_choice [Execution Backend Config]
-        Mode{"execution_backend?"}
+        Mode{"execution.backend?"}
     end
 
-    subgraph local_mode [local - Default]
-        AsyncSem["asyncio.Semaphore\nIn-process"]
+    subgraph local_mode [local — Zero Infra]
+        AsyncSem["asyncio.Semaphore\nIn-process\nNo Redis needed"]
     end
 
-    subgraph ray_mode [ray - Scalable]
-        RayHead["Ray Head"]
-        RayW1["Ray Worker 1"]
-        RayW2["Ray Worker 2"]
-        RayWN["Ray Worker N"]
-        RayHead --> RayW1
-        RayHead --> RayW2
-        RayHead --> RayWN
+    subgraph redis_local [redis mode=local]
+        RLocalQ[("Redis Queue")]
+        RLocalW["asyncio Workers\nin-process\n+ retry + DLQ"]
+        RLocalQ --> RLocalW
+    end
+
+    subgraph redis_worker [redis mode=worker — K8s]
+        RQ[("Redis Queue")]
+        KEDA["KEDA ScaledJob\n0 → N Jobs"]
+        Jobs["K8s Jobs\nspot · ephemeral\nmemory released on exit"]
+        RQ -->|"queue depth"| KEDA --> Jobs
+        Jobs -->|"BLPOP"| RQ
     end
 
     Mode -->|"local"| AsyncSem
-    Mode -->|"ray"| RayHead
+    Mode -->|"redis\nmode=local"| RLocalQ
+    Mode -->|"redis\nmode=worker"| RQ
 ```
-
-A third backend (Redis Streams, Celery, etc.) can be added later by implementing the protocol -- but Ray + local covers 99% of use cases from laptop to cloud.
 
 ---
 

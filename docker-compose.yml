@@ -1,4 +1,55 @@
 services:
+  # ── Redis (opt-in via --profile redis or --profile redis-worker) ──────
+  # Used by the redis execution backend for both local and K8s worker modes.
+  redis:
+    image: redis:7-alpine
+    container_name: openrag-redis
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    profiles: ["redis", "redis-worker"]
+
+  # ── Pipeline worker (opt-in via --profile redis-worker) ──────────────
+  # Simulates what a KEDA-triggered K8s Job does: drains the Redis queue.
+  # Scale replicas here to test horizontal worker scaling locally.
+  pipeline-worker:
+    image: langflowai/openrag-backend:${OPENRAG_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    entrypoint: []
+    command: python -m pipeline.worker.job_worker
+    depends_on:
+      - redis
+      - opensearch
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_WORKER_MODE=worker
+      - OPENSEARCH_HOST=${OPENSEARCH_HOST:-opensearch}
+      - OPENSEARCH_PORT=${OPENSEARCH_PORT:-9200}
+      - OPENSEARCH_USERNAME=${OPENSEARCH_USERNAME:-admin}
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WATSONX_API_KEY=${WATSONX_API_KEY}
+      - WATSONX_ENDPOINT=${WATSONX_ENDPOINT}
+      - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID}
+      - OLLAMA_ENDPOINT=${OLLAMA_ENDPOINT}
+      - OPENSEARCH_INDEX_NAME=${OPENSEARCH_INDEX_NAME:-documents}
+      - PIPELINE_CONFIG_FILE=${PIPELINE_CONFIG_FILE:-src/pipeline/presets/pipeline.yaml}
+      - PIPELINE_EXECUTION_BACKEND=redis
+      - WORKER_IDLE_TIMEOUT=${WORKER_IDLE_TIMEOUT:-15}
+    volumes:
+      - ${OPENRAG_DOCUMENTS_PATH:-./openrag-documents}:/app/openrag-documents:U,z
+      - ${OPENRAG_CONFIG_PATH:-./config}:/app/config:U,z
+    deploy:
+      replicas: ${PIPELINE_WORKER_REPLICAS:-2}
+    profiles: ["redis-worker"]
+
   opensearch:
     image: langflowai/openrag-opensearch:${OPENRAG_VERSION:-latest}
     #build:
@@ -42,7 +93,7 @@ services:
       OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD}
     ports:
       - "5601:5601"
-    profiles: ["langflow", "ray"]
+    profiles: ["langflow"]
 
   openrag-backend:
     image: langflowai/openrag-backend:${OPENRAG_VERSION:-latest}
@@ -104,7 +155,10 @@ services:
       - INGESTION_TIMEOUT=${INGESTION_TIMEOUT:-3600}
       - UPLOAD_BATCH_SIZE=${UPLOAD_BATCH_SIZE:-25}
       - MAX_WORKERS=${MAX_WORKERS:-4}
-      - RAY_ADDRESS=${DOCKER_RAY_ADDRESS:-ray-head:6379}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_WORKER_MODE=${REDIS_WORKER_MODE:-local}
       - PIPELINE_EXECUTION_BACKEND=${PIPELINE_EXECUTION_BACKEND:-local}
       - PIPELINE_INGESTION_MODE=${PIPELINE_INGESTION_MODE:-composable}
       - PIPELINE_CONFIG_FILE=${PIPELINE_CONFIG_FILE:-src/pipeline/presets/pipeline.yaml}
@@ -186,62 +240,3 @@ services:
       # - DEFAULT_FOLDER_NAME=OpenRAG
       - HIDE_GETTING_STARTED_PROGRESS=true
 
-  # ── Ray cluster (opt-in via --profile ray) ──────────────────────
-  # Uses the same backend image so workers have Python 3.13 + openrag installed.
-  ray-head:
-    image: langflowai/openrag-backend:${OPENRAG_VERSION:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    container_name: ray-head
-    entrypoint: []
-    command: >
-      bash -c "ray start --head --port=6379 --dashboard-host=0.0.0.0 --block"
-    ports:
-      - "6379:6379"
-      - "8265:8265"
-    environment:
-      - OPENSEARCH_HOST=${OPENSEARCH_HOST:-opensearch}
-      - OPENSEARCH_PORT=${OPENSEARCH_PORT:-9200}
-      - OPENSEARCH_USERNAME=${OPENSEARCH_USERNAME:-admin}
-      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - WATSONX_API_KEY=${WATSONX_API_KEY}
-      - WATSONX_ENDPOINT=${WATSONX_ENDPOINT}
-      - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OLLAMA_ENDPOINT=${OLLAMA_ENDPOINT}
-      - OPENSEARCH_INDEX_NAME=${OPENSEARCH_INDEX_NAME:-documents}
-      - PIPELINE_CONFIG_FILE=${PIPELINE_CONFIG_FILE:-src/pipeline/presets/pipeline.yaml}
-    volumes:
-      - ${OPENRAG_CONFIG_PATH:-./config}:/app/config:U,z
-    profiles: ["ray"]
-
-  ray-worker:
-    image: langflowai/openrag-backend:${OPENRAG_VERSION:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    entrypoint: []
-    command: >
-      bash -c "ray start --address=ray-head:6379 --block"
-    depends_on:
-      - ray-head
-    environment:
-      - OPENSEARCH_HOST=${OPENSEARCH_HOST:-opensearch}
-      - OPENSEARCH_PORT=${OPENSEARCH_PORT:-9200}
-      - OPENSEARCH_USERNAME=${OPENSEARCH_USERNAME:-admin}
-      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - WATSONX_API_KEY=${WATSONX_API_KEY}
-      - WATSONX_ENDPOINT=${WATSONX_ENDPOINT}
-      - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OLLAMA_ENDPOINT=${OLLAMA_ENDPOINT}
-      - OPENSEARCH_INDEX_NAME=${OPENSEARCH_INDEX_NAME:-documents}
-      - PIPELINE_CONFIG_FILE=${PIPELINE_CONFIG_FILE:-src/pipeline/presets/pipeline.yaml}
-    volumes:
-      - ${OPENRAG_CONFIG_PATH:-./config}:/app/config:U,z
-    deploy:
-      replicas: 2
-    profiles: ["ray"]

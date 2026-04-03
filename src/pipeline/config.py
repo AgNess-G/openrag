@@ -77,18 +77,27 @@ class IndexerConfig(BaseModel):
     retry_backoff: float = Field(default=2.0, ge=0.1, le=30.0)
 
 
-class RayConfig(BaseModel):
-    address: str = "auto"
-    num_cpus_per_task: int = Field(default=1, ge=1)
-    num_gpus_per_task: int = Field(default=0, ge=0)
-    max_retries: int = Field(default=3, ge=0)
+class RedisConfig(BaseModel):
+    host: str = "localhost"
+    port: int = 6379
+    password: str | None = None
+    db: int = 0
+    # Retry policy applied per file inside the worker
+    max_retries: int = Field(default=3, ge=0, le=10)
+    retry_backoff_base: float = Field(default=1.0, ge=0.1)   # seconds
+    retry_backoff_max: float = Field(default=60.0, ge=1.0)   # seconds cap
+    # How long batch metadata + results are kept in Redis after completion
+    result_ttl: int = Field(default=3600, ge=60)
+    # local  → RedisBackend spawns asyncio workers inline (no external infra)
+    # worker → RedisBackend only enqueues; external K8s Jobs drain the queue
+    mode: Literal["local", "worker"] = "local"
 
 
 class ExecutionConfig(BaseModel):
-    backend: Literal["local", "ray"] = "local"
+    backend: Literal["local", "redis"] = "local"
     concurrency: int = Field(default=4, ge=1, le=64)
     timeout: int = Field(default=3600, ge=60)
-    ray: RayConfig = Field(default_factory=RayConfig)
+    redis: RedisConfig = Field(default_factory=RedisConfig)
 
 
 class PipelineConfig(BaseModel):
@@ -140,7 +149,12 @@ _ENV_OVERRIDES: dict[str, tuple[str, type]] = {
     "PIPELINE_EXECUTION_BACKEND": ("execution.backend", str),
     "PIPELINE_EXECUTION_CONCURRENCY": ("execution.concurrency", int),
     "PIPELINE_EXECUTION_TIMEOUT": ("execution.timeout", int),
-    "RAY_ADDRESS": ("execution.ray.address", str),
+    "REDIS_HOST": ("execution.redis.host", str),
+    "REDIS_PORT": ("execution.redis.port", int),
+    "REDIS_PASSWORD": ("execution.redis.password", str),
+    "REDIS_DB": ("execution.redis.db", int),
+    "REDIS_WORKER_MODE": ("execution.redis.mode", str),
+    "REDIS_MAX_RETRIES": ("execution.redis.max_retries", int),
     "DOCLING_SERVE_URL": ("parser.docling.serve_url", str),
 }
 
