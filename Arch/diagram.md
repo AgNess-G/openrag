@@ -183,7 +183,110 @@ flowchart LR
 
 ---
 
-## 4. Comparison — All Three Generations
+## 4. TLS Boundaries — Gen 3
+
+Where TLS is required, what encrypts what, and current implementation status.
+
+```mermaid
+flowchart TB
+    Browser(["Browser / API Client"])
+
+    subgraph ingress [Layer 1 — Ingress TLS ⚠ not yet implemented]
+        LB["Load Balancer\n(IBM VPC LB / nginx ingress)"]
+        TLSNote["cert-manager + Let's Encrypt\nor IBM Certificate Manager\nStatus: planned"]
+    end
+
+    subgraph api_tier [API Tier]
+        Backend["openrag-backend\nFastAPI :8000"]
+        Frontend["openrag-frontend\nNext.js :3000"]
+    end
+
+    subgraph layer2 [Layer 2 — OpenSearch TLS ⚠ verify_certs=False]
+        OS[("OpenSearch :9200\nself-signed cert\nsettings.py:366,841")]
+        OSNote["verify_certs=False today\nNeeds: OPENSEARCH_CA_CERT_PATH\n+ OPENSEARCH_VERIFY_CERTS=true"]
+    end
+
+    subgraph layer3 [Layer 3 — Redis TLS ⚠ not yet implemented]
+        Redis[("IBM Databases for Redis\nrediss:// enforced")]
+        RedisNote["Current code: redis:// plain\nNeeds: rediss:// + SSLContext\nconfig.py RedisConfig.tls\nredis_backend._build_ssl_context()"]
+    end
+
+    subgraph layer4 [Layer 4 — mTLS pod-to-pod ✗ not planned]
+        Mesh["Service Mesh\n(Istio / Linkerd)\nSkipped: high ops overhead\nfor marginal gain"]
+    end
+
+    Browser -->|"HTTP (plain) today"| LB
+    LB --> Frontend & Backend
+    Backend -->|"HTTPS, verify=False"| OS
+    Backend -->|"redis:// plain today"| Redis
+    layer4 -.->|"optional future"| api_tier
+```
+
+**Priority order to fix:**
+1. Redis TLS — `rediss://` + `_build_ssl_context()` — code change, 4 files
+2. OpenSearch `verify_certs` — env-var controlled, 2 lines
+3. Ingress TLS — cert-manager + ingress manifest — infra change
+4. mTLS — skip unless compliance requires it
+
+---
+
+## 5. IBM Cloud Deployment — Gen 3
+
+Full production topology on IBM Cloud with IKS + KEDA + IBM Databases for Redis.
+
+```mermaid
+flowchart TB
+    Internet(["Internet"])
+
+    subgraph ibm_cloud [IBM Cloud — us-south]
+
+        subgraph vpc [VPC]
+            LB["VPC Load Balancer\n(public IP)\nIBM Cloud annotation"]
+
+            subgraph iks [IKS Cluster]
+                subgraph openrag_ns [namespace: openrag]
+                    FE["openrag-frontend\nDeployment × 2\nHPA: cpu"]
+                    BE["openrag-backend\nDeployment × 2\nScaledObject: cpu + queue"]
+                    OS_Pod[("OpenSearch\nStatefulSet × 1\nPVC: ibmc-vpc-block-10iops")]
+                end
+
+                subgraph keda_ns [namespace: keda]
+                    KEDA["KEDA operator\nScaledJob watcher"]
+                end
+
+                subgraph spot_pool [Worker Pool: pipeline-spot]
+                    J1["K8s Job 1\njob_worker.py\nspot node"]
+                    J2["K8s Job 2\njob_worker.py\nspot node"]
+                    JN["K8s Job N\njob_worker.py\nspot node"]
+                end
+            end
+        end
+
+        subgraph managed [IBM Managed Services]
+            Redis[("IBM Databases\nfor Redis\nTLS enforced\nprivate endpoint")]
+            ICR["IBM Container\nRegistry\nimage pull"]
+        end
+
+    end
+
+    Internet -->|"HTTPS"| LB
+    LB --> FE --> BE
+    BE -->|"RPUSH\nrediss://"| Redis
+    Redis -->|"queue depth"| KEDA
+    KEDA -->|"creates Jobs"| J1 & J2 & JN
+    J1 & J2 & JN -->|"BLPOP\nrediss://"| Redis
+    J1 & J2 & JN -->|"HTTPS\nbulk index"| OS_Pod
+    BE -->|"HTTPS\nquery"| OS_Pod
+    IKS -.->|"pull image"| ICR
+```
+
+**Terraform provisions:** VPC, IKS cluster, spot worker pool, IBM Databases for Redis, IBM Container Registry namespace, K8s namespace/secrets/deployments, KEDA via Helm, ScaledJob + ScaledObject.
+
+**IBM COS note:** Not provisioned as platform infra. IBM COS is a *connector* — users supply their own bucket credentials via the UI. OpenRAG reads documents from it and indexes vectors into OpenSearch.
+
+---
+
+## 7. Comparison — All Three Generations
 
 | Concern | Gen 1 | Gen 2 (Ray) | Gen 3 (Redis/KEDA) |
 |---|---|---|---|
@@ -201,7 +304,7 @@ flowchart LR
 
 ---
 
-## 5. Deployment Topology — Gen 3
+## 8. Deployment Topology — Gen 3
 
 ```mermaid
 flowchart TB
@@ -235,7 +338,7 @@ flowchart TB
 
 ---
 
-## 6. Data Flow — Single File Through Redis Backend (worker mode)
+## 9. Data Flow — Single File Through Redis Backend (worker mode)
 
 ```mermaid
 sequenceDiagram

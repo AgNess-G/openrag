@@ -203,7 +203,71 @@ Rule of thumb:
 
 ---
 
-## 8. Migration Path
+## 8. TLS Gap Analysis
+
+IBM Databases for Redis **enforces TLS** — plaintext connections are rejected. The current `RedisBackend` and `job_worker.py` build `redis://` URLs. This must be fixed before deploying to IBM Cloud.
+
+### What needs changing
+
+| File | Line(s) | Change |
+|---|---|---|
+| `pipeline/config.py` | `RedisConfig` | Add `tls: bool`, `tls_ca_cert`, `tls_ca_cert_base64` fields + env overrides |
+| `pipeline/execution/redis_backend.py` | `_redis_url()` | Use `rediss://` scheme when `tls=True` |
+| `pipeline/execution/redis_backend.py` | `_redis()` | Add `_build_ssl_context()` helper, pass `ssl=ctx` to `from_url()` |
+| `pipeline/worker/job_worker.py` | line 95 | Pass `ssl=ssl_ctx` to `aioredis.from_url()` |
+| `config/settings.py` | lines 366, 841 | `verify_certs` from env, `ca_certs` from env |
+
+### Local dev (no TLS needed)
+```bash
+REDIS_TLS=false   # default — plain redis:// for docker-compose
+```
+
+### IBM Cloud (TLS required)
+```bash
+# IBM Databases for Redis injects a base64 CA cert via the connection string
+REDIS_TLS=true
+REDIS_TLS_CERT_BASE64=<base64-cert-from-ibm-connection-string>
+```
+
+The `_build_ssl_context()` helper decodes the base64 cert into a temp file and loads it into a `ssl.SSLContext` — no cert file management needed in K8s, just a secret value.
+
+---
+
+## 9. Operator-Friendliness Assessment
+
+The current deployment is **functional but not fully operator-friendly**. Key gaps:
+
+| Capability | Status | Gap |
+|---|---|---|
+| KEDA worker autoscaling | ✅ Done | — |
+| KEDA backend ScaledObject (CPU + queue) | ✅ Done | — |
+| PodDisruptionBudgets | ✅ Done | — |
+| Resource requests/limits | ✅ Done | — |
+| IBM Databases for Redis (managed) | ✅ Terraform | — |
+| Liveness/readiness probes | ✅ Basic | Startup probe missing |
+| Helm chart | ❌ Missing | Raw Terraform k8s resources — no `helm upgrade`, no rollback |
+| Ingress + TLS termination | ❌ Missing | Bare LoadBalancer, no cert-manager |
+| External Secrets Operator | ❌ Missing | Plain K8s Secrets (base64 only) |
+| OpenSearch via Operator | ❌ Missing | Raw StatefulSet — upgrade risk |
+| NetworkPolicies | ❌ Missing | All pods can reach each other |
+| Prometheus ServiceMonitor | ❌ Missing | No metrics scraping |
+| HPA frontend | ❌ Missing | Frontend doesn't autoscale |
+
+### Recommended priority order
+
+```
+1. Redis TLS code fix          — blocking for IBM Cloud deploy
+2. Helm chart                  — unblocks proper upgrades + rollback
+3. Ingress + cert-manager      — TLS at the edge
+4. External Secrets Operator   — secrets from IBM Secrets Manager
+5. NetworkPolicies             — pod isolation
+6. OpenSearch Operator         — safe OS lifecycle management
+7. Prometheus ServiceMonitor   — observability
+```
+
+---
+
+## 10. Migration Path
 
 No breaking changes. The Redis backend is a new opt-in execution backend:
 
