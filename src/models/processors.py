@@ -368,7 +368,7 @@ class TaskProcessor:
         import mimetypes as mt_mod
 
         from main import _get_pipeline_service
-        from pipeline.types import FileMetadata
+        from pipeline.ingestion.types import FileMetadata
 
         pipeline_service = _get_pipeline_service()
         if pipeline_service is None:
@@ -955,7 +955,7 @@ class ComposableFileProcessor(TaskProcessor):
 
         from main import _get_pipeline_service
         from models.tasks import TaskStatus as _TaskStatus
-        from pipeline.types import FileMetadata
+        from pipeline.ingestion.types import FileMetadata
 
         file_task.status = _TaskStatus.RUNNING
         file_task.updated_at = _time.time()
@@ -1028,7 +1028,7 @@ class ComposableFileProcessor(TaskProcessor):
 
         from main import _get_pipeline_service
         from models.tasks import TaskStatus as _TaskStatus
-        from pipeline.types import FileMetadata
+        from pipeline.ingestion.types import FileMetadata
 
         pipeline_service = _get_pipeline_service()
         if pipeline_service is None:

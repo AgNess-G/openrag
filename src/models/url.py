@@ -188,7 +188,7 @@ class ComposableUrlProcessor(TaskProcessor):
 
         from main import _get_pipeline_service, _materialize_default_docs_url_as_text_file
         from models.tasks import TaskStatus as _TaskStatus
-        from pipeline.types import FileMetadata
+        from pipeline.ingestion.types import FileMetadata
 
         file_task.status = _TaskStatus.RUNNING
         file_task.updated_at = _time.time()

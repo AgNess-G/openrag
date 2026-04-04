@@ -26,14 +26,25 @@ async def nudges_from_kb_endpoint(
     """Get nudges for a user"""
     jwt_token = user.jwt_token
 
+    from config.settings import DISABLE_LANGFLOW
+
     try:
-        result = await chat_service.langflow_nudges_chat(
-            user.user_id,
-            jwt_token,
-            filters=body.filters,
-            limit=body.limit,
-            score_threshold=body.score_threshold,
-        )
+        if DISABLE_LANGFLOW:
+            result = await chat_service.composable_nudges_chat(
+                user_id=user.user_id,
+                jwt_token=jwt_token,
+                filters=body.filters,
+                limit=body.limit,
+                score_threshold=body.score_threshold,
+            )
+        else:
+            result = await chat_service.langflow_nudges_chat(
+                user.user_id,
+                jwt_token,
+                filters=body.filters,
+                limit=body.limit,
+                score_threshold=body.score_threshold,
+            )
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse(
@@ -51,15 +62,27 @@ async def nudges_from_chat_id_endpoint(
     """Get nudges for a user based on a previous conversation"""
     jwt_token = user.jwt_token
 
+    from config.settings import DISABLE_LANGFLOW
+
     try:
-        result = await chat_service.langflow_nudges_chat(
-            user.user_id,
-            jwt_token,
-            previous_response_id=chat_id,
-            filters=body.filters,
-            limit=body.limit,
-            score_threshold=body.score_threshold,
-        )
+        if DISABLE_LANGFLOW:
+            result = await chat_service.composable_nudges_chat(
+                user_id=user.user_id,
+                jwt_token=jwt_token,
+                previous_response_id=chat_id,
+                filters=body.filters,
+                limit=body.limit,
+                score_threshold=body.score_threshold,
+            )
+        else:
+            result = await chat_service.langflow_nudges_chat(
+                user.user_id,
+                jwt_token,
+                previous_response_id=chat_id,
+                filters=body.filters,
+                limit=body.limit,
+                score_threshold=body.score_threshold,
+            )
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse(

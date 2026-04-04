@@ -63,15 +63,19 @@ DISABLE_INGEST_WITH_LANGFLOW = os.getenv(
     "DISABLE_INGEST_WITH_LANGFLOW", "false"
 ).lower() in ("true", "1", "yes")
 
-# Feature flag: skip ALL Langflow initialisation (health check, API key retry,
-# client creation).  Set explicitly, or it is implied when:
-#   PIPELINE_INGESTION_MODE=composable   (composable pipeline — no Langflow needed)
-#   DISABLE_INGEST_WITH_LANGFLOW=true    (traditional path without Langflow)
-# Checked via env vars directly so startup never blocks on a missing/broken
-# pipeline config YAML.
+# Single pipeline mode variable.  Replaces DISABLE_LANGFLOW and PIPELINE_INGESTION_MODE.
+# Values: "composable" | "langflow" (default: "langflow")
+# Backward-compat: PIPELINE_INGESTION_MODE is still accepted as a fallback.
+PIPELINE_MODE: str = (
+    os.getenv("PIPELINE_MODE")
+    or os.getenv("PIPELINE_INGESTION_MODE")
+    or "langflow"
+).lower()
+
+# Derived flag used throughout the codebase — true when composable mode is active.
+# Not a user-facing env var; set PIPELINE_MODE=composable instead.
 DISABLE_LANGFLOW: bool = (
-    os.getenv("DISABLE_LANGFLOW", "false").lower() in ("true", "1", "yes")
-    or os.getenv("PIPELINE_INGESTION_MODE", "").lower() == "composable"
+    PIPELINE_MODE == "composable"
     or DISABLE_INGEST_WITH_LANGFLOW
 )
 
@@ -395,7 +399,7 @@ class AppClients:
                 "Langflow disabled via feature flag: skipping health check, "
                 "API key init, and client creation",
                 disable_langflow=True,
-                pipeline_ingestion_mode=os.getenv("PIPELINE_INGESTION_MODE", ""),
+                pipeline_mode=PIPELINE_MODE,
             )
         else:
             self.langflow_http_client = httpx.AsyncClient(

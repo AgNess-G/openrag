@@ -120,7 +120,25 @@ async def chat_create_endpoint(
     set_score_threshold(body.score_threshold)
     set_auth_context(user_id, jwt_token)
 
-    if body.stream:
+    from config.settings import DISABLE_LANGFLOW
+
+    if DISABLE_LANGFLOW:
+        result = await chat_service.composable_chat(
+            prompt=message,
+            user_id=user_id,
+            jwt_token=jwt_token,
+            previous_response_id=body.chat_id,
+            filters=body.filters,
+            limit=body.limit,
+            score_threshold=body.score_threshold,
+        )
+        return JSONResponse({
+            "response": result.get("response", ""),
+            "chat_id": result.get("response_id"),
+            "sources": result.get("sources", []),
+            "usage": result.get("usage", {}),
+        })
+    elif body.stream:
         raw_stream = await chat_service.langflow_chat(
             prompt=message,
             user_id=user_id,

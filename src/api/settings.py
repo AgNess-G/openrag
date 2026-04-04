@@ -41,12 +41,15 @@ _background_tasks: set[asyncio.Task] = set()
 
 
 def _is_composable_mode() -> bool:
-    """Return True when the pipeline is configured for composable ingestion."""
+    """Return True when PIPELINE_MODE=composable (or the pipeline YAML sets composable)."""
     import os
-    if os.getenv("PIPELINE_INGESTION_MODE", "").lower() == "composable":
+    pipeline_mode = (
+        os.getenv("PIPELINE_MODE") or os.getenv("PIPELINE_INGESTION_MODE") or ""
+    ).lower()
+    if pipeline_mode == "composable":
         return True
     try:
-        from pipeline.config import PipelineConfigManager
+        from pipeline.ingestion.config import PipelineConfigManager
         cfg = PipelineConfigManager().load()
         return cfg.ingestion_mode == "composable"
     except Exception as e:
@@ -864,8 +867,8 @@ async def update_settings(
             task.add_done_callback(_background_tasks.discard)
         elif _is_composable_mode() and (body.embedding_model is not None or body.embedding_provider is not None):
             try:
-                from pipeline.config import PipelineConfigManager
-                from pipeline.index_management import init_composable_index
+                from pipeline.ingestion.config import PipelineConfigManager
+                from pipeline.ingestion.index_management import init_composable_index
                 pipeline_cfg = PipelineConfigManager().load()
                 pipeline_cfg.sync_from_openrag_config(current_config)
                 os_client = clients.opensearch
@@ -1147,8 +1150,8 @@ async def onboarding(
                     opensearch_client = app_clients.create_user_opensearch_client(user.jwt_token)
 
                 if composable:
-                    from pipeline.config import PipelineConfigManager
-                    from pipeline.index_management import init_composable_index
+                    from pipeline.ingestion.config import PipelineConfigManager
+                    from pipeline.ingestion.index_management import init_composable_index
                     pipeline_cfg = PipelineConfigManager().load()
                     pipeline_cfg.sync_from_openrag_config(current_config)
                     os_client = opensearch_client or app_clients.opensearch
@@ -1634,8 +1637,8 @@ async def reapply_all_settings(session_manager = None):
             logger.info("Composable mode: verifying OpenSearch index mapping instead of Langflow sync")
             if config.knowledge.embedding_model or config.knowledge.embedding_provider:
                 try:
-                    from pipeline.config import PipelineConfigManager
-                    from pipeline.index_management import init_composable_index
+                    from pipeline.ingestion.config import PipelineConfigManager
+                    from pipeline.ingestion.index_management import init_composable_index
                     pipeline_cfg = PipelineConfigManager().load()
                     pipeline_cfg.sync_from_openrag_config(config)
                     await init_composable_index(clients.opensearch, pipeline_cfg)

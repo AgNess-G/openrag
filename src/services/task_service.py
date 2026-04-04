@@ -142,7 +142,7 @@ class TaskService:
     ) -> str:
         """Create a new upload task; routes to composable pipeline when active."""
         try:
-            from pipeline.config import PipelineConfigManager
+            from pipeline.ingestion.config import PipelineConfigManager
             _composable = PipelineConfigManager().load().ingestion_mode == "composable"
         except Exception:
             _composable = False
@@ -191,7 +191,7 @@ class TaskService:
     ) -> str:
         """Create a new URL ingestion task; routes to composable pipeline when active."""
         try:
-            from pipeline.config import PipelineConfigManager
+            from pipeline.ingestion.config import PipelineConfigManager
             _composable = PipelineConfigManager().load().ingestion_mode == "composable"
         except Exception:
             _composable = False

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from utils.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from pipeline.config import PipelineConfig
+    from pipeline.ingestion.config import PipelineConfig
 
 logger = get_logger(__name__)
 
@@ -26,9 +26,9 @@ class PipelineService:
         session_manager=None,
         document_service=None,
     ) -> None:
-        from pipeline.execution.local_backend import LocalBackend
-        from pipeline.pipeline import PipelineBuilder
-        from pipeline.registry import get_default_registry
+        from pipeline.ingestion.execution.local_backend import LocalBackend
+        from pipeline.ingestion.pipeline import PipelineBuilder
+        from pipeline.ingestion.registry import get_default_registry
 
         self._config = pipeline_config
         self._session_manager = session_manager
@@ -36,7 +36,7 @@ class PipelineService:
         self._builder = PipelineBuilder(pipeline_config, self._registry)
 
         if pipeline_config.execution.backend == "redis":
-            from pipeline.execution.redis_backend import RedisBackend
+            from pipeline.ingestion.execution.redis_backend import RedisBackend
 
             self._backend = RedisBackend(pipeline_config=pipeline_config)
         else:
@@ -62,7 +62,7 @@ class PipelineService:
         config_overrides: dict | None = None,
     ) -> str:
         """Save uploaded files and submit them for pipeline processing."""
-        from pipeline.types import FileMetadata
+        from pipeline.ingestion.types import FileMetadata
 
         file_metas: list[FileMetadata] = []
         for upload_file in files:

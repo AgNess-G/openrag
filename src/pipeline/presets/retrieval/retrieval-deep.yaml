@@ -1,0 +1,40 @@
+# Deep (plan-and-execute) agent preset: Cohere reranker for precision
+version: "1"
+
+retriever:
+  type: hybrid
+  semantic_weight: 0.7
+  keyword_weight: 0.3
+  tie_breaker: 0.0
+  limit: 20
+
+reranker:
+  type: cohere
+  top_k: 10
+  cohere:
+    model: rerank-english-v3.0
+
+agent:
+  type: deep
+  provider: openai
+  model: gpt-4o
+  temperature: 0.5
+  max_tokens: 4096
+  tools:
+    - semantic_search
+    - keyword_search
+    - hybrid_search
+    - raw_search
+    - get_document
+    - list_sources
+    - calculator
+
+nudges:
+  enabled: true
+  type: langchain
+  provider: openai
+  model: gpt-4o-mini
+  max_suggestions: 5
+
+conversation:
+  rolling_window: 20

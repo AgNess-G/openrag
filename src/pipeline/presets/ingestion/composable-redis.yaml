@@ -1,0 +1,51 @@
+# Redis-backed composable pipeline
+# -----------------------------------
+# Uses the Redis execution backend in local mode (default).
+# Switch to worker mode for KEDA / K8s Job deployment:
+#   REDIS_WORKER_MODE=worker
+#
+# Local usage:
+#   PIPELINE_EXECUTION_BACKEND=redis \
+#   REDIS_HOST=localhost \
+#   uv run openrag
+#
+# With docker-compose (simulated KEDA workers):
+#   docker compose --profile redis-worker up
+version: "1"
+ingestion_mode: composable
+
+parser:
+  type: auto        # uses Docling for PDF/Office, PlainTextParser for .txt/.md, MarkItDown fallback
+
+preprocessors:
+  - type: cleaning
+
+chunker:
+  type: docling_hybrid
+  chunk_size: 1000
+  chunk_overlap: 200
+  max_tokens: 512
+
+embedder:
+  provider: openai
+  model: text-embedding-3-small
+  batch_size: 100
+
+indexer:
+  type: opensearch_bulk
+  bulk_batch_size: 500
+  retry_attempts: 3
+  retry_backoff: 2.0
+
+execution:
+  backend: redis
+  concurrency: 4        # worker slots in local mode; ignored in worker mode
+  timeout: 3600
+  redis:
+    host: localhost     # override with REDIS_HOST env var
+    port: 6379
+    mode: local         # local | worker  (override with REDIS_WORKER_MODE)
+    max_retries: 3
+    retry_backoff_base: 1.0
+    retry_backoff_max: 60.0
+    result_ttl: 3600

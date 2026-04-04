@@ -42,8 +42,7 @@ async def wait_for_langflow(
     if langflow_http_client is None:
         raise LangflowNotReadyError(
             "Langflow HTTP client is not initialised. "
-            "Set DISABLE_LANGFLOW=true or PIPELINE_INGESTION_MODE=composable "
-            "to skip Langflow entirely."
+            "Set PIPELINE_MODE=composable to skip Langflow entirely."
         )
 
     for attempt in range(max_retries):

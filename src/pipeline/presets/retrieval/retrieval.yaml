@@ -1,0 +1,42 @@
+# Default retrieval preset: OpenAI agent, hybrid retriever, no reranker
+version: "1"
+
+retriever:
+  type: hybrid
+  semantic_weight: 0.7
+  keyword_weight: 0.3
+  tie_breaker: 0.0
+  limit: 10
+  score_threshold: 0.0
+
+reranker:
+  type: none
+  top_k: 10
+
+agent:
+  type: openai
+  provider: openai
+  model: gpt-4o
+  temperature: 0.7
+  max_tokens: 2048
+  system_prompt: ""
+  max_iterations: 10
+  tools:
+    - semantic_search
+    - keyword_search
+    - hybrid_search
+    - raw_search
+    - get_document
+    - list_sources
+    - calculator
+
+nudges:
+  enabled: true
+  type: langchain
+  provider: openai
+  model: gpt-4o-mini
+  max_suggestions: 5
+  temperature: 0.5
+
+conversation:
+  rolling_window: 20

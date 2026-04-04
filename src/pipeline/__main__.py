@@ -1,5 +1,5 @@
 """Allow running the pipeline CLI via: python -m pipeline.cli"""
 
-from pipeline.cli import main
+from pipeline.ingestion.cli import main
 
 main()

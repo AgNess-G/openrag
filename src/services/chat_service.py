@@ -309,6 +309,62 @@ class ChatService:
             response_data["response_id"] = response_id
         return response_data
 
+    async def composable_chat(
+        self,
+        prompt: str,
+        user_id: str = None,
+        jwt_token: str = None,
+        previous_response_id: str = None,
+        filters: dict = None,
+        limit: int = 10,
+        score_threshold: float = 0.0,
+    ) -> dict:
+        """Handle chat via composable retrieval pipeline (no Langflow required)."""
+        from pipeline.retrieval.pipeline import RetrievalPipelineManager
+        from pipeline.retrieval.types import RetrievalQuery
+
+        query = RetrievalQuery(
+            text=prompt,
+            user_id=user_id,
+            jwt_token=jwt_token,
+            filters=filters,
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        pipeline = RetrievalPipelineManager.get_pipeline()
+        response = await pipeline.run(query, previous_response_id)
+        return pipeline.to_response_dict(response)
+
+    async def composable_nudges_chat(
+        self,
+        user_id: str = None,
+        jwt_token: str = None,
+        previous_response_id: str = None,
+        filters: dict = None,
+        limit: int = 5,
+        score_threshold: float = 0.0,
+    ) -> dict:
+        """Generate nudges via composable pipeline (no Langflow required)."""
+        import uuid
+
+        from pipeline.retrieval.pipeline import RetrievalPipelineManager
+        from pipeline.retrieval.types import RetrievalQuery
+
+        query = RetrievalQuery(
+            text="",
+            user_id=user_id,
+            jwt_token=jwt_token,
+            filters=filters,
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        pipeline = RetrievalPipelineManager.get_pipeline()
+        suggestions = await pipeline.generate_nudges(query, previous_response_id)
+        return {
+            "response": "\n".join(suggestions),
+            "response_id": str(uuid.uuid4()),
+        }
+
     async def upload_context_chat(
         self,
         document_content: str,
@@ -487,7 +543,7 @@ class ChatService:
 
         # In composable mode Langflow is not running — skip the remote history fetch.
         try:
-            from pipeline.config import PipelineConfigManager
+            from pipeline.ingestion.config import PipelineConfigManager
             if PipelineConfigManager().load().ingestion_mode == "composable":
                 return {"conversations": [], "total_conversations": 0}
         except Exception:

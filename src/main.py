@@ -437,19 +437,20 @@ def _mirror_app_services_to_imported_main_module(services: dict | None) -> None:
 
 
 def _is_composable_mode() -> bool:
-    """Return True when the pipeline is configured for composable ingestion.
+    """Return True when PIPELINE_MODE=composable (or the pipeline YAML sets composable).
 
-    Checks the PIPELINE_INGESTION_MODE env var first (no file I/O) so startup
-    behaviour is predictable even if the pipeline config YAML is missing.
-    Falls back to loading the config file for cases where the mode is set
-    only in the YAML and not in the environment.
+    Checks env vars first (no file I/O) so startup behaviour is predictable
+    even if the pipeline config YAML is missing.
     """
     # Fast path: env var set directly — no file loading needed
-    if os.getenv("PIPELINE_INGESTION_MODE", "").lower() == "composable":
+    pipeline_mode = (
+        os.getenv("PIPELINE_MODE") or os.getenv("PIPELINE_INGESTION_MODE") or ""
+    ).lower()
+    if pipeline_mode == "composable":
         return True
-    # Fallback: read from pipeline.yaml / PIPELINE_CONFIG_FILE
+    # Fallback: read from pipeline.ingestion.yaml / PIPELINE_CONFIG_FILE
     try:
-        from pipeline.config import PipelineConfigManager
+        from pipeline.ingestion.config import PipelineConfigManager
         cfg = PipelineConfigManager().load()
         return cfg.ingestion_mode == "composable"
     except Exception as e:
@@ -468,7 +469,7 @@ def _get_pipeline_service():
     if _lazy_pipeline_service is not None:
         return _lazy_pipeline_service
     try:
-        from pipeline.config import PipelineConfigManager
+        from pipeline.ingestion.config import PipelineConfigManager
         cfg = PipelineConfigManager().load()
         if cfg.ingestion_mode != "composable":
             return None
@@ -1303,7 +1304,7 @@ async def _ingest_default_documents_composable(
     import hashlib
     import mimetypes as mt_mod
 
-    from pipeline.types import FileMetadata
+    from pipeline.ingestion.types import FileMetadata
     from session_manager import AnonymousUser
 
     anonymous_user = AnonymousUser()
@@ -1365,7 +1366,7 @@ async def _ingest_default_documents_url_composable(
         import hashlib
         import mimetypes as mt_mod
 
-        from pipeline.types import FileMetadata
+        from pipeline.ingestion.types import FileMetadata
         from session_manager import AnonymousUser
 
         anonymous_user = AnonymousUser()
@@ -1487,7 +1488,7 @@ async def startup_tasks(services):
             try:
                 pipeline_cfg = (services or {}).get("pipeline_config")
                 if pipeline_cfg:
-                    from pipeline.index_management import init_composable_index
+                    from pipeline.ingestion.index_management import init_composable_index
                     config = get_openrag_config()
                     if config.edited and config.knowledge.embedding_model:
                         pipeline_cfg.sync_from_openrag_config(config)
@@ -1708,7 +1709,7 @@ async def initialize_services():
     pipeline_config_obj = None
     pipeline_service = None
     try:
-        from pipeline.config import PipelineConfigManager
+        from pipeline.ingestion.config import PipelineConfigManager
         pipeline_mgr = PipelineConfigManager()
         pipeline_config_obj = pipeline_mgr.load()
         logger.info(
