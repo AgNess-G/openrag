@@ -51,6 +51,7 @@ import SharePointIcon from "../../components/icons/share-point-logo";
 import { useDeleteDocument } from "../api/mutations/useDeleteDocument";
 import { useRefreshOpenragDocs } from "../api/mutations/useRefreshOpenragDocs";
 import { useSyncAllConnectors } from "../api/mutations/useSyncConnector";
+import { useGetCurrentUserQuery } from "../api/queries/useGetCurrentUserQuery";
 
 // Function to get the appropriate icon for a connector type
 function getSourceIcon(connectorType?: string) {
@@ -103,6 +104,7 @@ function SearchPage() {
   const deleteDocumentMutation = useDeleteDocument();
   const syncAllConnectorsMutation = useSyncAllConnectors();
   const refreshOpenragDocsMutation = useRefreshOpenragDocs();
+  const { data: currentUser } = useGetCurrentUserQuery();
 
   useEffect(() => {
     refreshTasks();
@@ -558,6 +560,8 @@ function SearchPage() {
           <KnowledgeActionsDropdown
             filename={data?.filename || ""}
             connectorType={data?.connector_type}
+            owner={data?.owner}
+            currentUserId={currentUser?.user_id}
           />
         );
       },

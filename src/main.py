@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 
 # API endpoints
 from api import (
+    acl,
     auth,
     chat,
     connectors,
@@ -1748,6 +1749,26 @@ async def create_app():
         "/connectors/{connector_type}/webhook",
         connectors.connector_webhook,
         methods=["POST", "GET"],
+        tags=["internal"],
+    )
+
+    # Document ACL endpoints
+    app.add_api_route(
+        "/documents/acl",
+        acl.get_document_acl,
+        methods=["GET"],
+        tags=["internal"],
+    )
+    app.add_api_route(
+        "/documents/acl/share",
+        acl.share_document,
+        methods=["POST"],
+        tags=["internal"],
+    )
+    app.add_api_route(
+        "/documents/acl/unshare",
+        acl.unshare_document,
+        methods=["POST"],
         tags=["internal"],
     )
 
