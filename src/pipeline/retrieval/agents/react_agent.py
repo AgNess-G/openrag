@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import AsyncIterator
 
@@ -178,6 +179,9 @@ class ReActAgent:
 
         executor = self._build_executor(lc_tools)
 
+        input_tokens = 0
+        output_tokens = 0
+        tool_inputs: dict[str, object] = {}  # run_id → input, to carry from start to end
         try:
             async for event in executor.astream_events(
                 {
@@ -188,10 +192,75 @@ class ReActAgent:
                 },
                 version="v2",
             ):
-                if event["event"] == "on_chat_model_stream":
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
                     if chunk and chunk.content:
-                        yield chunk.content
+                        yield json.dumps({"delta": chunk.content}) + "\n"
+                elif kind == "on_tool_start":
+                    tool_name = event.get("name", "tool")
+                    run_id = event.get("run_id", str(uuid.uuid4()))
+                    tool_input = event.get("data", {}).get("input", "")
+                    tool_inputs[run_id] = tool_input
+                    inputs_dict = {"query": tool_input} if isinstance(tool_input, str) else (tool_input or {})
+                    yield json.dumps({
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "tool_call",
+                            "id": run_id,
+                            "name": tool_name,
+                            "status": "pending",
+                            "inputs": inputs_dict,
+                        },
+                    }) + "\n"
+                elif kind == "on_tool_end":
+                    tool_name = event.get("name", "tool")
+                    run_id = event.get("run_id", str(uuid.uuid4()))
+                    raw_output = event.get("data", {}).get("output", "")
+                    tool_input = tool_inputs.pop(run_id, "")
+                    inputs_dict = {"query": tool_input} if isinstance(tool_input, str) else (tool_input or {})
+                    # Try to parse output as structured search results, fall back to plain text
+                    try:
+                        parsed = json.loads(str(raw_output)) if isinstance(raw_output, str) else raw_output
+                        if isinstance(parsed, list):
+                            results = [
+                                {"filename": r.get("filename", ""), "text": r.get("text", ""), "score": r.get("score")}
+                                for r in parsed
+                                if isinstance(r, dict)
+                            ]
+                        else:
+                            results = [{"text": str(raw_output)}]
+                    except (json.JSONDecodeError, TypeError):
+                        results = [{"text": str(raw_output)[:2000]}]
+                    yield json.dumps({
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "tool_call",
+                            "id": run_id,
+                            "name": tool_name,
+                            "status": "completed",
+                            "inputs": inputs_dict,
+                            "results": results,
+                        },
+                    }) + "\n"
+                elif kind == "on_chat_model_end":
+                    llm_output = event["data"].get("output")
+                    if llm_output and hasattr(llm_output, "usage_metadata"):
+                        meta = llm_output.usage_metadata
+                        input_tokens += meta.get("input_tokens", 0)
+                        output_tokens += meta.get("output_tokens", 0)
         except Exception as e:
             logger.error("ReActAgent: streaming failed", error=str(e))
             raise
+
+        if input_tokens or output_tokens:
+            yield json.dumps({
+                "type": "response.completed",
+                "response": {
+                    "usage": {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "total_tokens": input_tokens + output_tokens,
+                    }
+                },
+            }) + "\n"

@@ -153,21 +153,30 @@ class RetrievalPipeline:
 
         # Stream agent tokens
         response_text = ""
+        usage: dict = {}
         if not hasattr(self.agent, "run_stream"):
             # Fallback: agents that don't support streaming yet
             response = await self.agent.run(query.text, results, history, user_id=query.user_id, jwt_token=query.jwt_token)
+            response_text = response.response
             yield json.dumps({"delta": response.response}) + "\n"
             response_id = response.response_id
             sources = results
             usage = response.usage
         else:
-            async for token in self.agent.run_stream(query.text, results, history, user_id=query.user_id, jwt_token=query.jwt_token):
-                response_text += token
-                yield json.dumps({"delta": token}) + "\n"
-
             response_id = str(uuid.uuid4())
             sources = results
-            usage = {}
+            async for chunk in self.agent.run_stream(query.text, results, history, user_id=query.user_id, jwt_token=query.jwt_token):
+                # Each chunk is a JSON line; forward it to the client unchanged,
+                # but also accumulate response_text and usage for conversation storage.
+                yield chunk
+                try:
+                    data = json.loads(chunk.strip())
+                    if "delta" in data:
+                        response_text += data["delta"]
+                    elif data.get("type") == "response.completed":
+                        usage = data.get("response", {}).get("usage", {})
+                except (json.JSONDecodeError, AttributeError):
+                    pass
 
         # Store conversation
         await self.conversation_manager.store(

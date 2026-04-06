@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import AsyncIterator
 
@@ -120,11 +121,23 @@ class OpenAIAgent:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 stream=True,
+                stream_options={"include_usage": True},
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
-                    yield delta
+                    yield json.dumps({"delta": delta}) + "\n"
+                if getattr(chunk, "usage", None):
+                    yield json.dumps({
+                        "type": "response.completed",
+                        "response": {
+                            "usage": {
+                                "input_tokens": chunk.usage.prompt_tokens,
+                                "output_tokens": chunk.usage.completion_tokens,
+                                "total_tokens": chunk.usage.total_tokens,
+                            }
+                        },
+                    }) + "\n"
         except Exception as e:
             logger.error("OpenAIAgent: streaming failed", error=str(e))
             raise
