@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 import agent
+from api.v1.chat import _extract_sources as extract_stream_sources
 
 
 class _ResponseWithModelDump:
@@ -73,4 +74,72 @@ async def test_async_langflow_chat_extracts_nested_tool_sources(monkeypatch):
             "page": 1,
             "mimetype": "text/markdown",
         }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_async_langflow_chat_extracts_filenames_from_summary_text(monkeypatch):
+    response_text = """
+    Here are some retrieved documents related to your request.
+
+    1. **SDK Integration Test Document**
+       - Contains unique content about purple elephants dancing.
+       - Files: `sdk_test_doc_ae361e43.md`, `sdk_test_doc_b7e33f07.md`
+    """.strip()
+
+    response_payload = {
+        "outputs": {
+            "message": {
+                "message": response_text,
+            }
+        }
+    }
+
+    async def fake_async_response(*args, **kwargs):
+        return (response_text, "response-456", _ResponseWithModelDump(response_payload))
+
+    monkeypatch.setattr(agent, "async_response", fake_async_response)
+
+    _, _, sources = await agent.async_langflow_chat(
+        langflow_client=SimpleNamespace(),
+        flow_id="flow-id",
+        prompt="What documents mention dancing animals?",
+        user_id="test-user",
+        store_conversation=False,
+    )
+
+    assert [source["filename"] for source in sources] == [
+        "sdk_test_doc_ae361e43.md",
+        "sdk_test_doc_b7e33f07.md",
+    ]
+    assert all(source["text"] == "" for source in sources)
+
+
+def test_stream_source_extraction_extracts_filenames_from_summary_text():
+    item = {
+        "results": [
+            {
+                "text": (
+                    "SDK Integration Test Document\n"
+                    "- Files: `sdk_test_doc_ae361e43.md`, `sdk_test_doc_b7e33f07.md`"
+                )
+            }
+        ]
+    }
+
+    assert extract_stream_sources(item) == [
+        {
+            "filename": "sdk_test_doc_ae361e43.md",
+            "text": "",
+            "score": 0,
+            "page": None,
+            "mimetype": None,
+        },
+        {
+            "filename": "sdk_test_doc_b7e33f07.md",
+            "text": "",
+            "score": 0,
+            "page": None,
+            "mimetype": None,
+        },
     ]

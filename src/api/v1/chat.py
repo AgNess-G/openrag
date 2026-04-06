@@ -47,6 +47,9 @@ def _normalize_stream_source(candidate: Any) -> dict | None:
         filename = current.get("filename") or current.get("document_name") or ""
         if not isinstance(filename, str):
             filename = ""
+        filename = filename.strip()
+        if not filename:
+            continue
 
         return {
             "filename": filename,
@@ -59,11 +62,54 @@ def _normalize_stream_source(candidate: Any) -> dict | None:
     return None
 
 
+def _extract_source_filenames_from_text(text: Any) -> list[str]:
+    """Extract filename hints from text-only Langflow tool output."""
+    if not isinstance(text, str) or not text.strip():
+        return []
+
+    import re
+
+    filenames = []
+    seen = set()
+
+    def add_filename(value: str) -> None:
+        normalized = value.strip().strip("`'\"").strip()
+        normalized = normalized.strip(".,;:()[]{}")
+        if "/" in normalized:
+            normalized = normalized.rsplit("/", 1)[-1]
+
+        if not re.search(r"\.[A-Za-z0-9]{1,16}$", normalized):
+            return
+        if normalized in seen:
+            return
+
+        seen.add(normalized)
+        filenames.append(normalized)
+
+    for match in re.finditer(r"\(Source:\s*([^)]+)\)", text):
+        add_filename(match.group(1))
+
+    for match in re.finditer(r"(?im)\bFiles?\s*:\s*([^\n]+)", text):
+        segment = match.group(1)
+        backticked = re.findall(r"`([^`]+)`", segment)
+        if backticked:
+            for filename in backticked:
+                add_filename(filename)
+            continue
+
+        for piece in segment.split(","):
+            add_filename(piece)
+
+    return filenames
+
+
 def _extract_sources(item: dict) -> list[dict]:
     """Extract sources from retrieval tool call items, including nested tool outputs."""
     sources = []
     seen_nodes = set()
     seen_sources = set()
+    hinted_filenames = []
+    seen_hinted_filenames = set()
 
     def visit(node: Any) -> None:
         if isinstance(node, dict):
@@ -88,6 +134,14 @@ def _extract_sources(item: dict) -> list[dict]:
                 visit(value)
             return
 
+        if isinstance(node, str):
+            for filename in _extract_source_filenames_from_text(node):
+                if filename in seen_hinted_filenames:
+                    continue
+                seen_hinted_filenames.add(filename)
+                hinted_filenames.append(filename)
+            return
+
         if isinstance(node, list):
             node_id = id(node)
             if node_id in seen_nodes:
@@ -98,6 +152,21 @@ def _extract_sources(item: dict) -> list[dict]:
                 visit(child)
 
     visit(item.get("results", []))
+
+    seen_source_filenames = {source["filename"] for source in sources if source["filename"]}
+    for filename in hinted_filenames:
+        if filename in seen_source_filenames:
+            continue
+        sources.append(
+            {
+                "filename": filename,
+                "text": "",
+                "score": 0,
+                "page": None,
+                "mimetype": None,
+            }
+        )
+
     return sources
 
 

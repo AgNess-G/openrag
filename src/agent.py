@@ -121,6 +121,9 @@ def _normalize_source_candidate(candidate):
         filename = current.get("filename") or current.get("document_name") or ""
         if not isinstance(filename, str):
             filename = ""
+        filename = filename.strip()
+        if not filename:
+            continue
 
         score = current.get("score", candidate.get("score", 0))
         page = current.get("page", candidate.get("page"))
@@ -137,11 +140,57 @@ def _normalize_source_candidate(candidate):
     return None
 
 
+def _extract_source_filenames_from_text(text):
+    """Extract filename hints from plain-text Langflow summaries."""
+    if not isinstance(text, str) or not text.strip():
+        return []
+
+    import re
+
+    filenames = []
+    seen = set()
+
+    def add_filename(value):
+        if not isinstance(value, str):
+            return
+
+        normalized = value.strip().strip("`'\"").strip()
+        normalized = normalized.strip(".,;:()[]{}")
+        if "/" in normalized:
+            normalized = normalized.rsplit("/", 1)[-1]
+
+        if not re.search(r"\.[A-Za-z0-9]{1,16}$", normalized):
+            return
+        if normalized in seen:
+            return
+
+        seen.add(normalized)
+        filenames.append(normalized)
+
+    for match in re.finditer(r"\(Source:\s*([^)]+)\)", text):
+        add_filename(match.group(1))
+
+    for match in re.finditer(r"(?im)\bFiles?\s*:\s*([^\n]+)", text):
+        segment = match.group(1)
+        backticked = re.findall(r"`([^`]+)`", segment)
+        if backticked:
+            for filename in backticked:
+                add_filename(filename)
+            continue
+
+        for piece in segment.split(","):
+            add_filename(piece)
+
+    return filenames
+
+
 def _collect_sources_from_payload(payload):
     """Recursively collect source-like records from nested Langflow payloads."""
     sources = []
     seen_nodes = set()
     seen_sources = set()
+    hinted_filenames = []
+    seen_hinted_filenames = set()
 
     def visit(node):
         if isinstance(node, dict):
@@ -166,6 +215,14 @@ def _collect_sources_from_payload(payload):
                 visit(value)
             return
 
+        if isinstance(node, str):
+            for filename in _extract_source_filenames_from_text(node):
+                if filename in seen_hinted_filenames:
+                    continue
+                seen_hinted_filenames.add(filename)
+                hinted_filenames.append(filename)
+            return
+
         if isinstance(node, list):
             node_id = id(node)
             if node_id in seen_nodes:
@@ -176,6 +233,21 @@ def _collect_sources_from_payload(payload):
                 visit(item)
 
     visit(payload)
+
+    seen_source_filenames = {source["filename"] for source in sources if source["filename"]}
+    for filename in hinted_filenames:
+        if filename in seen_source_filenames:
+            continue
+        sources.append(
+            {
+                "filename": filename,
+                "text": "",
+                "score": 0,
+                "page": None,
+                "mimetype": None,
+            }
+        )
+
     return sources
 
 
@@ -708,20 +780,22 @@ async def async_langflow_chat(
     )
     sources = _collect_sources_from_payload(resp_dict)
 
-    # Layer 3: Citation-text fallback.
-    # Parse "(Source: filename)" patterns emitted by the LLM when it cites documents.
-    # This is the last-resort fallback when Langflow's response object carries no
-    # structured retrieval data.
-    if not sources:
-        import re
-        for match in re.finditer(r"\(Source:\s*([^\)]+)\)", response_text):
-            sources.append({
-                "filename": match.group(1).strip(),
+    # Merge source hints from the rendered response text as a final fallback for
+    # Langflow flows that summarize retrieved filenames into prose.
+    seen_source_filenames = {source["filename"] for source in sources if source["filename"]}
+    for filename in _extract_source_filenames_from_text(response_text):
+        if filename in seen_source_filenames:
+            continue
+        sources.append(
+            {
+                "filename": filename,
                 "text": "",
                 "score": 0,
                 "page": None,
                 "mimetype": None,
-            })
+            }
+        )
+        seen_source_filenames.add(filename)
 
     if not store_conversation:
         return response_text, response_id, sources
