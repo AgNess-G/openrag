@@ -129,7 +129,7 @@ class RetrievalConfigManager:
             if mapping is None:
                 continue  # path override handled at __init__
             value = os.getenv(env_key)
-            if value is None:
+            if not value:  # skip None and empty string (e.g. VAR='' from compose)
                 continue
             dotted_path, cast = mapping
             parts = dotted_path.split(".")

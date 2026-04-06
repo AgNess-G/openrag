@@ -201,7 +201,7 @@ class PipelineConfigManager:
     def _apply_env_overrides(raw: dict[str, Any]) -> None:
         for env_key, (dotted_path, cast) in _ENV_OVERRIDES.items():
             value = os.getenv(env_key)
-            if value is None:
+            if not value:  # skip None and empty string (e.g. VAR='' from compose)
                 continue
             parts = dotted_path.split(".")
             d = raw

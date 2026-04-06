@@ -9,7 +9,7 @@ retriever:
   limit: 10
 
 reranker:
-  type: none
+  type: "none"
   top_k: 10
 
 agent:

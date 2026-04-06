@@ -1,4 +1,4 @@
-# Deep (plan-and-execute) agent preset: Cohere reranker for precision
+# Deep agent preset (deepagents SDK): built-in planning + Cohere reranker for precision
 version: "1"
 
 retriever:
@@ -9,15 +9,13 @@ retriever:
   limit: 20
 
 reranker:
-  type: cohere
+  type: "none"
   top_k: 10
-  cohere:
-    model: rerank-english-v3.0
 
 agent:
   type: deep
   provider: openai
-  model: gpt-4o
+  model: openai:gpt-4o   # deepagents model string format: "provider:model-name"
   temperature: 0.5
   max_tokens: 4096
   tools:

@@ -1,4 +1,8 @@
-"""LangChain plan-and-execute (deep research) agent."""
+"""Deep agent using the `deepagents` SDK (create_deep_agent).
+
+Built on LangGraph with built-in planning (write_todos), virtual filesystem,
+and subagent spawning for complex multi-step research tasks.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +14,8 @@ from utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 try:
-    from langchain_experimental.plan_and_execute import (
-        PlanAndExecute,
-        load_agent_executor,
-        load_chat_planner,
-    )
-    from langchain_openai import ChatOpenAI
+    from deepagents import create_deep_agent
+    from langchain.chat_models import init_chat_model
 
     _AVAILABLE = True
 except ImportError:
@@ -32,21 +32,37 @@ def _format_context(docs: list[SearchResult]) -> str:
     return "\n\n".join(parts)
 
 
+def _build_system_prompt(base_prompt: str, context: str) -> str:
+    system = base_prompt or (
+        "You are a research assistant. Plan your approach carefully using write_todos, "
+        "then use the available tools to find accurate, comprehensive answers. "
+        "When you have enough information, synthesise a complete response."
+    )
+    if context:
+        system = (
+            f"{system}\n\n"
+            f"Initial retrieval context (use as a starting point, search further as needed):\n"
+            f"{context}"
+        )
+    return system
+
+
 class DeepAgent:
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str = "openai:gpt-4o",
         temperature: float = 0.7,
         max_tokens: int = 2048,
         system_prompt: str = "",
         tools: list[str] | None = None,
         tool_registry=None,
+        max_iterations: int = 10,
         **_kwargs,
     ) -> None:
         if not _AVAILABLE:
             raise ImportError(
-                "langchain-experimental is required for DeepAgent. "
-                "Install with: pip install langchain-experimental"
+                "deepagents is required for DeepAgent. "
+                "Install with: pip install deepagents"
             )
         self.model = model
         self.temperature = temperature
@@ -54,11 +70,7 @@ class DeepAgent:
         self._system_prompt = system_prompt
         self._tool_names = tools or []
         self._tool_registry = tool_registry
-
-    def _get_system_prompt(self) -> str:
-        if self._system_prompt:
-            return self._system_prompt
-        return "You are a research assistant. Plan your approach carefully and use the available tools to find accurate, comprehensive answers."
+        self.max_iterations = max_iterations
 
     async def run(
         self,
@@ -72,25 +84,41 @@ class DeepAgent:
         lc_tools = registry.get_tools(self._tool_names)
 
         context = _format_context(retrieved_docs)
-        augmented_query = query
-        if context:
-            augmented_query = f"Context from initial retrieval:\n{context}\n\nQuestion: {query}"
+        system_prompt = _build_system_prompt(self._system_prompt, context)
 
-        llm = ChatOpenAI(
+        # Build LangChain chat model with temperature / max_tokens
+        llm = init_chat_model(
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
-        planner = load_chat_planner(llm, system_prompt=self._get_system_prompt())
-        executor = load_agent_executor(llm, lc_tools, verbose=False)
-        agent = PlanAndExecute(planner=planner, executor=executor)
+
+        agent = create_deep_agent(
+            model=llm,
+            tools=lc_tools,
+            system_prompt=system_prompt,
+        )
+
+        # Build messages list — prepend conversation history
+        messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in history
+        ]
+        messages.append({"role": "user", "content": query})
 
         try:
-            result = await agent.ainvoke({"input": augmented_query})
-            response_text = result.get("output", "")
+            result = await agent.ainvoke({"messages": messages})
         except Exception as e:
             logger.error("DeepAgent: execution failed", error=str(e))
             raise
+
+        # Response is the last message in the returned messages list
+        last_message = result["messages"][-1]
+        response_text = (
+            last_message.content
+            if hasattr(last_message, "content")
+            else str(last_message)
+        )
 
         response_id = str(uuid.uuid4())
         return AgentResponse(

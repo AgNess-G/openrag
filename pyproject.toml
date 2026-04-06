@@ -51,6 +51,7 @@ dependencies = [
     "langchain-openai>=0.2",
     "langchain-community>=0.3",
     "langchain-experimental>=0.3",
+    "deepagents>=0.1",
     "langchain-text-splitters>=0.3",
     "redis[asyncio]>=5.0",
     "markitdown[all]>=0.1",
