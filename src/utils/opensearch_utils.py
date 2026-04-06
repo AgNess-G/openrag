@@ -235,16 +235,17 @@ async def setup_opensearch_security(
         if "openrag_user_role" in roles_config:
             role_body = roles_config["openrag_user_role"]
 
-            # Dynamically add the current index name to the index_patterns
+            # Dynamically add the current index name only to permission entries that
+            # already have a DLS filter. Entries without DLS (e.g. alerting config)
+            # must not receive the index name — adding them there would make OpenSearch
+            # pick the most-permissive (no-DLS) entry and bypass filtering entirely.
             current_index = get_index_name()
             if "index_permissions" in role_body:
                 for permission in role_body["index_permissions"]:
-                    if "index_patterns" in permission:
-                        # Ensure we have a set to avoid duplicates and add the dynamic patterns
+                    if "index_patterns" in permission and "dls" in permission:
                         patterns = set(permission["index_patterns"])
                         patterns.add(current_index)
                         patterns.add(f"{current_index}*")
-                        # Add knowledge_filters as well if not present
                         patterns.add("knowledge_filters")
                         patterns.add("knowledge_filters*")
                         permission["index_patterns"] = sorted(list(patterns))
