@@ -11,7 +11,7 @@
 <script>!function(){function e(){if(void 0!==window.truste&&window.truste.cma){var e=window.truste.cma.callApi("getConsent",window.location.href)||{},n=1===e[2],t=1===e[3];gtag("consent","update",{ad_storage:n?"granted":"denied",ad_user_data:n?"granted":"denied",ad_personalization:n?"granted":"denied",analytics_storage:t?"granted":"denied"})}}window.addEventListener&&(window.addEventListener("cm_data_subject_consent_changed",e),window.addEventListener("cm_consent_preferences_set",e)),"complete"===document.readyState?e():window.addEventListener("load",e)}()</script>
 <script>window._ibmAnalytics={settings:{name:"DataStax",tealiumProfileName:"ibm-subsidiary"},trustarc:{privacyPolicyLink:"https://ibm.com/privacy"}},window.digitalData={page:{pageInfo:{ibm:{siteId:"IBM_DataStax"}},category:{primaryCategory:"PC230"}}}</script>
 <script src="//1.www.s81c.com/common/stats/ibm-common.js" async="true"></script><link rel="stylesheet" href="/assets/css/styles.dd48e280.css">
-<script src="/assets/js/runtime~main.4d95214d.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d04a1c04.js" defer="defer"></script>
 <script src="/assets/js/main.09bf4d0a.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -27,7 +27,7 @@ This ensures that you won&#x27;t lose your flows after upgrading, and you can re
 <p>Upgrading the Python package also upgrades Docling by bumping the dependency in <code>pyproject.toml</code>.</p>
 <p>This is a two-part process because upgrading the OpenRAG Python package updates the OpenRAG terminal and Python code, but the container versions are controlled by environment variables in your <a class="" href="/reference/configuration">OpenRAG <code>.env</code> file</a>.</p>
 <ol>
-<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Although OpenRAG can preserve changes to the built-in flows, it doesn&#x27;t preserve user-created flows. As a general best practice, exporting your flows is recommended to create backups of your customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
+<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Exporting your flows is recommended because it creates backups of your flow customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
 </ol>
 <ol start="2">
 <li class="">
@@ -88,7 +88,7 @@ If you want to use a specific container version that is different from your term
 </ol>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="upgrade-self-managed-deployments">Upgrade self-managed deployments<a href="#upgrade-self-managed-deployments" class="hash-link" aria-label="Direct link to Upgrade self-managed deployments" title="Direct link to Upgrade self-managed deployments" translate="no">​</a></h2>
 <ol>
-<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Although OpenRAG can preserve changes to the built-in flows, it doesn&#x27;t preserve user-created flows. As a general best practice, exporting your flows is recommended to create backups of your customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
+<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Exporting your flows is recommended because it creates backups of your flow customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
 </ol>
 <ol start="2">
 <li class="">

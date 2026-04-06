@@ -11,7 +11,7 @@
 <script>!function(){function e(){if(void 0!==window.truste&&window.truste.cma){var e=window.truste.cma.callApi("getConsent",window.location.href)||{},n=1===e[2],t=1===e[3];gtag("consent","update",{ad_storage:n?"granted":"denied",ad_user_data:n?"granted":"denied",ad_personalization:n?"granted":"denied",analytics_storage:t?"granted":"denied"})}}window.addEventListener&&(window.addEventListener("cm_data_subject_consent_changed",e),window.addEventListener("cm_consent_preferences_set",e)),"complete"===document.readyState?e():window.addEventListener("load",e)}()</script>
 <script>window._ibmAnalytics={settings:{name:"DataStax",tealiumProfileName:"ibm-subsidiary"},trustarc:{privacyPolicyLink:"https://ibm.com/privacy"}},window.digitalData={page:{pageInfo:{ibm:{siteId:"IBM_DataStax"}},category:{primaryCategory:"PC230"}}}</script>
 <script src="//1.www.s81c.com/common/stats/ibm-common.js" async="true"></script><link rel="stylesheet" href="/assets/css/styles.dd48e280.css">
-<script src="/assets/js/runtime~main.4d95214d.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d04a1c04.js" defer="defer"></script>
 <script src="/assets/js/main.09bf4d0a.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -88,7 +88,7 @@ To view streaming logs, click the name of a service, and then press <kbd>l</kbd>
 Your documents are reingested into a fresh OpenSearch index after the reset.</p>
 <p>To reset your OpenRAG deployment <em>and</em> delete all OpenRAG data, see <a class="" href="/reinstall">Reinstall OpenRAG</a>.</p>
 <div class="theme-tabs-container tabs-container tabList__CuJ"><ul role="tablist" aria-orientation="horizontal" class="tabs"><li role="tab" tabindex="0" aria-selected="true" class="tabs__item tabItem_LNqP tabs__item--active">Terminal-managed services</li><li role="tab" tabindex="-1" aria-selected="false" class="tabs__item tabItem_LNqP">Self-managed services</li></ul><div class="margin-top--md"><div role="tabpanel" class="tabItem_Ymn6"><ol>
-<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Although OpenRAG can preserve changes to the built-in flows, it doesn&#x27;t preserve user-created flows. As a general best practice, exporting your flows is recommended to create backups of your customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
+<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Exporting your flows is recommended because it creates backups of your flow customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
 </ol><ol start="2">
 <li class="">
 <p>To destroy and recreate your OpenRAG containers, <a class="" href="/tui#access-the-tui">start the terminal session with <code>--tui</code></a>, such as <code>uv run openrag --tui</code>.</p>
@@ -103,7 +103,7 @@ Your documents are reingested into a fresh OpenSearch index after the reset.</p>
 <p>If you exported customized flows, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">import your flows</a> into Langflow after completing the onboarding process.</p>
 </li>
 </ol></div><div role="tabpanel" class="tabItem_Ymn6" hidden=""><ol>
-<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Although OpenRAG can preserve changes to the built-in flows, it doesn&#x27;t preserve user-created flows. As a general best practice, exporting your flows is recommended to create backups of your customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
+<li class="">If you modified the built-in flows or created custom flows in your <a class="" href="/agents">OpenRAG Langflow instance</a>, <a href="https://docs.langflow.org/concepts-flows-import" target="_blank" rel="noopener noreferrer" class="">export your flows</a> before starting this process. Exporting your flows is recommended because it creates backups of your flow customizations. Afterwards, you can reimport your flows or reference the exported flow JSON as needed.</li>
 </ol><ol start="2">
 <li class="">
 <p>Recreate the containers:</p>
