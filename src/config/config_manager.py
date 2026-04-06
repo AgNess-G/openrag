@@ -10,6 +10,19 @@ from utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _resolve_default_config_file() -> Path:
+    """Resolve the default config file from env or repository defaults."""
+    explicit_config_file = os.getenv("OPENRAG_CONFIG_FILE")
+    if explicit_config_file:
+        return Path(explicit_config_file).expanduser()
+
+    config_directory = os.getenv("OPENRAG_CONFIG_PATH")
+    if config_directory:
+        return Path(config_directory).expanduser() / "config.yaml"
+
+    return Path("config/config.yaml")
+
+
 @dataclass
 class OpenAIConfig:
     """OpenAI provider configuration."""
@@ -166,7 +179,9 @@ class ConfigManager:
         Args:
             config_file: Path to configuration file. Defaults to 'config.yaml' in project root.
         """
-        self.config_file = Path(config_file) if config_file else Path("config/config.yaml")
+        self.config_file = (
+            Path(config_file).expanduser() if config_file else _resolve_default_config_file()
+        )
         self._config: Optional[OpenRAGConfig] = None
 
 

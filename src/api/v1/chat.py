@@ -28,18 +28,76 @@ class ChatV1Body(BaseModel):
     filter_id: Optional[str] = None
 
 
+def _normalize_stream_source(candidate: Any) -> dict | None:
+    """Normalize one possible source object from streamed Langflow output."""
+    if not isinstance(candidate, dict):
+        return None
+
+    candidates = [candidate]
+    for nested_key in ("data", "_source"):
+        nested_value = candidate.get(nested_key)
+        if isinstance(nested_value, dict):
+            candidates.append(nested_value)
+
+    for current in candidates:
+        text = current.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+
+        filename = current.get("filename") or current.get("document_name") or ""
+        if not isinstance(filename, str):
+            filename = ""
+
+        return {
+            "filename": filename,
+            "text": text,
+            "score": current.get("score", candidate.get("score", 0)),
+            "page": current.get("page", candidate.get("page")),
+            "mimetype": current.get("mimetype", candidate.get("mimetype")),
+        }
+
+    return None
+
+
 def _extract_sources(item: dict) -> list[dict]:
-    """Extract sources from a retrieval tool call item."""
+    """Extract sources from retrieval tool call items, including nested tool outputs."""
     sources = []
-    for result in item.get("results", []):
-        if isinstance(result, dict) and "text" in result:
-            sources.append({
-                "filename": result.get("filename", ""),
-                "text": result.get("text", ""),
-                "score": result.get("score", 0),
-                "page": result.get("page"),
-                "mimetype": result.get("mimetype"),
-            })
+    seen_nodes = set()
+    seen_sources = set()
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            node_id = id(node)
+            if node_id in seen_nodes:
+                return
+            seen_nodes.add(node_id)
+
+            normalized = _normalize_stream_source(node)
+            if normalized:
+                source_key = (
+                    normalized["filename"],
+                    normalized["text"],
+                    normalized["page"],
+                    normalized["mimetype"],
+                )
+                if source_key not in seen_sources:
+                    seen_sources.add(source_key)
+                    sources.append(normalized)
+
+            for value in node.values():
+                visit(value)
+            return
+
+        if isinstance(node, list):
+            node_id = id(node)
+            if node_id in seen_nodes:
+                return
+            seen_nodes.add(node_id)
+
+            for child in node:
+                visit(child)
+
+    visit(item.get("results", []))
     return sources
 
 
