@@ -7,6 +7,7 @@ and subagent spawning for complex multi-step research tasks.
 from __future__ import annotations
 
 import uuid
+from typing import AsyncIterator
 
 from pipeline.retrieval.types import AgentResponse, ConversationMessage, SearchResult
 from utils.logging_config import get_logger
@@ -77,11 +78,13 @@ class DeepAgent:
         query: str,
         retrieved_docs: list[SearchResult],
         history: list[ConversationMessage],
+        user_id: str | None = None,
+        jwt_token: str | None = None,
     ) -> AgentResponse:
         from pipeline.retrieval.tools.registry import ToolRegistry
 
         registry = self._tool_registry or ToolRegistry.get_default()
-        lc_tools = registry.get_tools(self._tool_names)
+        lc_tools = registry.get_tools(self._tool_names, user_id=user_id, jwt_token=jwt_token)
 
         context = _format_context(retrieved_docs)
         system_prompt = _build_system_prompt(self._system_prompt, context)
@@ -127,3 +130,46 @@ class DeepAgent:
             sources=retrieved_docs,
             usage={},
         )
+
+    async def run_stream(
+        self,
+        query: str,
+        retrieved_docs: list[SearchResult],
+        history: list[ConversationMessage],
+        user_id: str | None = None,
+        jwt_token: str | None = None,
+    ) -> AsyncIterator[str]:
+        from pipeline.retrieval.tools.registry import ToolRegistry
+
+        registry = self._tool_registry or ToolRegistry.get_default()
+        lc_tools = registry.get_tools(self._tool_names, user_id=user_id, jwt_token=jwt_token)
+
+        context = _format_context(retrieved_docs)
+        system_prompt = _build_system_prompt(self._system_prompt, context)
+
+        llm = init_chat_model(
+            model=self.model,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+
+        agent = create_deep_agent(
+            model=llm,
+            tools=lc_tools,
+            system_prompt=system_prompt,
+        )
+
+        messages = [{"role": msg.role, "content": msg.content} for msg in history]
+        messages.append({"role": "user", "content": query})
+
+        try:
+            async for event in agent.astream_events(
+                {"messages": messages}, version="v2"
+            ):
+                if event["event"] == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if chunk and chunk.content:
+                        yield chunk.content
+        except Exception as e:
+            logger.error("DeepAgent: streaming failed", error=str(e))
+            raise

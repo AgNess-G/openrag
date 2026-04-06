@@ -335,6 +335,37 @@ class ChatService:
         response = await pipeline.run(query, previous_response_id)
         return pipeline.to_response_dict(response)
 
+    async def composable_chat_stream(
+        self,
+        prompt: str,
+        user_id: str = None,
+        jwt_token: str = None,
+        previous_response_id: str = None,
+        filters: dict = None,
+        limit: int = 10,
+        score_threshold: float = 0.0,
+    ):
+        """Stream chat via composable retrieval pipeline.
+
+        Yields newline-delimited JSON strings:
+            {"delta": "<token>"}   — one per token
+            {"response_id": "...", "sources": [...], "usage": {}}  — final
+        """
+        from pipeline.retrieval.pipeline import RetrievalPipelineManager
+        from pipeline.retrieval.types import RetrievalQuery
+
+        query = RetrievalQuery(
+            text=prompt,
+            user_id=user_id,
+            jwt_token=jwt_token,
+            filters=filters,
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        pipeline = RetrievalPipelineManager.get_pipeline()
+        async for chunk in pipeline.run_stream(query, previous_response_id):
+            yield chunk
+
     async def composable_nudges_chat(
         self,
         user_id: str = None,

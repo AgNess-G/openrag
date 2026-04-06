@@ -96,11 +96,10 @@ async def langflow_endpoint(
 
     try:
         if DISABLE_LANGFLOW:
-            # Route to composable retrieval pipeline when Langflow is disabled.
-            # Return a streaming response so the SSE hook in the frontend can
-            # parse it — it expects newline-delimited JSON with output_text /
-            # response_id keys rather than a plain JSONResponse.
-            result = await chat_service.composable_chat(
+            # Stream tokens from the composable retrieval pipeline.
+            # Yields {"delta": token} lines then a final {"response_id", "sources", "usage"} line.
+            # The frontend SSE hook reads delta chunks and the final response_id/sources.
+            stream = chat_service.composable_chat_stream(
                 body.prompt,
                 user_id=user.user_id,
                 jwt_token=jwt_token,
@@ -109,17 +108,8 @@ async def langflow_endpoint(
                 limit=body.limit,
                 score_threshold=body.scoreThreshold,
             )
-
-            async def _composable_stream():
-                yield json.dumps({
-                    "output_text": result.get("response", ""),
-                    "response_id": result.get("response_id"),
-                    "sources": result.get("sources", []),
-                    "usage": result.get("usage", {}),
-                }) + "\n"
-
             return StreamingResponse(
-                _composable_stream(),
+                stream,
                 media_type="application/x-ndjson",
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )

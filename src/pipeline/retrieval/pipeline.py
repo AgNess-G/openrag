@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import time
+import uuid
 from dataclasses import asdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, AsyncIterator
 
 from pipeline.retrieval.types import AgentResponse, RetrievalQuery
 from utils.logging_config import get_logger
@@ -94,7 +96,7 @@ class RetrievalPipeline:
                 "RetrievalPipeline: agent",
                 agent=type(self.agent).__name__,
             )
-            response = await self.agent.run(query.text, results, history)
+            response = await self.agent.run(query.text, results, history, user_id=query.user_id, jwt_token=query.jwt_token)
             logger.info(
                 "RetrievalPipeline: agent done",
                 response_id=response.response_id,
@@ -121,6 +123,79 @@ class RetrievalPipeline:
                 elapsed_s=_elapsed(),
             )
             raise
+
+    async def run_stream(
+        self,
+        query: RetrievalQuery,
+        previous_response_id: str | None = None,
+    ) -> AsyncIterator[str]:
+        """Retrieve → rerank → stream agent tokens as newline-delimited JSON.
+
+        Yields:
+            ``{"delta": "<token>"}`` lines during generation.
+            A final ``{"response_id": "...", "sources": [...], "usage": {}}`` line.
+        """
+        # Load history
+        history = await self.conversation_manager.get_history(
+            query.user_id, previous_response_id
+        )
+
+        # Retrieve + rerank (non-streaming — must complete before agent starts)
+        results = await self.retriever.retrieve(query)
+        results = await self.reranker.rerank(query.text, results)
+
+        logger.info(
+            "RetrievalPipeline.run_stream: starting",
+            retriever=type(self.retriever).__name__,
+            agent=type(self.agent).__name__,
+            results_count=len(results),
+        )
+
+        # Stream agent tokens
+        response_text = ""
+        if not hasattr(self.agent, "run_stream"):
+            # Fallback: agents that don't support streaming yet
+            response = await self.agent.run(query.text, results, history, user_id=query.user_id, jwt_token=query.jwt_token)
+            yield json.dumps({"delta": response.response}) + "\n"
+            response_id = response.response_id
+            sources = results
+            usage = response.usage
+        else:
+            async for token in self.agent.run_stream(query.text, results, history, user_id=query.user_id, jwt_token=query.jwt_token):
+                response_text += token
+                yield json.dumps({"delta": token}) + "\n"
+
+            response_id = str(uuid.uuid4())
+            sources = results
+            usage = {}
+
+        # Store conversation
+        await self.conversation_manager.store(
+            user_id=query.user_id,
+            response_id=response_id,
+            query_text=query.text,
+            response_text=response_text,
+            previous_response_id=previous_response_id,
+        )
+
+        # Emit final metadata chunk
+        yield json.dumps({
+            "response_id": response_id,
+            "sources": [
+                {
+                    "filename": s.filename,
+                    "text": s.text,
+                    "score": s.score,
+                    "page": s.page,
+                    "mimetype": s.mimetype,
+                    "source_url": s.source_url,
+                    "owner_name": s.owner_name,
+                    "connector_type": s.connector_type,
+                }
+                for s in sources
+            ],
+            "usage": usage,
+        }) + "\n"
 
     async def generate_nudges(
         self,

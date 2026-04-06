@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import AsyncIterator
 
 from config.settings import clients, get_openrag_config
 from pipeline.retrieval.types import AgentResponse, ConversationMessage, SearchResult
@@ -54,6 +55,8 @@ class OpenAIAgent:
         query: str,
         retrieved_docs: list[SearchResult],
         history: list[ConversationMessage],
+        user_id: str | None = None,
+        jwt_token: str | None = None,
     ) -> AgentResponse:
         context = _format_context(retrieved_docs)
         system_prompt = self._get_system_prompt()
@@ -90,3 +93,38 @@ class OpenAIAgent:
             sources=retrieved_docs,
             usage=usage,
         )
+
+    async def run_stream(
+        self,
+        query: str,
+        retrieved_docs: list[SearchResult],
+        history: list[ConversationMessage],
+        user_id: str | None = None,
+        jwt_token: str | None = None,
+    ) -> AsyncIterator[str]:
+        context = _format_context(retrieved_docs)
+        system_prompt = self._get_system_prompt()
+
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(_format_history(history))
+
+        user_content = query
+        if context:
+            user_content = f"Context:\n{context}\n\nQuestion: {query}"
+        messages.append({"role": "user", "content": user_content})
+
+        try:
+            stream = await clients.patched_llm_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    yield delta
+        except Exception as e:
+            logger.error("OpenAIAgent: streaming failed", error=str(e))
+            raise

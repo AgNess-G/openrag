@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import AsyncIterator
 
 from pipeline.retrieval.types import AgentResponse, ConversationMessage, SearchResult
 from utils.logging_config import get_logger
@@ -121,11 +122,13 @@ class ReActAgent:
         query: str,
         retrieved_docs: list[SearchResult],
         history: list[ConversationMessage],
+        user_id: str | None = None,
+        jwt_token: str | None = None,
     ) -> AgentResponse:
         from pipeline.retrieval.tools.registry import ToolRegistry
 
         registry = self._tool_registry or ToolRegistry.get_default()
-        lc_tools = registry.get_tools(self._tool_names)
+        lc_tools = registry.get_tools(self._tool_names, user_id=user_id, jwt_token=jwt_token)
 
         context = _format_context(retrieved_docs)
         chat_history_str = "\n".join(
@@ -154,3 +157,41 @@ class ReActAgent:
             sources=sources,
             usage={},
         )
+
+    async def run_stream(
+        self,
+        query: str,
+        retrieved_docs: list[SearchResult],
+        history: list[ConversationMessage],
+        user_id: str | None = None,
+        jwt_token: str | None = None,
+    ) -> AsyncIterator[str]:
+        from pipeline.retrieval.tools.registry import ToolRegistry
+
+        registry = self._tool_registry or ToolRegistry.get_default()
+        lc_tools = registry.get_tools(self._tool_names, user_id=user_id, jwt_token=jwt_token)
+
+        context = _format_context(retrieved_docs)
+        chat_history_str = "\n".join(
+            f"{m.role}: {m.content}" for m in history if m.role in ("user", "assistant")
+        )
+
+        executor = self._build_executor(lc_tools)
+
+        try:
+            async for event in executor.astream_events(
+                {
+                    "input": query,
+                    "context": context,
+                    "chat_history": chat_history_str,
+                    "system_prompt": self._get_system_prompt(),
+                },
+                version="v2",
+            ):
+                if event["event"] == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if chunk and chunk.content:
+                        yield chunk.content
+        except Exception as e:
+            logger.error("ReActAgent: streaming failed", error=str(e))
+            raise
