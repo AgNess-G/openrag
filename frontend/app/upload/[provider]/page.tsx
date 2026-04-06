@@ -1,7 +1,13 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ArrowLeft, FolderOpen, RefreshCw } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  FileSearch,
+  FolderOpen,
+  RefreshCw,
+} from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -16,6 +22,7 @@ import {
   getIngestChunkSettingsError,
   type IngestSettings as IngestSettingsType,
 } from "@/components/cloud-picker/types";
+import { FileBrowserDialog } from "@/components/file-browser-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -66,6 +73,9 @@ function BucketView({
     embeddingModel: "text-embedding-3-small",
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [browseDialogBucket, setBrowseDialogBucket] = useState<string | null>(
+    null,
+  );
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: invalidateQueryKey });
@@ -227,6 +237,18 @@ function BucketView({
                       )}
                     </div>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBrowseDialogBucket(bucket.name);
+                    }}
+                  >
+                    <FileSearch size={14} className="mr-1.5" />
+                    Browse Files
+                  </Button>
                 </div>
               );
             })}
@@ -264,6 +286,22 @@ function BucketView({
           </Button>
         </div>
       </div>
+
+      {connector.connectionId && (
+        <FileBrowserDialog
+          open={browseDialogBucket !== null}
+          onOpenChange={(open) => {
+            if (!open) setBrowseDialogBucket(null);
+          }}
+          connectorType={connector.type}
+          connectionId={connector.connectionId}
+          buckets={
+            browseDialogBucket
+              ? [browseDialogBucket]
+              : buckets?.map((b) => b.name)
+          }
+        />
+      )}
     </>
   );
 }

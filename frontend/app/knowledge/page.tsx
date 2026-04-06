@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { useKnowledgeFilter } from "@/contexts/knowledge-filter-context";
 import { useTask } from "@/contexts/task-context";
 import { type File, useGetSearchQuery } from "../api/queries/useGetSearchQuery";
+import { useListFiles } from "../api/queries/useListFiles";
 import "@/components/AgGrid/registerAgGridModules";
 import "@/components/AgGrid/agGridStyles.css";
 import { toast } from "sonner";
@@ -204,14 +205,49 @@ function SearchPage() {
     getFailedFileKey,
   ]);
 
+  // Use server-side file listing for default/wildcard view,
+  // fall back to search-based aggregation for semantic queries
+  const isWildcardQuery =
+    !queryOverride ||
+    queryOverride.trim() === "" ||
+    queryOverride.trim() === "*";
+
+  const {
+    data: listFilesData,
+    isLoading: isListFilesLoading,
+    error: listFilesError,
+    isError: isListFilesError,
+  } = useListFiles(
+    {
+      pageSize: 100,
+      search: isWildcardQuery ? undefined : queryOverride,
+      connectorType: parsedFilterData?.filters?.connector_types?.[0],
+      mimetype: parsedFilterData?.filters?.document_types?.[0],
+      owner: parsedFilterData?.filters?.owners?.[0],
+    },
+    {
+      refetchInterval: 5000,
+      enabled: isWildcardQuery,
+    },
+  );
+
   const {
     data: searchData = [],
     isLoading: isSearchLoading,
-    error,
-    isError,
+    error: searchError,
+    isError: isSearchError,
   } = useGetSearchQuery(queryOverride, parsedFilterData, {
     refetchInterval: 5000,
+    enabled: !isWildcardQuery,
   });
+
+  // Merge data from whichever source is active
+  const effectiveData: File[] = isWildcardQuery
+    ? (listFilesData?.files ?? [])
+    : (searchData as File[]);
+  const isLoading = isWildcardQuery ? isListFilesLoading : isSearchLoading;
+  const error = isWildcardQuery ? listFilesError : searchError;
+  const isError = isWildcardQuery ? isListFilesError : isSearchError;
 
   const isOpenragDocsRow = useCallback((file?: File) => {
     return (
@@ -305,7 +341,7 @@ function SearchPage() {
     }
   }, [isError, error]);
   const fileResults = buildKnowledgeTableRows(
-    searchData as File[],
+    effectiveData as File[],
     taskFiles,
     !!parsedFilterData,
   );
@@ -766,7 +802,7 @@ function SearchPage() {
             className="w-full overflow-auto border"
             columnDefs={columnDefs as ColDef<File>[]}
             defaultColDef={defaultColDef}
-            loading={isSearchLoading || deleteDocumentMutation.isPending}
+            loading={isLoading || deleteDocumentMutation.isPending}
             ref={gridRef}
             theme={themeQuartz.withParams({ browserColorScheme: "inherit" })}
             rowData={gridRows}
@@ -797,7 +833,7 @@ function SearchPage() {
             className="w-full overflow-auto"
             columnDefs={columnDefs as ColDef<File>[]}
             defaultColDef={defaultColDef}
-            loading={isSearchLoading || deleteDocumentMutation.isPending}
+            loading={isLoading || deleteDocumentMutation.isPending}
             ref={gridRef}
             theme={themeQuartz.withParams({ browserColorScheme: "inherit" })}
             rowData={gridRows}
