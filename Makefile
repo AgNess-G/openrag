@@ -687,18 +687,9 @@ test-integration: ## Run integration tests (requires infrastructure)
 	uv run pytest tests/integration/core/ -v
 
 test-ci: ensure-langflow-data ensure-backend-volumes ## Start infra, run integration + SDK tests, tear down (uses DockerHub images)
-	@chmod 777 langflow-data
 	@set -e; \
 	echo "$(YELLOW)Installing test dependencies...$(NC)"; \
 	uv sync --group dev; \
-	if [ ! -f keys/private_key.pem ]; then \
-		echo "$(YELLOW)Generating RSA keys for JWT signing...$(NC)"; \
-		uv run python -c "from src.main import generate_jwt_keys; generate_jwt_keys()"; \
-	else \
-		echo "$(CYAN)RSA keys already exist, ensuring correct permissions...$(NC)"; \
-		chmod 600 keys/private_key.pem 2>/dev/null || true; \
-		chmod 644 keys/public_key.pem 2>/dev/null || true; \
-	fi; \
 	echo "::group::Cleanup, Pull & Build Images"; \
 	echo "$(YELLOW)Cleaning up old containers and volumes...$(NC)"; \
 	$(COMPOSE_CMD) down -v 2>/dev/null || true; \
@@ -817,18 +808,9 @@ test-ci: ensure-langflow-data ensure-backend-volumes ## Start infra, run integra
 	exit $$TEST_RESULT
 
 test-ci-local: ensure-langflow-data ensure-backend-volumes ## Same as test-ci but builds all images locally
-	@chmod 777 langflow-data
 	@set -e; \
 	echo "$(YELLOW)Installing test dependencies...$(NC)"; \
 	uv sync --group dev; \
-	if [ ! -f keys/private_key.pem ]; then \
-		echo "$(YELLOW)Generating RSA keys for JWT signing...$(NC)"; \
-		uv run python -c "from src.main import generate_jwt_keys; generate_jwt_keys()"; \
-	else \
-		echo "$(CYAN)RSA keys already exist, ensuring correct permissions...$(NC)"; \
-		chmod 600 keys/private_key.pem 2>/dev/null || true; \
-		chmod 644 keys/public_key.pem 2>/dev/null || true; \
-	fi; \
 	echo "::group::Cleanup & Build Images"; \
 	echo "$(YELLOW)Cleaning up old containers and volumes...$(NC)"; \
 	$(COMPOSE_CMD) down -v 2>/dev/null || true; \
