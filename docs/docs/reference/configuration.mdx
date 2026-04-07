@@ -171,3 +171,5 @@ Configure general system components, session management, and logging.
 | `LOG_LEVEL` | `INFO` | Logging level. Can be one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. `DEBUG` provides the most detailed logs but can impact performance. |
 | `SERVICE_NAME` | `openrag` | Service name used in log entries. |
 | `SESSION_SECRET` | Automatically generated | Secret key for session management. If not provided, a secure random key is generated automatically. |
+| `SSL_KEYFILE` | Not set | Optional path to the SSL private key file (.pem) for the backend server. Enabling this and `SSL_CERTFILE` starts the backend server with native HTTPS support. |
+| `SSL_CERTFILE` | Not set | Optional path to the SSL certificate file (.pem) for the backend server. Enabling this and `SSL_KEYFILE` starts the backend server with native HTTPS support. |

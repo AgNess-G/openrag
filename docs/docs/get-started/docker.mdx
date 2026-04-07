@@ -120,7 +120,16 @@ The following variables are required or recommended:
    * **`LANGFUSE_PUBLIC_KEY`**: A public key for your Langfuse project.
    * **`LANGFUSE_HOST`**: Required for self-hosted Langfuse deployments. Leave empty for Langfuse Cloud.
 
-8. Save your `.env` file.
+8. Optional: To enable HTTPS for the backend, place your SSL certificate and private key files in the `./keys` directory at the root of the repository, and then set the following variables in your `.env` file:
+
+   ```env
+   SSL_KEYFILE=./keys/key.pem
+   SSL_CERTFILE=./keys/cert.pem
+   ```
+
+   Since the `./keys` directory is automatically mounted into the backend container, the server can access these files to serve traffic over HTTPS natively.
+
+9. Save your `.env` file.
 
 ## Start services
 

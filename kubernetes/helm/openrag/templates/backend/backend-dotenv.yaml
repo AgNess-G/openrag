@@ -194,6 +194,14 @@ stringData:
     LANGFLOW_KEY_RETRY_DELAY={{ .Values.langflow.auth.keyRetryDelay | quote }}
     {{- end }}
 
+    # TLS Configuration
+    {{- if .Values.backend.tls.keyfile }}
+    SSL_KEYFILE={{ .Values.backend.tls.keyfile | quote }}
+    {{- end }}
+    {{- if .Values.backend.tls.certfile }}
+    SSL_CERTFILE={{ .Values.backend.tls.certfile | quote }}
+    {{- end }}
+
     # Logging and Service
     {{- if .Values.backend.logFormat }}
     LOG_FORMAT={{ .Values.backend.logFormat | quote }}

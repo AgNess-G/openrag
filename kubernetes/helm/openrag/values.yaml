@@ -276,6 +276,11 @@ backend:
   noColor: false                          # Set true to disable ANSI color codes in log output
   accessLog: true                         # Set false to disable HTTP access log events
 
+  # TLS Configuration for uvicorn
+  tls:
+    keyfile: ""                           # Optional path to SSL key (e.g., /app/keys/key.pem)
+    certfile: ""                          # Optional path to SSL cert (e.g., /app/keys/cert.pem)
+
   # Timeouts
   langflowTimeout: 2400                   # seconds; total timeout for Langflow HTTP calls (default: 40 min)
   langflowConnectTimeout: 30              # seconds; connection timeout for Langflow HTTP calls
@@ -305,12 +310,14 @@ backend:
     periodSeconds: 30
     timeoutSeconds: 10
     failureThreshold: 3
+    scheme: HTTP                          # HTTP or HTTPS
   readinessProbe:
     enabled: true
     initialDelaySeconds: 15
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
+    scheme: HTTP                          # HTTP or HTTPS
 
   # Service configuration
   service:
