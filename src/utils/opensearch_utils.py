@@ -3,7 +3,6 @@ import os
 import random
 import yaml
 from opensearchpy import AsyncOpenSearch
-from config.settings import get_index_name
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -235,21 +234,6 @@ async def setup_opensearch_security(
         if "openrag_user_role" in roles_config:
             role_body = roles_config["openrag_user_role"]
 
-            # Dynamically add the current index name only to permission entries that
-            # already have a DLS filter. Entries without DLS (e.g. alerting config)
-            # must not receive the index name — adding them there would make OpenSearch
-            # pick the most-permissive (no-DLS) entry and bypass filtering entirely.
-            current_index = get_index_name()
-            if "index_permissions" in role_body:
-                for permission in role_body["index_permissions"]:
-                    if "index_patterns" in permission and "dls" in permission:
-                        patterns = set(permission["index_patterns"])
-                        patterns.add(current_index)
-                        patterns.add(f"{current_index}*")
-                        patterns.add("knowledge_filters")
-                        patterns.add("knowledge_filters*")
-                        permission["index_patterns"] = sorted(list(patterns))
-
             logger.info(
                 "[OpenSearch Security] Creating 'openrag_user_role' role",
                 patterns=role_body['index_permissions'][0]['index_patterns'] if 'index_permissions' in role_body else 'default',
@@ -304,15 +288,11 @@ async def setup_opensearch_security(
             if "description" not in all_access_body:
                 all_access_body["description"] = "Maps admin to all_access"
 
-            if IBM_AUTH_ENABLED and admin_username:
-                users_list = all_access_body.setdefault("users", [])
-                if admin_username not in users_list:
-                    users_list.append(admin_username)
-                    logger.info(
-                        "[OpenSearch Security] Pinned onboarding user as admin",
-                        user=admin_username,
-                    )
-
+            # Always fetch existing mapping first so we never lose previous admins
+            # in multi-tenant deployments where each tenant onboards independently.
+            existing_users: list = []
+            existing_hosts: list = []
+            existing_backend_roles: list = []
             try:
                 existing = await opensearch_client.transport.perform_request(
                     "GET", "/_plugins/_security/api/rolesmapping/all_access"
@@ -321,37 +301,47 @@ async def setup_opensearch_security(
                 existing_users = existing_mapping.get("users", []) or []
                 existing_hosts = existing_mapping.get("hosts", []) or []
                 existing_backend_roles = existing_mapping.get("backend_roles", []) or []
-
-                if existing_users:
-                    merged_users = list(set(all_access_body.get("users", []) + existing_users))
-                    all_access_body["users"] = merged_users
-                    logger.debug(
-                        "[OpenSearch Security] Preserved existing all_access users",
-                        users=merged_users,
-                    )
-
-                if existing_hosts:
-                    merged_hosts = list(set(all_access_body.get("hosts", []) + existing_hosts))
-                    all_access_body["hosts"] = merged_hosts
-                    logger.debug(
-                        "[OpenSearch Security] Preserved existing all_access hosts",
-                        hosts=merged_hosts,
-                    )
-
-                if existing_backend_roles:
-                    safe_existing_backend_roles = [
-                        r for r in existing_backend_roles if r != "all_access"
-                    ]
-                    merged_backend_roles = list(
-                        set(all_access_body.get("backend_roles", []) + safe_existing_backend_roles)
-                    )
-                    all_access_body["backend_roles"] = merged_backend_roles
-                    logger.debug(
-                        "[OpenSearch Security] Preserved existing all_access backend_roles",
-                        backend_roles=merged_backend_roles,
-                    )
             except Exception:
                 logger.debug("[OpenSearch Security] No existing all_access mapping found, creating fresh")
+
+            # Build merged users: source file + cluster + new admin (bare + ibmlhapikey_ variant).
+            # Adding both variants ensures the user can authenticate via JWT *and* via IBM
+            # Basic-Auth (ibmlhapikey_<username>), which are treated as separate principals
+            # by OpenSearch's security plugin.
+            new_admin_users: list = []
+            if IBM_AUTH_ENABLED and admin_username:
+                new_admin_users = [admin_username, f"ibmlhapikey_{admin_username}"]
+                logger.info(
+                    "[OpenSearch Security] Pinning onboarding user as admin (both variants)",
+                    users=new_admin_users,
+                )
+
+            merged_users = list(set(
+                all_access_body.get("users", []) + existing_users + new_admin_users
+            ))
+            all_access_body["users"] = merged_users
+            logger.debug("[OpenSearch Security] Merged all_access users", users=merged_users)
+
+            if existing_hosts:
+                merged_hosts = list(set(all_access_body.get("hosts", []) + existing_hosts))
+                all_access_body["hosts"] = merged_hosts
+                logger.debug(
+                    "[OpenSearch Security] Preserved existing all_access hosts",
+                    hosts=merged_hosts,
+                )
+
+            if existing_backend_roles:
+                safe_existing_backend_roles = [
+                    r for r in existing_backend_roles if r != "all_access"
+                ]
+                merged_backend_roles = list(
+                    set(all_access_body.get("backend_roles", []) + safe_existing_backend_roles)
+                )
+                all_access_body["backend_roles"] = merged_backend_roles
+                logger.debug(
+                    "[OpenSearch Security] Preserved existing all_access backend_roles",
+                    backend_roles=merged_backend_roles,
+                )
 
             if "all_access" in all_access_body.get("backend_roles", []):
                 all_access_body["backend_roles"] = [
