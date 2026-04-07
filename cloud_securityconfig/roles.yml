@@ -18,7 +18,7 @@ openrag_user_role:
     - "cluster:admin/opensearch/alerting/*"
 
   index_permissions:
-    - index_patterns: ["documents", "documents*", "knowledge_filters", "knowledge_filters*"]
+    - index_patterns: ["documents", "documents*", "knowledge_filters", "knowledge_filters*", "orag-*"]
       allowed_actions:
         - crud
         - create_index
