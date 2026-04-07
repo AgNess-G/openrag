@@ -2112,6 +2112,10 @@ if __name__ == "__main__":
     # Enable or disable HTTP access logging events
     access_log = os.getenv("ACCESS_LOG", "true").lower() == "true"
 
+    # SSL/TLS Configuration
+    ssl_keyfile = os.getenv("SSL_KEYFILE")
+    ssl_certfile = os.getenv("SSL_CERTFILE")
+
     # Run the server (startup tasks now handled by FastAPI startup event)
     uvicorn.run(
         app,
@@ -2120,4 +2124,6 @@ if __name__ == "__main__":
         port=8000,
         reload=False,  # Disable reload since we're running from main
         access_log=access_log,
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
     )
