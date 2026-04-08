@@ -43,8 +43,9 @@ class Config:
     def __init__(self):
         self.openrag_url = os.environ.get("OPENRAG_URL", "http://localhost:3000")
         self.api_key = os.environ.get("OPENRAG_API_KEY")
+        ibm_auth_enabled = _parse_bool("IBM_AUTH_ENABLED", False)
 
-        if not self.api_key:
+        if not self.api_key and not ibm_auth_enabled:
             raise ValueError(
                 "OPENRAG_API_KEY environment variable is required. "
                 "Create an API key in OpenRAG Settings > API Keys."
@@ -62,10 +63,10 @@ class Config:
     @property
     def headers(self) -> dict[str, str]:
         """Get HTTP headers for API requests."""
-        return {
-            "X-API-Key": self.api_key,
-            "Content-Type": "application/json",
-        }
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
+        return headers
 
 
 _config: Config | None = None
@@ -84,8 +85,8 @@ def get_openrag_client() -> OpenRAGClient:
     """Get singleton OpenRAGClient instance."""
     global _openrag_client
     if _openrag_client is None:
-        # OpenRAGClient reads OPENRAG_API_KEY and OPENRAG_URL from env
-        _openrag_client = OpenRAGClient()
+        config = get_config()
+        _openrag_client = OpenRAGClient(api_key=config.api_key)
     return _openrag_client
 
 

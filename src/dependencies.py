@@ -335,15 +335,54 @@ async def get_api_key_user_async(
     session_manager=Depends(get_session_manager),
 ) -> User:
     """
-    Async dependency: require API key authentication.
+    Async dependency: require API key or IBM authentication.
 
     Accepts:
       - X-API-Key: orag_... header
       - Authorization: Bearer orag_... header
+      - X-IBM-LH-Credentials + Authorization: Bearer <jwt> (when IBM_AUTH_ENABLED)
 
-    Raises HTTP 401 if no valid key is provided.
+    Raises HTTP 401 if no valid credentials are provided.
     """
-    # Extract key from headers
+    from config.settings import IBM_AUTH_ENABLED, IBM_CREDENTIALS_HEADER
+
+    # IBM auth path: X-IBM-LH-Credentials + Authorization: Bearer <jwt>
+    if IBM_AUTH_ENABLED:
+        lh_credentials = request.headers.get(IBM_CREDENTIALS_HEADER, "")
+        auth_header = request.headers.get("Authorization", "")
+        if lh_credentials and auth_header.startswith("Bearer "):
+            import auth.ibm_auth as ibm_auth
+            from auth.ibm_auth import extract_ibm_credentials
+
+            ibm_token = auth_header[7:]
+            claims = ibm_auth.decode_ibm_jwt(ibm_token)
+
+            user_id = None
+            email = None
+            name = None
+            if claims:
+                sub = claims.get("sub")
+                if sub:
+                    user_id = claims.get("username", sub)
+                    email = claims.get("username", sub)
+                    name = claims.get("display_name", claims.get("username", sub))
+
+            opensearch_username, _ = extract_ibm_credentials(lh_credentials)
+
+            user = User(
+                user_id=user_id,
+                email=email,
+                name=name,
+                picture=None,
+                provider="ibm_ams",
+                jwt_token=f"Basic {lh_credentials}",
+                opensearch_username=opensearch_username,
+                opensearch_credentials=lh_credentials,
+            )
+            request.state.user = user
+            return user
+
+    # API key path
     api_key = request.headers.get("X-API-Key")
     if not api_key or not api_key.startswith("orag_"):
         auth_header = request.headers.get("Authorization", "")
