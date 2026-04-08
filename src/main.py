@@ -20,6 +20,7 @@ from utils.encryption import enforce_startup_prerequisites
 from utils.telemetry import TelemetryClient, Category, MessageId
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 # API endpoints
@@ -1479,6 +1480,11 @@ async def create_app():
     app = FastAPI(title="OpenRAG API", version=OPENRAG_VERSION, debug=True)
     app.state.services = services  # Store services for cleanup
     app.state.background_tasks = set()
+    
+    try:
+        Instrumentator().instrument(app).expose(app)
+    except Exception as e:
+        logger.error(f"Failed to instrument app with Prometheus: {str(e)}")
 
     # Register route handlers — auth and service injection done via FastAPI Depends() in each handler
 
