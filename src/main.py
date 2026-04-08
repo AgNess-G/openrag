@@ -214,11 +214,15 @@ async def _ensure_opensearch_index():
         # The service can still function, document operations might fail later
 
 
-async def init_index(opensearch_client=None):
+async def init_index(opensearch_client=None, admin_username: str = None):
     """Initialize OpenSearch index and security roles"""
     os_client = opensearch_client or clients.opensearch
     try:
         await wait_for_opensearch(opensearch_client)
+
+        # Initialize OpenSearch security configuration (roles and mapping)
+        from utils.opensearch_utils import setup_opensearch_security
+        await setup_opensearch_security(os_client, admin_username=admin_username)
 
         # Get the configured embedding model from user configuration
         config = get_openrag_config()
@@ -320,13 +324,6 @@ async def init_index(opensearch_client=None):
                 "Please free up disk space on your Docker volume or host machine to continue."
             ) from e
         raise e
-
-
-async def init_index_when_ready(opensearch_client=None):
-    """Wait for the OpenSearch service to be ready and then initialize the OpenSearch index."""
-    await wait_for_opensearch(opensearch_client)
-    await init_index(opensearch_client)
-
 
 def generate_jwt_keys():
     """Generate RSA keys for JWT signing if they don't exist"""
@@ -1059,7 +1056,7 @@ async def opensearch_health_ready(request):
     from config.settings import IBM_AUTH_ENABLED, OPENSEARCH_URL
 
     if IBM_AUTH_ENABLED:
-        logger.debug("[IBM Auth] IBM auth mode enabled, health check per-request")
+        logger.debug("[OpenSearch Security] OpenSearch auth mode enabled, health check per-request")
         # In IBM auth mode we cannot rely on the global OpenSearch client
         # (auth is established per-request), so perform a lightweight,
         # unauthenticated connectivity check against the OpenSearch endpoint.
@@ -1069,17 +1066,17 @@ async def opensearch_health_ready(request):
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.get(f"{opensearch_url}/")
             if resp.status_code < 500:
-                logger.debug("[IBM Auth] OpenSearch health check successful")
+                logger.debug("[OpenSearch Security] OpenSearch health check successful")
                 return JSONResponse(
                     {
                         "status": "ready",
                         "dependencies": {"opensearch": "up"},
-                        "note": "IBM auth mode - connectivity verified via unauthenticated probe",
+                        "note": "OpenSearch auth mode - connectivity verified via unauthenticated probe",
                     },
                     status_code=200,
                 )
             else:
-                logger.debug("[IBM Auth] OpenSearch health check failed")
+                logger.debug("[OpenSearch Security] OpenSearch health check failed")
                 return JSONResponse(
                     {
                         "status": "not_ready",
@@ -1089,7 +1086,7 @@ async def opensearch_health_ready(request):
                     status_code=503,
                 )
         except Exception as e:
-            logger.error("[IBM Auth] OpenSearch health check failed", error=str(e))
+            logger.error("[OpenSearch Security] OpenSearch health check failed", error=str(e))
             return JSONResponse(
                 {
                     "status": "not_ready",
@@ -1106,7 +1103,7 @@ async def opensearch_health_ready(request):
             status_code=200,
         )
     except Exception as e:
-        logger.error("[IBM Auth] OpenSearch health check failed", error=str(e))
+        logger.error("[OpenSearch Security] OpenSearch health check failed", error=str(e))
         return JSONResponse(
             {
                 "status": "not_ready",
@@ -1237,6 +1234,17 @@ async def startup_tasks(services):
         # Only initialize basic OpenSearch connection, not the index
         # Index will be created after onboarding when we know the embedding model
         await wait_for_opensearch()
+
+        # Setup OpenSearch security (roles and mappings) after connection is established
+        try:
+            from utils.opensearch_utils import setup_opensearch_security
+            await setup_opensearch_security(clients.opensearch)
+            logger.info("OpenSearch security configuration completed successfully")
+        except Exception as e:
+            logger.warning(
+                "Failed to setup OpenSearch security configuration - continuing anyway",
+                error=str(e)
+            )
 
         if DISABLE_INGEST_WITH_LANGFLOW:
             await _ensure_opensearch_index()
@@ -2025,15 +2033,25 @@ async def create_app():
         await TelemetryClient.send_event(
             Category.APPLICATION_SHUTDOWN, MessageId.ORB_APP_SHUTDOWN
         )
+        logger.info("Application shutdown initiated")
+        
+        # Gracefully shutdown OpenSearch connection first
+        try:
+            from utils.opensearch_utils import graceful_opensearch_shutdown
+            await graceful_opensearch_shutdown(clients.opensearch)
+        except Exception as e:
+            logger.error("Error during graceful OpenSearch shutdown", error=str(e))
+        
         await cleanup_subscriptions_proper(services)
         # Cleanup task service (cancels background tasks and process pool)
         await services["task_service"].shutdown()
-        # Cleanup async clients
+        # Cleanup async clients (this will also close OpenSearch client if not already closed)
         await clients.cleanup()
         # Cleanup telemetry client
         from utils.telemetry.client import cleanup_telemetry_client
 
         await cleanup_telemetry_client()
+        logger.info("Application shutdown completed")
 
     return app
 
