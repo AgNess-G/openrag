@@ -19,6 +19,11 @@ REPO ?= https://github.com/langflow-ai/langflow.git
 
 # Auto-detect container runtime: prefer docker, fall back to podman
 CONTAINER_RUNTIME := $(shell command -v docker >/dev/null 2>&1 && echo "docker" || echo "podman")
+
+# Host UID/GID — evaluated once at parse time and used in Docker-assisted chown commands
+# so that Alpine (running as root) can re-own volume directories back to the host user.
+HOST_UID := $(shell id -u)
+HOST_GID := $(shell id -g)
 OPENRAG_IMAGE_REPOS := langflowai/openrag-backend langflowai/openrag-frontend langflowai/openrag-langflow langflowai/openrag-opensearch langflowai/openrag-dashboards langflow/langflow opensearchproject/opensearch opensearchproject/opensearch-dashboards
 # Only pass --env-file if the file actually exists
 ifneq (,$(wildcard $(ENV_FILE)))
@@ -324,9 +329,16 @@ ensure-langflow-data: ## Create the langflow-data directory if it does not exist
 	@mkdir -p langflow-data
 	@chmod 777 langflow-data
 
-ensure-backend-volumes: ## Create and permission backend volume directories for Docker (UID 1000 / appuser)
+ensure-backend-volumes: ## Create and permission backend volume directories, re-owned to the host user
 	@mkdir -p flows keys config data
-	@chmod 775 flows keys config data
+	@# Re-own directories to the host user so local dev (make backend) can always read/write them,
+	@# even after a container run chowned them to UID 1000 (appuser). Runs via Docker Alpine as root
+	@# so it succeeds regardless of current ownership; falls back to native chown if Docker is unavailable.
+	@$(CONTAINER_RUNTIME) run --rm \
+		-v "$$(pwd)/flows:/mnt/flows" -v "$$(pwd)/keys:/mnt/keys" \
+		-v "$$(pwd)/config:/mnt/config" -v "$$(pwd)/data:/mnt/data" \
+		alpine sh -c "chown -R $(HOST_UID):$(HOST_GID) /mnt/flows /mnt/keys /mnt/config /mnt/data && chmod 775 /mnt/flows /mnt/keys /mnt/config /mnt/data" 2>/dev/null \
+		|| { chown -R $(HOST_UID):$(HOST_GID) flows keys config data 2>/dev/null || true; chmod 775 flows keys config data 2>/dev/null || true; }
 
 dev: ensure-langflow-data ensure-backend-volumes ## Start full stack with GPU support
 	@echo "$(YELLOW)Starting OpenRAG with GPU support...$(NC)"
@@ -547,7 +559,8 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 	fi; \
 	if [ -f "keys/private_key.pem" ] || [ -f "keys/public_key.pem" ]; then \
 		echo "Removing JWT keys..."; \
-		rm -f keys/private_key.pem keys/public_key.pem; \
+		rm -f keys/private_key.pem keys/public_key.pem 2>/dev/null || \
+			$(CONTAINER_RUNTIME) run --rm -v "$$(pwd)/keys:/keys" alpine rm -f /keys/private_key.pem /keys/public_key.pem 2>/dev/null || true; \
 		echo "$(PURPLE)JWT keys removed$(NC)"; \
 	fi; \
 	echo "$(YELLOW)Removing OpenRAG images...$(NC)"; \
@@ -560,7 +573,7 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 # LOCAL DEVELOPMENT
 ######################
 
-backend: ## Run backend locally
+backend: ensure-backend-volumes ## Run backend locally
 	@echo "$(YELLOW)Starting backend locally...$(NC)"
 	@if [ ! -f $(ENV_FILE) ]; then echo "$(RED)$(ENV_FILE) file not found. Copy .env.example to it first$(NC)"; exit 1; fi
 	uv run python src/main.py
