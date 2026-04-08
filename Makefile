@@ -75,6 +75,19 @@ define test_jwt_opensearch
 	echo "";
 endef
 
+# Fix ownership of backend volume directories
+# Re-owns directories to the host user so local dev (make backend) can always read/write them,
+# even after a container run chowned them to UID 1000 (appuser). Runs via Docker Alpine as root
+# so it succeeds regardless of current ownership; falls back to native chown if Docker is unavailable.
+# Usage: $(call fix_backend_volume_ownership)
+define fix_backend_volume_ownership
+	$(CONTAINER_RUNTIME) run --rm \
+		-v "$$(pwd)/flows:/mnt/flows" -v "$$(pwd)/keys:/mnt/keys" \
+		-v "$$(pwd)/config:/mnt/config" -v "$$(pwd)/data:/mnt/data" \
+		alpine sh -c "chown -R $(HOST_UID):$(HOST_GID) /mnt/flows /mnt/keys /mnt/config /mnt/data && chmod 775 /mnt/flows /mnt/keys /mnt/config /mnt/data" 2>/dev/null \
+		|| { chown -R $(HOST_UID):$(HOST_GID) flows keys config data 2>/dev/null || true; chmod 775 flows keys config data 2>/dev/null || true; }
+endef
+
 ######################
 # PHONY TARGETS
 ######################
@@ -329,16 +342,9 @@ ensure-langflow-data: ## Create the langflow-data directory if it does not exist
 	@mkdir -p langflow-data
 	@chmod 777 langflow-data
 
-ensure-backend-volumes: ## Create and permission backend volume directories, re-owned to the host user
+ensure-backend-volumes: ## Create and permission backend volume directories
 	@mkdir -p flows keys config data
-	@# Re-own directories to the host user so local dev (make backend) can always read/write them,
-	@# even after a container run chowned them to UID 1000 (appuser). Runs via Docker Alpine as root
-	@# so it succeeds regardless of current ownership; falls back to native chown if Docker is unavailable.
-	@$(CONTAINER_RUNTIME) run --rm \
-		-v "$$(pwd)/flows:/mnt/flows" -v "$$(pwd)/keys:/mnt/keys" \
-		-v "$$(pwd)/config:/mnt/config" -v "$$(pwd)/data:/mnt/data" \
-		alpine sh -c "chown -R $(HOST_UID):$(HOST_GID) /mnt/flows /mnt/keys /mnt/config /mnt/data && chmod 775 /mnt/flows /mnt/keys /mnt/config /mnt/data" 2>/dev/null \
-		|| { chown -R $(HOST_UID):$(HOST_GID) flows keys config data 2>/dev/null || true; chmod 775 flows keys config data 2>/dev/null || true; }
+	@chmod 775 flows keys config data
 
 dev: ensure-langflow-data ensure-backend-volumes ## Start full stack with GPU support
 	@echo "$(YELLOW)Starting OpenRAG with GPU support...$(NC)"
@@ -573,9 +579,10 @@ factory-reset: ## Complete reset (stop, remove volumes, clear data, remove image
 # LOCAL DEVELOPMENT
 ######################
 
-backend: ensure-backend-volumes ## Run backend locally
+backend: ## Run backend locally
 	@echo "$(YELLOW)Starting backend locally...$(NC)"
 	@if [ ! -f $(ENV_FILE) ]; then echo "$(RED)$(ENV_FILE) file not found. Copy .env.example to it first$(NC)"; exit 1; fi
+	@$(call fix_backend_volume_ownership)
 	uv run python src/main.py
 
 frontend: ## Run frontend locally
