@@ -82,10 +82,13 @@ endef
 # Usage: $(call fix_backend_volume_ownership)
 define fix_backend_volume_ownership
 	$(CONTAINER_RUNTIME) run --rm \
-		-v "$$(pwd)/flows:/mnt/flows" -v "$$(pwd)/keys:/mnt/keys" \
-		-v "$$(pwd)/config:/mnt/config" -v "$$(pwd)/data:/mnt/data" \
-		alpine sh -c "chown -R $(HOST_UID):$(HOST_GID) /mnt/flows /mnt/keys /mnt/config /mnt/data && chmod 775 /mnt/flows /mnt/keys /mnt/config /mnt/data" 2>/dev/null \
-		|| { chown -R $(HOST_UID):$(HOST_GID) flows keys config data 2>/dev/null || true; chmod 775 flows keys config data 2>/dev/null || true; }
+		-v "$$(pwd)/flows:/mnt/flows" \
+		-v "$$(pwd)/keys:/mnt/keys" \
+		-v "$$(pwd)/config:/mnt/config" \
+		-v "$$(pwd)/data:/mnt/data" \
+		-v "$$(pwd)/openrag-documents:/mnt/openrag-documents" \
+		alpine sh -c "chown -R $(HOST_UID):$(HOST_GID) /mnt/flows /mnt/keys /mnt/config /mnt/data /mnt/openrag-documents && chmod 775 /mnt/flows /mnt/keys /mnt/config /mnt/data /mnt/openrag-documents" 2>/dev/null \
+		|| { chown -R $(HOST_UID):$(HOST_GID) flows keys config data openrag-documents 2>/dev/null || true; chmod 775 flows keys config data openrag-documents 2>/dev/null || true; }
 endef
 
 ######################
@@ -343,8 +346,9 @@ ensure-langflow-data: ## Create the langflow-data directory if it does not exist
 	@chmod 777 langflow-data
 
 ensure-backend-volumes: ## Create and permission backend volume directories
-	@mkdir -p flows keys config data
-	@chmod 775 flows keys config data
+	@mkdir -p flows keys config data openrag-documents
+	@chmod 775 flows keys config data openrag-documents 2>/dev/null \
+		|| echo "$(YELLOW)Warning: Could not chmod backend volume directories.$(NC)"
 
 dev: ensure-langflow-data ensure-backend-volumes ## Start full stack with GPU support
 	@echo "$(YELLOW)Starting OpenRAG with GPU support...$(NC)"
