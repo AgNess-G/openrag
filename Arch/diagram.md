@@ -286,6 +286,211 @@ flowchart TB
 
 ---
 
+## 6. Retrieval Pipeline — Current Architecture
+
+The retrieval side mirrors the ingestion pipeline's composable design. Every
+stage (retriever, reranker, agent, tools, nudges) is pluggable via YAML config
+and env-var overrides.
+
+### 6a. Component Overview
+
+```mermaid
+flowchart TB
+    Client(["Browser\n/ API Client"])
+
+    subgraph api [API Layer]
+        ChatEP["POST /chat\nlangflow_endpoint()"]
+        DisableFlag{"DISABLE_LANGFLOW?"}
+    end
+
+    subgraph chat_service [ChatService]
+        ComposableStream["composable_chat_stream()"]
+        PipelineMgr["RetrievalPipelineManager\n(singleton)"]
+    end
+
+    subgraph config [Config — YAML + Env Overrides]
+        YAMLFile["RETRIEVAL_CONFIG_FILE\nretrieval.yaml (default)\nretrieval-react.yaml\nretrieval-deep.yaml"]
+        EnvOverrides["RETRIEVAL_AGENT_TYPE\nRETRIEVAL_AGENT_MODEL\nRETRIEVAL_RETRIEVER_TYPE\nRETRIEVAL_RERANKER_TYPE\nRETRIEVAL_ROLLING_WINDOW"]
+        Builder["RetrievalPipelineBuilder\n(reads config + registry)"]
+        YAMLFile --> Builder
+        EnvOverrides --> Builder
+    end
+
+    subgraph pipeline [RetrievalPipeline — per request]
+        direction LR
+        ConvLoad["ConversationManager\nget_history()\nrolling window N msgs"]
+        Retriever["Retriever\nhybrid | vector\nkeyword | raw"]
+        Reranker["Reranker\nnone | cohere\ncross_encoder"]
+        Agent["Agent\nopenai | react | deep"]
+        ConvStore["ConversationManager\nstore()"]
+        ConvLoad --> Retriever --> Reranker --> Agent --> ConvStore
+    end
+
+    subgraph storage [Storage]
+        OS[("OpenSearch\nVector Index\n+ KNN")]
+        ConvFile[("conversations.json\nper-user thread")]
+    end
+
+    subgraph tools [Composable Tools — ReAct / Deep only]
+        T1["hybrid_search"]
+        T2["semantic_search"]
+        T3["keyword_search"]
+        T4["raw_search"]
+        T5["get_document"]
+        T6["list_sources"]
+        T7["calculator"]
+    end
+
+    Client -->|"SSE / NDJSON"| ChatEP
+    ChatEP --> DisableFlag
+    DisableFlag -->|"true"| ComposableStream
+    DisableFlag -->|"false"| LangflowPath["Langflow path\n(legacy)"]
+    ComposableStream --> PipelineMgr
+    PipelineMgr -->|"first call"| Builder
+    Builder -->|"builds"| pipeline
+
+    ConvLoad <-->|"read thread"| ConvFile
+    Retriever -->|"KNN + multi_match\nbool.filter"| OS
+    Agent -->|"tool calls\n(jwt_token + user_id)"| tools
+    tools -->|"OpenSearch queries"| OS
+    ConvStore -->|"write thread"| ConvFile
+```
+
+---
+
+### 6b. Agent Modes
+
+Three interchangeable agent implementations, selected via `agent.type` in YAML.
+
+```mermaid
+flowchart TB
+    subgraph openai_agent ["agent.type: openai — Default"]
+        OA_In["query + context\n+ history"]
+        OA_LLM["OpenAI Chat Completions\nchat.completions.create(stream=True)\nstream_options: include_usage"]
+        OA_Out["stream: {delta} chunks\n+ {response.completed, usage}"]
+        OA_In --> OA_LLM --> OA_Out
+    end
+
+    subgraph react_agent ["agent.type: react — Multi-hop"]
+        RA_In["query + context\n+ history"]
+        RA_Prompt["ReAct Prompt\n(Thought → Action → Observation loop)"]
+        RA_LLM["ChatOpenAI\nLangChain AgentExecutor"]
+        RA_Tools["Tool calls\non_tool_start → on_tool_end\nevents streamed to client"]
+        RA_Out["stream: {delta} + {tool_call added/done}\n+ {response.completed, usage}"]
+        RA_In --> RA_Prompt --> RA_LLM
+        RA_LLM <-->|"astream_events v2"| RA_Tools
+        RA_LLM --> RA_Out
+    end
+
+    subgraph deep_agent ["agent.type: deep — Research / Planning"]
+        DA_In["query + context\n+ history"]
+        DA_SDK["deepagents.create_deep_agent\nLangGraph + write_todos\n+ subagent spawning"]
+        DA_Tools["Tool calls\non_tool_start → on_tool_end\nevents streamed to client"]
+        DA_Out["stream: {delta} + {tool_call added/done}\n+ {response.completed, usage}"]
+        DA_In --> DA_SDK
+        DA_SDK <-->|"astream_events v2"| DA_Tools
+        DA_SDK --> DA_Out
+    end
+
+    Config["RETRIEVAL_AGENT_TYPE\nor agent.type in YAML"] -->|"selects"| openai_agent & react_agent & deep_agent
+```
+
+---
+
+### 6c. Streaming Data Flow — Chat Request
+
+```mermaid
+sequenceDiagram
+    participant UI as Browser
+    participant API as FastAPI
+    participant CS as ChatService
+    participant PM as PipelineManager
+    participant CM as ConvManager
+    participant RTV as Retriever
+    participant RR as Reranker
+    participant AG as Agent
+    participant OS as OpenSearch
+
+    UI->>API: POST /chat {prompt, previous_response_id}
+    API->>CS: composable_chat_stream()
+    CS->>PM: get_pipeline() [singleton]
+    PM-->>CS: RetrievalPipeline
+
+    CS->>CM: get_history(user_id, prev_response_id)
+    CM-->>CS: last N ConversationMessages
+
+    CS->>RTV: retrieve(RetrievalQuery)
+    RTV->>OS: KNN + multi_match query
+    OS-->>RTV: top-K docs
+    RTV-->>CS: list[SearchResult]
+
+    CS->>RR: rerank(query, results)
+    RR-->>CS: reordered list[SearchResult]
+
+    CS->>AG: run_stream(query, results, history)
+
+    loop Streaming tokens + tool events
+        AG-->>UI: {"delta": "token"}\n
+        AG-->>UI: {"type":"response.output_item.added","item":{tool_call, inputs}}\n
+        AG->>OS: tool query (hybrid/semantic/keyword)
+        OS-->>AG: tool results
+        AG-->>UI: {"type":"response.output_item.done","item":{tool_call, results}}\n
+    end
+
+    AG-->>UI: {"type":"response.completed","response":{"usage":{...}}}\n
+
+    CS->>CM: store(user_id, response_id, query, response)
+    CS-->>UI: {"response_id":"...","sources":[...],"usage":{...}}\n
+```
+
+---
+
+### 6d. Retriever Options
+
+```mermaid
+flowchart LR
+    subgraph retrievers [Retriever — retriever.type]
+        Hybrid["hybrid\nDis-Max: 70% KNN + 30% multi_match\nprefix fallback\n(default)"]
+        Vector["vector\nPure KNN\n(semantic only)"]
+        Keyword["keyword\nPure multi_match\n(exact / fuzzy)"]
+        Raw["raw\nFull DSL passthrough\ncustom bool.filter"]
+    end
+
+    subgraph rerankers [Reranker — reranker.type]
+        None["none\nPass-through\n(default)"]
+        Cohere["cohere\nCohere Rerank API\nrerank-english-v3.0"]
+        CrossEncoder["cross_encoder\nLocal sentence-transformers\nno API key needed"]
+    end
+
+    RETRIEVAL_RETRIEVER_TYPE --> retrievers
+    RETRIEVAL_RERANKER_TYPE --> rerankers
+    retrievers --> OS[("OpenSearch")]
+    rerankers -->|"top_k results"| Agent
+```
+
+---
+
+### 6e. Config Preset Matrix
+
+| Preset file | Agent | Retriever | Reranker | Use case |
+|---|---|---|---|---|
+| `retrieval.yaml` | openai | hybrid | none | Default — fast, no tool use |
+| `retrieval-react.yaml` | react | hybrid | none | Multi-hop tool calling |
+| `retrieval-deep.yaml` | deep | hybrid | none | Research + planning tasks |
+
+**Env overrides (take precedence over YAML):**
+
+| Env var | Controls | Example |
+|---|---|---|
+| `RETRIEVAL_CONFIG_FILE` | Which preset to load | `src/pipeline/presets/retrieval/retrieval-react.yaml` |
+| `RETRIEVAL_AGENT_TYPE` | `agent.type` | `react` |
+| `RETRIEVAL_AGENT_MODEL` | `agent.model` | `gpt-4o` |
+| `RETRIEVAL_RETRIEVER_TYPE` | `retriever.type` | `hybrid` |
+| `RETRIEVAL_RERANKER_TYPE` | `reranker.type` | `none` |
+| `RETRIEVAL_ROLLING_WINDOW` | Conversation history depth | `20` |
+
+---
+
 ## 7. Comparison — All Three Generations
 
 | Concern | Gen 1 | Gen 2 (Ray) | Gen 3 (Redis/KEDA) |
