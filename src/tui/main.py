@@ -710,7 +710,7 @@ def _reclaim_host_ownership(directories: list[Path]) -> None:
     chmod or write into those directories (e.g. to regenerate JWT keys after a
     reset), causing a silent crash.
 
-    This mirrors the ``ensure-backend-volumes`` Makefile target: an Alpine
+    This mirrors the ``fix_backend_volume_ownership`` Makefile define: an Alpine
     container is launched as root and asked to chown the directories back to the
     host user.  Silently skips directories that are already owned by the current
     user, or when no container runtime is available.
