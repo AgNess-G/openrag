@@ -724,6 +724,8 @@ test-ci: ensure-langflow-data ensure-backend-volumes ## Start infra, run integra
 	for i in $$(seq 1 60); do \
 		$(CONTAINER_RUNTIME) exec openrag-backend curl -s http://localhost:8000/.well-known/openid-configuration >/dev/null 2>&1 && break || sleep 2; \
 	done; \
+	echo "$(YELLOW)Fixing JWT key ownership for test runner (host UID $$(id -u))...$(NC)"; \
+	$(CONTAINER_RUNTIME) run --rm -v $$(pwd)/keys:/keys alpine sh -c "chown $$(id -u):$$(id -g) /keys/private_key.pem /keys/public_key.pem 2>/dev/null; chmod 600 /keys/private_key.pem; chmod 644 /keys/public_key.pem 2>/dev/null" 2>/dev/null || true; \
 	echo "$(YELLOW)Waiting for OpenSearch security config to be fully applied...$(NC)"; \
 	for i in $$(seq 1 60); do \
 		if $(CONTAINER_RUNTIME) logs os 2>&1 | grep -q "Security configuration applied successfully"; then \
@@ -846,6 +848,8 @@ test-ci-local: ensure-langflow-data ensure-backend-volumes ## Same as test-ci bu
 	for i in $$(seq 1 60); do \
 		$(CONTAINER_RUNTIME) exec openrag-backend curl -s http://localhost:8000/.well-known/openid-configuration >/dev/null 2>&1 && break || sleep 2; \
 	done; \
+	echo "$(YELLOW)Fixing JWT key ownership for test runner (host UID $$(id -u))...$(NC)"; \
+	$(CONTAINER_RUNTIME) run --rm -v $$(pwd)/keys:/keys alpine sh -c "chown $$(id -u):$$(id -g) /keys/private_key.pem /keys/public_key.pem 2>/dev/null; chmod 600 /keys/private_key.pem; chmod 644 /keys/public_key.pem 2>/dev/null" 2>/dev/null || true; \
 	echo "$(YELLOW)Waiting for OpenSearch security config to be fully applied...$(NC)"; \
 	for i in $$(seq 1 60); do \
 		if $(CONTAINER_RUNTIME) logs os 2>&1 | grep -q "Security configuration applied successfully"; then \
