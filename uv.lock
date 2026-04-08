@@ -1572,6 +1572,7 @@ source = { editable = "." }
 dependencies = [
     { name = "agentd" },
     { name = "aiofiles" },
+    { name = "aiohttp" },
     { name = "boto3" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -1616,6 +1617,7 @@ dev = [
 requires-dist = [
     { name = "agentd", specifier = ">=0.8.1" },
     { name = "aiofiles", specifier = ">=24.1.0" },
+    { name = "aiohttp", specifier = ">=3.13.4" },
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "cryptography", specifier = ">=46.0.6" },
     { name = "fastapi", specifier = ">=0.115.0" },
