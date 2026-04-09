@@ -14,13 +14,13 @@ from html.parser import HTMLParser
 from connectors.langflow_connector_service import LangflowConnectorService
 from connectors.service import ConnectorService
 from services.flows_service import FlowsService
-from utils.container_utils import detect_container_environment
 from utils.embeddings import create_dynamic_index_body
 from utils.logging_config import configure_from_env, get_logger
 from utils.encryption import enforce_startup_prerequisites
 from utils.telemetry import TelemetryClient, Category, MessageId
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 # API endpoints
@@ -357,7 +357,8 @@ async def init_index(opensearch_client=None, admin_username: str = None):
 
 def generate_jwt_keys():
     """Generate RSA keys for JWT signing if they don't exist"""
-    keys_dir = "keys"
+    from config.paths import get_keys_path
+    keys_dir = get_keys_path()
     private_key_path = os.path.join(keys_dir, "private_key.pem")
     public_key_path = os.path.join(keys_dir, "public_key.pem")
 
@@ -414,17 +415,10 @@ def generate_jwt_keys():
 
 def _get_documents_dir():
     """Get the documents directory path, handling both Docker and local environments."""
-    # In Docker, the volume is mounted at /app/openrag-documents
-    # Locally, we use openrag-documents
-    container_env = detect_container_environment()
-    if container_env:
-        path = os.path.abspath("/app/openrag-documents")
-        logger.debug(f"Running in {container_env}, using container path: {path}")
-        return path
-    else:
-        path = os.path.abspath(os.path.join(os.getcwd(), "openrag-documents"))
-        logger.debug(f"Running locally, using local path: {path}")
-        return path
+    from config.paths import get_documents_path
+    path = get_documents_path()
+    logger.debug(f"Using documents path: {path}")
+    return path
 
 
 def _should_use_url_default_docs_ingest() -> bool:
@@ -1515,6 +1509,11 @@ async def create_app():
     app = FastAPI(title="OpenRAG API", version=OPENRAG_VERSION, debug=True)
     app.state.services = services  # Store services for cleanup
     app.state.background_tasks = set()
+    
+    try:
+        Instrumentator().instrument(app).expose(app)
+    except Exception as e:
+        logger.error(f"Failed to instrument app with Prometheus: {str(e)}")
 
     # Register route handlers — auth and service injection done via FastAPI Depends() in each handler
 
