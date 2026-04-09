@@ -39,6 +39,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,uid=0,gid=0 \
 # Application (invalidates after deps only when src/flows change)
 COPY src/ ./src/
 COPY flows/ ./flows/
+COPY securityconfig/ ./securityconfig/
+COPY cloud_securityconfig/ ./cloud_securityconfig/
 
 # -----------------------------------------------------------------------------
 # Stage: runtime (minimal image)
@@ -54,6 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY --from=builder /app /app
+COPY securityconfig/ ./securityconfig/
+COPY cloud_securityconfig/ ./cloud_securityconfig/
 
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"

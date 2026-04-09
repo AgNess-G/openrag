@@ -1125,7 +1125,7 @@ async def onboarding(
         # Initialize the OpenSearch index if embedding model is configured
         if body.embedding_model or body.embedding_provider:
             try:
-                from main import init_index_when_ready
+                from main import init_index
                 from config.settings import IBM_AUTH_ENABLED, clients as app_clients
 
                 opensearch_client = None
@@ -1135,7 +1135,8 @@ async def onboarding(
                 logger.info(
                     "Initializing OpenSearch index after onboarding configuration"
                 )
-                await init_index_when_ready(opensearch_client)
+                admin_username = user.user_id if IBM_AUTH_ENABLED and user else None
+                await init_index(opensearch_client, admin_username=admin_username)
                 logger.info("OpenSearch index initialization completed successfully")
             except Exception as e:
                 logger.error(
@@ -1671,8 +1672,6 @@ async def rollback_onboarding(
                 {"error": "No onboarding configuration to rollback"}, status_code=400
             )
 
-            jwt_token = user.jwt_token
-
         logger.info("Rolling back onboarding configuration due to file failures")
 
         # Get all tasks for the user
@@ -1735,7 +1734,7 @@ async def rollback_onboarding(
                         if filename:
                             try:
                                 opensearch_client = session_manager.get_user_opensearch_client(
-                                    user.user_id, jwt_token
+                                    user.user_id, user.jwt_token
                                 )
                                 from utils.opensearch_queries import build_filename_delete_body
                                 from config.settings import get_index_name

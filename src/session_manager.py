@@ -212,6 +212,8 @@ class SessionManager:
 
         # Check for token from environment variable first
         token = os.getenv("OPENSEARCH_JWT_TOKEN")
+        if token and (token.startswith("Bearer ") or token.startswith("Basic ")):
+            return token
         if not token:
             token = jwt.encode(token_payload, self.private_key, algorithm=self.algorithm)
         return f"Bearer {token}"
