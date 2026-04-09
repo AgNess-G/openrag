@@ -43,9 +43,18 @@ class Config:
     def __init__(self):
         self.openrag_url = os.environ.get("OPENRAG_URL", "http://localhost:3000")
         self.api_key = os.environ.get("OPENRAG_API_KEY")
-        ibm_auth_enabled = _parse_bool("IBM_AUTH_ENABLED", False)
 
-        if not self.api_key and not ibm_auth_enabled:
+        # IBM auth mode: user provides IBM_USERNAME + IBM_API_KEY instead of OPENRAG_API_KEY.
+        # The MCP forwards these as headers on every SDK request to OpenRAG.
+        ibm_username = os.environ.get("IBM_USERNAME")
+        ibm_api_key = os.environ.get("IBM_API_KEY")
+        self.ibm_extra_headers: dict[str, str] = {}
+        if ibm_username:
+            self.ibm_extra_headers["X-Username"] = ibm_username
+        if ibm_api_key:
+            self.ibm_extra_headers["X-Api-Key"] = ibm_api_key
+
+        if not self.api_key and not self.ibm_extra_headers:
             raise ValueError(
                 "OPENRAG_API_KEY environment variable is required. "
                 "Create an API key in OpenRAG Settings > API Keys."
@@ -86,7 +95,10 @@ def get_openrag_client() -> OpenRAGClient:
     global _openrag_client
     if _openrag_client is None:
         config = get_config()
-        _openrag_client = OpenRAGClient(api_key=config.api_key)
+        _openrag_client = OpenRAGClient(
+            api_key=config.api_key,
+            extra_headers=config.ibm_extra_headers or None,
+        )
     return _openrag_client
 
 
