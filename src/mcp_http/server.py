@@ -17,6 +17,7 @@ Usage (MCP client config):
 """
 from fastapi import FastAPI
 from fastmcp import FastMCP
+from fastmcp.apps.generative import GenerativeUI
 from fastmcp.server.providers.openapi import RouteMap, MCPType
 from utils.logging_config import get_logger
 
@@ -67,5 +68,7 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         name="OpenRAG",
         route_maps=route_maps,
     )
+
+    mcp.add_provider(GenerativeUI())
     logger.info("FastMCP streamable HTTP server created")
     return mcp
