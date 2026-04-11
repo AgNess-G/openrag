@@ -1,5 +1,5 @@
 #!/bin/sh
-# entrypoint.sh — run as root, fix volume-mount ownership, then drop to appuser.
+# backend-entrypoint.sh — run as root, fix volume-mount ownership, then drop to appuser.
 #
 # When Docker (not Podman) mounts a host directory the ownership reflects the
 # host filesystem, which may not be UID/GID 1000. Podman handles this with the
