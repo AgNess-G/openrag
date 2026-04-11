@@ -12,12 +12,15 @@
 
 set -e
 
-chown -R appuser:appuser \
-    /app/keys \
-    /app/flows \
-    /app/config \
-    /app/data \
-    /app/openrag-documents \
-    2>/dev/null || true
-
-exec gosu appuser "$@"
+if [ "$(id -u)" = "0" ]; then
+    chown -R appuser:appuser \
+        /app/keys \
+        /app/flows \
+        /app/config \
+        /app/data \
+        /app/openrag-documents \
+        2>/dev/null || true
+    exec gosu appuser "$@"
+else
+    exec "$@"
+fi
