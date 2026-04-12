@@ -28,6 +28,10 @@ EMBED_RETRY_MAX_DELAY = 8.0
 
 class KnowledgeBackend(ABC):
     @abstractmethod
+    async def has_indexed_documents(self) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
     async def index_chunks(
         self,
         chunks: list[dict[str, Any]],
@@ -107,6 +111,18 @@ class KnowledgeBackend(ABC):
 class OpenSearchKnowledgeBackend(KnowledgeBackend):
     def __init__(self, session_manager):
         self.session_manager = session_manager
+
+    async def has_indexed_documents(self) -> bool:
+        try:
+            result = await clients.opensearch.count(
+                index=get_index_name(),
+                body={"query": {"match_all": {}}},
+            )
+        except Exception as exc:
+            if "index_not_found_exception" in str(exc):
+                return False
+            raise
+        return (result or {}).get("count", 0) > 0
 
     def _get_client(self, access_context: KnowledgeAccessContext):
         if self.session_manager is None:

@@ -37,7 +37,7 @@ class AstraDBService:
             )
         return token, api_endpoint, keyspace
 
-    async def _get_collection(self, embedding_dimension: int | None = None):
+    async def _get_database(self):
         try:
             from astrapy import DataAPIClient
         except ImportError as exc:
@@ -48,6 +48,15 @@ class AstraDBService:
         token, api_endpoint, keyspace = self._require_connection_settings()
         client = DataAPIClient(token=token)
         database = client.get_async_database(api_endpoint, keyspace=keyspace)
+        return database, keyspace
+
+    async def _collection_exists(self) -> bool:
+        database, keyspace = await self._get_database()
+        collection_names = await database.list_collection_names(keyspace=keyspace)
+        return self.collection_name in collection_names
+
+    async def _get_collection(self, embedding_dimension: int | None = None):
+        database, keyspace = await self._get_database()
         if embedding_dimension is not None:
             collection_names = await database.list_collection_names(keyspace=keyspace)
             if self.collection_name not in collection_names:
@@ -64,6 +73,14 @@ class AstraDBService:
                     keyspace=keyspace,
                 )
         return database.get_collection(self.collection_name)
+
+    async def has_indexed_documents(self) -> bool:
+        if not await self._collection_exists():
+            return False
+
+        collection = await self._get_collection()
+        document = await collection.find_one(projection={"_id": True})
+        return document is not None
 
     @staticmethod
     def _metadata_field(field_name: str) -> str:

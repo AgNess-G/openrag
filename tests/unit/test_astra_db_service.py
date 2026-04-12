@@ -51,6 +51,37 @@ def _access_context() -> KnowledgeAccessContext:
     )
 
 
+def test_astra_db_service_reads_optional_keyspace_from_env(monkeypatch):
+    service = AstraDBService(collection_name="documents")
+    monkeypatch.setenv("ASTRA_DB_APPLICATION_TOKEN", "token")
+    monkeypatch.setenv("ASTRA_DB_API_ENDPOINT", "https://example.apps.astra.datastax.com")
+    monkeypatch.setenv("ASTRA_DB_KEYSPACE", "rag_space")
+
+    token, api_endpoint, keyspace = service._require_connection_settings()
+
+    assert token == "token"
+    assert api_endpoint == "https://example.apps.astra.datastax.com"
+    assert keyspace == "rag_space"
+
+
+@pytest.mark.asyncio
+async def test_astra_db_service_has_indexed_documents_checks_for_existing_docs(monkeypatch):
+    collection = _FakeCollection(found_document={"_id": "doc-1"})
+    service = AstraDBService(collection_name="documents")
+
+    monkeypatch.setattr(service, "_collection_exists", AsyncMock(return_value=True))
+
+    async def _get_collection(*args, **kwargs):
+        return collection
+
+    monkeypatch.setattr(service, "_get_collection", _get_collection)
+
+    exists = await service.has_indexed_documents()
+
+    assert exists is True
+    assert collection.find_one_calls[0]["projection"] == {"_id": True}
+
+
 @pytest.mark.asyncio
 async def test_astra_db_service_filename_exists_applies_access_filter(monkeypatch):
     collection = _FakeCollection(found_document={"_id": "doc-1"})

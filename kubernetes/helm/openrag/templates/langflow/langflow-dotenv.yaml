@@ -105,6 +105,9 @@ stringData:
     {{- if .Values.global.astra.apiEndpoint }}
     ASTRA_DB_API_ENDPOINT={{ .Values.global.astra.apiEndpoint | quote }}
     {{- end }}
+    {{- if .Values.global.astra.keyspace }}
+    ASTRA_DB_KEYSPACE={{ .Values.global.astra.keyspace | quote }}
+    {{- end }}
 
     # Docling service URL
     {{- if and .Values.global.docling.scheme .Values.global.docling.host .Values.global.docling.port }}

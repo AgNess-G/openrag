@@ -53,6 +53,7 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
         "docs_metadata",
         "token",
         "api_endpoint",
+        "keyspace",
         "collection_name",
         "index_name",
         *[i.name for i in LCVectorStoreComponent.inputs],
@@ -97,6 +98,16 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
             display_name="Astra DB API Endpoint",
             value="ASTRA_DB_API_ENDPOINT",
             info="Astra DB API endpoint or the env var name that provides it.",
+        ),
+        StrInput(
+            name="keyspace",
+            display_name="Astra DB Keyspace",
+            value="ASTRA_DB_KEYSPACE",
+            advanced=True,
+            info=(
+                "Optional Astra DB keyspace/namespace or the env var name that provides it. "
+                "Leave empty to use Astra's default keyspace."
+            ),
         ),
         StrInput(
             name="collection_name",
@@ -175,6 +186,12 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
         if not api_endpoint:
             raise ValueError("Astra DB API endpoint is required.")
         return str(api_endpoint)
+
+    def _resolve_keyspace(self) -> str | None:
+        keyspace = _normalize_runtime_value(getattr(self, "keyspace", None))
+        if not keyspace:
+            return None
+        return str(keyspace)
 
     def _normalize_docs_metadata(self) -> dict[str, Any]:
         metadata: dict[str, Any] = {}
@@ -385,6 +402,7 @@ class OpenSearchVectorStoreComponentMultimodalMultiEmbedding(LCVectorStoreCompon
             token=self._resolve_token(),
             api_endpoint=self._resolve_api_endpoint(),
             collection_name=self._resolve_collection_name(),
+            namespace=self._resolve_keyspace(),
             embedding=selected_embedding,
         )
 

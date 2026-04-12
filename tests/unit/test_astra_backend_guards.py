@@ -5,6 +5,7 @@ import pytest
 
 import api.connectors as connectors_api
 import api.documents as documents_api
+import api.settings as settings_api
 from connectors.langflow_connector_service import LangflowConnectorService
 from models.processors import LangflowFileProcessor
 from models.tasks import FileTask, TaskStatus, UploadTask
@@ -225,3 +226,53 @@ async def test_langflow_url_processor_uses_effective_jwt_without_opensearch_clie
     assert kwargs["jwt_token"] == "anon-jwt"
     assert file_task.status == TaskStatus.COMPLETED
     assert upload_task.successful_files == 1
+
+
+@pytest.mark.asyncio
+async def test_update_settings_blocks_astra_embedding_changes_when_corpus_exists(monkeypatch):
+    backend = Mock()
+    backend.has_indexed_documents = AsyncMock(return_value=True)
+    validate_provider_setup = AsyncMock()
+    current_config = SimpleNamespace(
+        edited=True,
+        knowledge=SimpleNamespace(
+            embedding_provider="openai",
+            embedding_model="text-embedding-3-small",
+        ),
+    )
+
+    monkeypatch.setattr(
+        settings_api,
+        "get_openrag_config",
+        lambda: current_config,
+    )
+    monkeypatch.setattr(
+        settings_api,
+        "get_knowledge_backend",
+        lambda: "astra",
+    )
+    monkeypatch.setattr(
+        settings_api,
+        "validate_provider_setup",
+        validate_provider_setup,
+    )
+    monkeypatch.setattr(
+        "services.knowledge_backend.get_knowledge_backend_service",
+        lambda _session_manager: backend,
+    )
+
+    response = await settings_api.update_settings(
+        settings_api.SettingsUpdateBody(embedding_model="text-embedding-3-large"),
+        session_manager=Mock(),
+        user=User(
+            user_id="u1",
+            email="u1@example.com",
+            name="User One",
+            jwt_token="Bearer test-token",
+        ),
+    )
+
+    assert response.status_code == 400
+    assert b"Astra DB already contains indexed documents" in response.body
+    backend.has_indexed_documents.assert_awaited_once()
+    validate_provider_setup.assert_not_called()

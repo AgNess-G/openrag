@@ -89,6 +89,11 @@ Select the vector backend that OpenRAG should use for Langflow ingestion and ret
 | `VECTOR_BACKEND` | `opensearch` | Select the active knowledge backend. Use `opensearch` for the default OpenSearch-backed flows, or `astra` to switch OpenRAG to the built-in Astra DB Langflow flows. |
 | `ASTRA_DB_APPLICATION_TOKEN` | Not set | Required when `VECTOR_BACKEND=astra`. Astra DB application token used by the Astra-backed Langflow vector store component. |
 | `ASTRA_DB_API_ENDPOINT` | Not set | Required when `VECTOR_BACKEND=astra`. Astra DB Data API endpoint used by the Astra-backed Langflow vector store component. |
+| `ASTRA_DB_KEYSPACE` | Not set | Optional when `VECTOR_BACKEND=astra`. Astra DB keyspace/namespace to use instead of the database default. |
+
+:::warning
+The Astra backend stores one vector representation per collection. If you change the embedding provider or model for an existing Astra-backed corpus, reingest the documents so all stored vectors are regenerated with the new embedding configuration.
+:::
 
 ## Langflow settings {#langflow-settings}
 
