@@ -87,3 +87,40 @@ def test_active_flow_resolution_switches_with_backend(monkeypatch):
     assert app_settings.get_active_flow_file_name("retrieval") == "openrag_agent_astra.json"
     assert app_settings.get_active_flow_file_name("ingest") == "ingestion_flow_astra.json"
 
+
+def test_active_flow_file_path_uses_matching_custom_flow_file(monkeypatch, tmp_path):
+    default_flow_file = tmp_path / "openrag_agent.json"
+    default_flow_file.write_text('{"id":"default-chat-flow"}', encoding="utf-8")
+
+    custom_flow_file = tmp_path / "custom-astra-chat.json"
+    custom_flow_file.write_text('{"id":"custom-chat-flow"}', encoding="utf-8")
+
+    monkeypatch.setattr(
+        app_settings,
+        "_FLOWS_DIRECTORY",
+        tmp_path,
+        raising=True,
+    )
+    monkeypatch.setattr(
+        app_settings,
+        "get_openrag_config",
+        lambda: _make_config("opensearch"),
+        raising=True,
+    )
+    monkeypatch.delenv("VECTOR_BACKEND", raising=False)
+    monkeypatch.setattr(
+        app_settings,
+        "OPENSEARCH_FLOW_DEFINITIONS",
+        {
+            **app_settings.OPENSEARCH_FLOW_DEFINITIONS,
+            "retrieval": app_settings.FlowDefinition(
+                flow_id="custom-chat-flow",
+                filename="openrag_agent.json",
+                default_flow_id="default-chat-flow",
+                vector_store_node_id="vector-node",
+            ),
+        },
+        raising=True,
+    )
+
+    assert app_settings.get_active_flow_file_path("retrieval") == str(custom_flow_file)

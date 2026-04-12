@@ -1729,8 +1729,9 @@ async def rollback_onboarding(
                 except Exception as e:
                     logger.error(f"Failed to cancel task {task_id}: {str(e)}")
 
-            # Delete all files associated with any task, regardless of whether 
-            # the task failed or completed, to ensure no partial chunks remain in OpenSearch.
+            # Delete all files associated with any task, regardless of whether
+            # the task failed or completed, to ensure no partial chunks remain in the
+            # active knowledge backend.
             files = task_data.get("files", {})
             if isinstance(files, dict):
                 for file_path, file_info in files.items():
@@ -1738,19 +1739,22 @@ async def rollback_onboarding(
                         filename = file_info.get("filename") or file_path.split("/")[-1]
                         if filename:
                             try:
-                                opensearch_client = session_manager.get_user_opensearch_client(
-                                    user.user_id, user.jwt_token
-                                )
-                                from utils.opensearch_queries import build_filename_delete_body
-                                from config.settings import get_index_name
+                                from services.knowledge_access import build_access_context
+                                from services.knowledge_backend import get_knowledge_backend_service
 
-                                delete_query = build_filename_delete_body(filename)
-                                result = await opensearch_client.delete_by_query(
-                                    index=get_index_name(),
-                                    body=delete_query,
-                                    conflicts="proceed"
+                                access_context = build_access_context(
+                                    user_id=user.user_id,
+                                    user_email=user.email,
+                                    jwt_token=jwt_token,
+                                    session_manager=session_manager,
                                 )
-                                deleted_count = result.get("deleted", 0)
+                                knowledge_backend = get_knowledge_backend_service(
+                                    session_manager
+                                )
+                                deleted_count = await knowledge_backend.delete_by_filename(
+                                    filename,
+                                    access_context,
+                                )
                                 if deleted_count > 0:
                                     deleted_files.append(filename)
                                     logger.info(f"Deleted {deleted_count} chunks for filename {filename}")

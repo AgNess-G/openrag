@@ -1,5 +1,6 @@
 from config.paths import get_flows_path
 import asyncio
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,7 @@ SUPPORTED_KNOWLEDGE_BACKENDS = {"opensearch", "astra", "astradb"}
 class FlowDefinition:
     flow_id: str
     filename: str
+    default_flow_id: Optional[str] = None
     vector_store_node_id: Optional[str] = None
 
 
@@ -70,21 +72,25 @@ OPENSEARCH_FLOW_DEFINITIONS = {
     "retrieval": FlowDefinition(
         flow_id=LANGFLOW_CHAT_FLOW_ID or "1098eea1-6649-4e1d-aed1-b77249fb8dd0",
         filename="openrag_agent.json",
+        default_flow_id="1098eea1-6649-4e1d-aed1-b77249fb8dd0",
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-TyvvE",
     ),
     "ingest": FlowDefinition(
         flow_id=LANGFLOW_INGEST_FLOW_ID or "5488df7c-b93f-4f87-a446-b67028bc0813",
         filename="ingestion_flow.json",
+        default_flow_id="5488df7c-b93f-4f87-a446-b67028bc0813",
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-By9U4",
     ),
     "url_ingest": FlowDefinition(
         flow_id=LANGFLOW_URL_INGEST_FLOW_ID or "72c3d17c-2dac-4a73-b48a-6518473d7830",
         filename="openrag_url_mcp.json",
+        default_flow_id="72c3d17c-2dac-4a73-b48a-6518473d7830",
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-PMGGV",
     ),
     "nudges": FlowDefinition(
         flow_id=NUDGES_FLOW_ID or "ebc01d31-1976-46ce-a385-b0240327226c",
         filename="openrag_nudges.json",
+        default_flow_id="ebc01d31-1976-46ce-a385-b0240327226c",
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-0ByE3",
     ),
 }
@@ -93,21 +99,25 @@ ASTRA_FLOW_DEFINITIONS = {
     "retrieval": FlowDefinition(
         flow_id=ASTRA_CHAT_FLOW_ID,
         filename="openrag_agent_astra.json",
+        default_flow_id=ASTRA_CHAT_FLOW_ID,
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-TyvvE",
     ),
     "ingest": FlowDefinition(
         flow_id=ASTRA_INGEST_FLOW_ID,
         filename="ingestion_flow_astra.json",
+        default_flow_id=ASTRA_INGEST_FLOW_ID,
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-By9U4",
     ),
     "url_ingest": FlowDefinition(
         flow_id=ASTRA_URL_INGEST_FLOW_ID,
         filename="openrag_url_mcp_astra.json",
+        default_flow_id=ASTRA_URL_INGEST_FLOW_ID,
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-PMGGV",
     ),
     "nudges": FlowDefinition(
         flow_id=ASTRA_NUDGES_FLOW_ID,
         filename="openrag_nudges_astra.json",
+        default_flow_id=ASTRA_NUDGES_FLOW_ID,
         vector_store_node_id="OpenSearchVectorStoreComponentMultimodalMultiEmbedding-0ByE3",
     ),
 }
@@ -1044,9 +1054,33 @@ def get_active_flow_file_name(flow_type: str) -> str:
     return get_active_flow_definition(flow_type).filename
 
 
+def _find_flow_file_path_by_id(flow_id: str) -> Optional[Path]:
+    """Scan checked-in flow JSON files for a specific flow ID."""
+    if not flow_id or not _FLOWS_DIRECTORY.exists():
+        return None
+
+    for flow_file in _FLOWS_DIRECTORY.glob("*.json"):
+        try:
+            with flow_file.open("r", encoding="utf-8") as handle:
+                if json.load(handle).get("id") == flow_id:
+                    return flow_file
+        except (OSError, ValueError):
+            continue
+
+    return None
+
+
 def get_active_flow_file_path(flow_type: str) -> str:
     """Return the absolute path to the checked-in flow JSON file."""
-    return str(_FLOWS_DIRECTORY / get_active_flow_file_name(flow_type))
+    definition = get_active_flow_definition(flow_type)
+    default_path = _FLOWS_DIRECTORY / definition.filename
+
+    if definition.flow_id and definition.default_flow_id and definition.flow_id != definition.default_flow_id:
+        matching_path = _find_flow_file_path_by_id(definition.flow_id)
+        if matching_path is not None:
+            return str(matching_path)
+
+    return str(default_path)
 
 
 def get_active_vector_store_node_id(flow_type: str) -> Optional[str]:

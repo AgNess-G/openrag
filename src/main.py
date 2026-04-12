@@ -586,11 +586,10 @@ async def _ingest_default_documents_langflow(
     effective_jwt = jwt_token
 
     if not effective_jwt and session_manager:
-        session_manager.get_user_opensearch_client(
-            anonymous_user.user_id, effective_jwt
+        effective_jwt = session_manager.get_effective_jwt_token(
+            anonymous_user.user_id,
+            effective_jwt,
         )
-        if hasattr(session_manager, "_anonymous_jwt"):
-            effective_jwt = session_manager._anonymous_jwt
 
     # Prepare tweaks for default documents with anonymous user metadata
     vector_store_node_id = get_active_vector_store_node_id("ingest")
@@ -659,11 +658,10 @@ async def _ingest_default_documents_url_langflow(
     effective_jwt = jwt_token
 
     if not effective_jwt and session_manager:
-        session_manager.get_user_opensearch_client(
-            anonymous_user.user_id, effective_jwt
+        effective_jwt = session_manager.get_effective_jwt_token(
+            anonymous_user.user_id,
+            effective_jwt,
         )
-        if hasattr(session_manager, "_anonymous_jwt"):
-            effective_jwt = session_manager._anonymous_jwt
 
     vector_store_node_id = get_active_vector_store_node_id("url_ingest")
     if not vector_store_node_id:
@@ -803,6 +801,8 @@ async def _materialize_default_docs_url_as_text_file(
 async def _delete_existing_default_docs(session_manager, connector_type: str):
     """Delete previously ingested default OpenRAG docs before reingestion."""
     from session_manager import AnonymousUser
+    from services.knowledge_access import build_access_context
+    from services.knowledge_backend import get_knowledge_backend_service
 
     if session_manager is None:
         logger.warning(
@@ -811,54 +811,34 @@ async def _delete_existing_default_docs(session_manager, connector_type: str):
         return
 
     anonymous_user = AnonymousUser()
-    effective_jwt = None
-    if session_manager:
-        session_manager.get_user_opensearch_client(
-            anonymous_user.user_id, effective_jwt
-        )
-        if hasattr(session_manager, "_anonymous_jwt"):
-            effective_jwt = session_manager._anonymous_jwt
-
-    opensearch_client = session_manager.get_user_opensearch_client(
-        anonymous_user.user_id, effective_jwt
+    effective_jwt = session_manager.get_effective_jwt_token(
+        anonymous_user.user_id,
+        None,
     )
-    delete_query = {
-        "query": {
-            "bool": {
-                "should": [
-                    # URL-based default docs are ingested as system_default and
-                    # owned by the anonymous onboarding user.
-                    {
-                        "bool": {
-                            "must": [
-                                {"term": {"connector_type": connector_type}},
-                                {"term": {"owner_email": anonymous_user.email}},
-                            ]
-                        }
-                    },
-                    # Legacy file-based default docs were ingested as local and
-                    # marked with is_sample_data=true.
-                    {
-                        "bool": {
-                            "must": [
-                                {"term": {"connector_type": "local"}},
-                                {"term": {"is_sample_data": "true"}},
-                            ]
-                        }
-                    },
-                ],
-                "minimum_should_match": 1,
-            }
-        }
-    }
-    result = await opensearch_client.delete_by_query(
-        index=get_index_name(),
-        body=delete_query,
-        conflicts="proceed",
+    access_context = build_access_context(
+        user_id=anonymous_user.user_id,
+        user_email=anonymous_user.email,
+        jwt_token=effective_jwt,
+        session_manager=session_manager,
+    )
+    knowledge_backend = get_knowledge_backend_service(session_manager)
+    deleted_count = await knowledge_backend.delete_by_filter_sets(
+        [
+            {
+                "connector_type": connector_type,
+                "owner_email": anonymous_user.email,
+            },
+            {
+                "connector_type": "local",
+                "is_sample_data": "true",
+            },
+        ],
+        access_context=access_context,
+        match_any=True,
     )
     logger.info(
         "Deleted existing default OpenRAG docs before reingestion",
-        deleted_chunks=result.get("deleted", 0),
+        deleted_chunks=deleted_count,
     )
 
 

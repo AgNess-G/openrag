@@ -253,8 +253,9 @@ async def test_background_processor_skips_index_refresh_for_astra(task_service, 
     task_service.task_store[user_id] = {task_id: upload_task}
 
     refresh_mock = AsyncMock()
-    monkeypatch.setattr("config.settings.is_astra_backend", lambda: True)
-    monkeypatch.setattr("config.settings.get_index_name", lambda: "documents")
+    backend_refresh_mock = AsyncMock()
+    fake_backend = Mock()
+    fake_backend.refresh = backend_refresh_mock
     mock_opensearch = Mock()
     mock_opensearch.indices.refresh = refresh_mock
     monkeypatch.setattr(
@@ -263,9 +264,14 @@ async def test_background_processor_skips_index_refresh_for_astra(task_service, 
         mock_opensearch,
         raising=True,
     )
+    monkeypatch.setattr(
+        "services.knowledge_backend.get_knowledge_backend_service",
+        lambda _session_manager: fake_backend,
+    )
     monkeypatch.setattr("services.task_service.TelemetryClient.send_event", AsyncMock())
 
     await task_service.background_custom_processor(user_id, task_id, ["file1"], processor=upload_task.processor)
 
     refresh_mock.assert_not_awaited()
+    backend_refresh_mock.assert_awaited_once()
     assert upload_task.status == TaskStatus.COMPLETED

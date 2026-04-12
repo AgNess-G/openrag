@@ -416,10 +416,13 @@ class TaskService:
                 # the newly indexed chunks without hitting the near-real-time refresh window.
                 if upload_task.successful_files > 0:
                     try:
-                        from config.settings import clients, get_index_name, is_astra_backend
+                        from services.knowledge_backend import get_knowledge_backend_service
 
-                        if not is_astra_backend():
-                            await clients.opensearch.indices.refresh(index=get_index_name())
+                        await get_knowledge_backend_service(
+                            self.document_service.session_manager
+                            if self.document_service is not None
+                            else None
+                        ).refresh()
                     except Exception as e:
                         logger.debug("Index refresh after ingest failed (non-fatal)", error=str(e))
 
