@@ -2,7 +2,10 @@ FROM node:20.20.0-slim
 
 # Upgrade npm to fix CVEs in system npm installation
 # npm@latest should be >= 10.9.0 which includes all security fixes
-RUN npm install -g npm@latest && npm --version
+RUN npm install -g npm@latest && npm --version && \
+    # Force update npm's own vulnerable dependencies
+    cd /usr/local/lib/node_modules/npm && \
+    npm install brace-expansion@5.0.5 picomatch@4.0.4 --save --legacy-peer-deps || true
 
 # Upgrade npm to fix CVEs in system npm installation
 # npm@latest should be >= 10.9.0 which includes all security fixes
