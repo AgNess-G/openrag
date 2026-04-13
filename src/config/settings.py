@@ -48,10 +48,15 @@ if _legacy_flow_id and not os.getenv("LANGFLOW_CHAT_FLOW_ID"):
     logger.warning("FLOW_ID is deprecated. Please use LANGFLOW_CHAT_FLOW_ID instead")
     LANGFLOW_CHAT_FLOW_ID = _legacy_flow_id
 
-ASTRA_CHAT_FLOW_ID = "6df7ff83-97be-46be-b624-ab40ff53fd7b"
-ASTRA_INGEST_FLOW_ID = "4ae67a0f-8f97-4563-ad54-3c18fe07ce30"
-ASTRA_URL_INGEST_FLOW_ID = "fbd0aee6-29b1-4a51-a802-27fb3bec9927"
-ASTRA_NUDGES_FLOW_ID = "05b262d8-45ba-4574-afad-797e8918defd"
+_ASTRA_CHAT_FLOW_ID_DEFAULT = "6df7ff83-97be-46be-b624-ab40ff53fd7b"
+_ASTRA_INGEST_FLOW_ID_DEFAULT = "4ae67a0f-8f97-4563-ad54-3c18fe07ce30"
+_ASTRA_URL_INGEST_FLOW_ID_DEFAULT = "fbd0aee6-29b1-4a51-a802-27fb3bec9927"
+_ASTRA_NUDGES_FLOW_ID_DEFAULT = "05b262d8-45ba-4574-afad-797e8918defd"
+
+ASTRA_CHAT_FLOW_ID = os.getenv("ASTRA_CHAT_FLOW_ID") or _ASTRA_CHAT_FLOW_ID_DEFAULT
+ASTRA_INGEST_FLOW_ID = os.getenv("ASTRA_INGEST_FLOW_ID") or _ASTRA_INGEST_FLOW_ID_DEFAULT
+ASTRA_URL_INGEST_FLOW_ID = os.getenv("ASTRA_URL_INGEST_FLOW_ID") or _ASTRA_URL_INGEST_FLOW_ID_DEFAULT
+ASTRA_NUDGES_FLOW_ID = os.getenv("ASTRA_NUDGES_FLOW_ID") or _ASTRA_NUDGES_FLOW_ID_DEFAULT
 
 DEFAULT_KNOWLEDGE_BACKEND = "opensearch"
 SUPPORTED_KNOWLEDGE_BACKENDS = {"opensearch", "astra", "astradb"}
@@ -1027,7 +1032,15 @@ def validate_knowledge_backend_config() -> None:
 
 def _get_flow_definitions_for_backend(backend: Optional[str] = None) -> dict[str, FlowDefinition]:
     resolved_backend = normalize_knowledge_backend(backend) if backend else get_knowledge_backend()
-    return ASTRA_FLOW_DEFINITIONS if resolved_backend == "astra" else OPENSEARCH_FLOW_DEFINITIONS
+    # Registry built at call time so monkeypatching module-level dicts works in tests
+    registry: dict[str, dict[str, FlowDefinition]] = {
+        "opensearch": OPENSEARCH_FLOW_DEFINITIONS,
+        "astra": ASTRA_FLOW_DEFINITIONS,
+    }
+    definitions = registry.get(resolved_backend)
+    if definitions is None:
+        raise ValueError(f"No flow definitions registered for backend '{resolved_backend}'")
+    return definitions
 
 
 def get_active_flow_definition(flow_type: str) -> FlowDefinition:

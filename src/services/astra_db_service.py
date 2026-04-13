@@ -1,13 +1,16 @@
 import os
 from collections import Counter
-from typing import Any, Dict
+from typing import Any, Awaitable, Callable, Dict
 
 from config.settings import EMBED_MODEL, get_embedding_model, get_index_name
 from services.knowledge_access import KnowledgeAccessContext
+from services.knowledge_backend import KnowledgeBackend
 from utils.file_utils import get_filename_aliases
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+SearchEmbeddingFn = Callable[[str, str], Awaitable[list[float]]]
 
 _RESERVED_DOCUMENT_FIELDS = {
     "_id",
@@ -20,11 +23,14 @@ _RESERVED_DOCUMENT_FIELDS = {
 }
 
 
-class AstraDBService:
+class AstraDBService(KnowledgeBackend):
     """Shared Astra DB access helpers for search and document lifecycle actions."""
 
     def __init__(self, collection_name: str | None = None):
         self.collection_name = collection_name or get_index_name()
+        self._database = None
+        self._keyspace: str | None = None
+        self._collection_cache: dict[int | None, Any] = {}
 
     def _require_connection_settings(self) -> tuple[str, str, str | None]:
         token = os.getenv("ASTRA_DB_APPLICATION_TOKEN")
@@ -38,6 +44,9 @@ class AstraDBService:
         return token, api_endpoint, keyspace
 
     async def _get_database(self):
+        if self._database is not None:
+            return self._database, self._keyspace
+
         try:
             from astrapy import DataAPIClient
         except ImportError as exc:
@@ -47,8 +56,9 @@ class AstraDBService:
 
         token, api_endpoint, keyspace = self._require_connection_settings()
         client = DataAPIClient(token=token)
-        database = client.get_async_database(api_endpoint, keyspace=keyspace)
-        return database, keyspace
+        self._database = client.get_async_database(api_endpoint, keyspace=keyspace)
+        self._keyspace = keyspace
+        return self._database, self._keyspace
 
     async def _collection_exists(self) -> bool:
         database, keyspace = await self._get_database()
@@ -56,6 +66,11 @@ class AstraDBService:
         return self.collection_name in collection_names
 
     async def _get_collection(self, embedding_dimension: int | None = None):
+        cache_key = embedding_dimension
+        cached = self._collection_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         database, keyspace = await self._get_database()
         if embedding_dimension is not None:
             collection_names = await database.list_collection_names(keyspace=keyspace)
@@ -72,7 +87,9 @@ class AstraDBService:
                     ),
                     keyspace=keyspace,
                 )
-        return database.get_collection(self.collection_name)
+        collection = database.get_collection(self.collection_name)
+        self._collection_cache[cache_key] = collection
+        return collection
 
     async def has_indexed_documents(self) -> bool:
         if not await self._collection_exists():
@@ -420,8 +437,8 @@ class AstraDBService:
         filters: Dict[str, Any] | None,
         limit: int,
         score_threshold: float,
-        access_context: KnowledgeAccessContext | None = None,
-        embed_query,
+        access_context: KnowledgeAccessContext,
+        embed_query: SearchEmbeddingFn,
     ) -> dict[str, Any]:
         collection = await self._get_collection()
         is_wildcard_match_all = isinstance(query, str) and query.strip() in {"", "*"}
