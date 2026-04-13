@@ -4,14 +4,50 @@ Utility functions for managing dynamic embedding field names in OpenSearch.
 This module provides helpers for:
 - Normalizing embedding model names to valid OpenSearch field names
 - Generating dynamic field names based on embedding models
+- Building the shared knn_vector field mapping used across the codebase
 - Ensuring embedding fields exist in the OpenSearch index
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def build_knn_vector_field(dimension: int) -> Dict[str, Any]:
+    """Build a knn_vector field mapping for OpenSearch using OpenRAG's JVector settings.
+
+    All knn_vector fields in the documents index share the same JVector/DiskANN
+    method configuration, differing only in their vector dimension. This helper
+    is the single source of truth for that configuration so tuning changes
+    apply uniformly wherever an embedding field is declared.
+
+    Args:
+        dimension: Vector dimension for the embedding model that will populate
+            the field. Must match the output dimension of the embedding model.
+
+    Returns:
+        A fresh dict suitable for use as a field entry in an OpenSearch
+        mapping's ``properties``. Each call returns a new dict, so callers
+        may safely extend it in place (for example, to add ``advanced.*``
+        parameters for a specific field) without affecting other call sites.
+    """
+    from config.settings import KNN_EF_CONSTRUCTION, KNN_M
+
+    return {
+        "type": "knn_vector",
+        "dimension": dimension,
+        "method": {
+            "name": "disk_ann",
+            "engine": "jvector",
+            "space_type": "l2",
+            "parameters": {
+                "ef_construction": KNN_EF_CONSTRUCTION,
+                "m": KNN_M,
+            },
+        },
+    }
 
 
 def normalize_model_name(model_name: str) -> str:
@@ -86,7 +122,7 @@ async def ensure_embedding_field_exists(
     Raises:
         Exception: If unable to add the field mapping
     """
-    from config.settings import KNN_EF_CONSTRUCTION, KNN_M, get_index_name
+    from config.settings import get_index_name
     from utils.embeddings import get_embedding_dimensions
 
     if index_name is None:
@@ -130,16 +166,7 @@ async def ensure_embedding_field_exists(
     # Define the field mapping for both the vector field and the tracking field
     mapping = {
         "properties": {
-            field_name: {
-                "type": "knn_vector",
-                "dimension": dimensions,
-                "method": {
-                    "name": "disk_ann",
-                    "engine": "jvector",
-                    "space_type": "l2",
-                    "parameters": {"ef_construction": KNN_EF_CONSTRUCTION, "m": KNN_M},
-                },
-            },
+            field_name: build_knn_vector_field(dimensions),
             # Also ensure the embedding_model tracking field exists as keyword
             "embedding_model": {
                 "type": "keyword"

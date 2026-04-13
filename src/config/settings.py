@@ -10,6 +10,7 @@ from opensearchpy import AsyncOpenSearch
 from opensearchpy._async.http_aiohttp import AIOHttpConnection
 
 from utils.container_utils import get_container_host
+from utils.embedding_fields import build_knn_vector_field
 from utils.logging_config import get_logger
 # Import configuration manager
 from .config_manager import config_manager
@@ -160,16 +161,7 @@ INDEX_BODY = {
             "text": {"type": "text"},
             # Legacy field - kept for backward compatibility
             # New documents will use chunk_embedding_{model_name} fields
-            "chunk_embedding": {
-                "type": "knn_vector",
-                "dimension": VECTOR_DIM,
-                "method": {
-                    "name": "disk_ann",
-                    "engine": "jvector",
-                    "space_type": "l2",
-                    "parameters": {"ef_construction": KNN_EF_CONSTRUCTION, "m": KNN_M},
-                },
-            },
+            "chunk_embedding": build_knn_vector_field(VECTOR_DIM),
             # Track which embedding model was used for this chunk
             "embedding_model": {"type": "keyword"},
             "source_url": {"type": "keyword"},
