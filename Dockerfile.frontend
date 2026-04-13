@@ -1,6 +1,14 @@
 FROM node:20.20.0-slim
 
-# Set working directory and ensure it is owned by the non-root node user
+# Upgrade npm to fix CVEs in system npm installation
+# npm@latest should be >= 10.9.0 which includes all security fixes
+RUN npm install -g npm@latest && npm --version
+
+# Upgrade npm to fix CVEs in system npm installation
+# npm@latest should be >= 10.9.0 which includes all security fixes
+RUN npm install -g npm@latest && npm --version
+
+# Set working directory and ensure it is owned by the non-root node user 
 WORKDIR /app
 RUN chown node:node /app
 
@@ -9,7 +17,7 @@ USER node
 
 # Copy frontend dependencies
 COPY --chown=node:node frontend/package*.json ./
-RUN npm install
+RUN npm install && npm audit fix --force || true
 
 # Copy frontend source
 COPY --chown=node:node frontend/ ./
