@@ -33,6 +33,10 @@ global:
     applicationToken: ""                 # Astra DB application token
     apiEndpoint: ""                      # Astra DB Data API endpoint
     keyspace: ""                         # Optional Astra DB keyspace/namespace override
+    chatFlowId: ""                       # Optional: override built-in Astra chat flow ID
+    ingestFlowId: ""                     # Optional: override built-in Astra ingestion flow ID
+    urlIngestFlowId: ""                  # Optional: override built-in Astra URL ingestion flow ID
+    nudgesFlowId: ""                     # Optional: override built-in Astra nudges flow ID
 
   docling:
     host: docling-serve.docling.svc.cluster.local

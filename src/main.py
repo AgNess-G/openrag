@@ -1245,10 +1245,17 @@ async def startup_tasks(services):
         Category.APPLICATION_STARTUP, MessageId.ORB_APP_START_INIT
     )
 
+    from config.settings import is_astra_backend
+
     if IBM_AUTH_ENABLED:
         logger.info(
             "IBM auth mode: skipping startup OpenSearch checks. "
             "OpenSearch will be initialized during onboarding with user credentials."
+        )
+    elif is_astra_backend():
+        logger.info(
+            "Astra DB backend: skipping startup OpenSearch checks. "
+            "Knowledge operations will use Astra DB instead of OpenSearch."
         )
     else:
         # Only initialize basic OpenSearch connection, not the index
