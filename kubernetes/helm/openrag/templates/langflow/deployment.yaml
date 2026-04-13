@@ -37,6 +37,12 @@ spec:
       initContainers:
         - name: load-default-flows
           image: curlimages/curl:8.5.0
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -131,6 +137,9 @@ spec:
             - name: langflow-data
               mountPath: {{ .Values.langflow.persistence.mountPath }}
 
+            - name: tempdir
+              mountPath: /tmp
+
           resources:
             {{- toYaml .Values.langflow.resources | nindent 12 }}
 
@@ -157,6 +166,10 @@ spec:
           {{- end }}
 
       volumes:
+        - name: tempdir
+          emptyDir:
+            sizeLimit: 10Gi
+
         - name: openrag-langflow-dotenv
           secret:
             secretName: {{ include "openrag.fullname" . }}-langflow-dotenv
