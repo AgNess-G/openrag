@@ -8,6 +8,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { encodeBase64 } from "@/lib/utils";
 
 interface User {
   user_id: string;
@@ -24,6 +25,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isNoAuthMode: boolean;
   isIbmAuthMode: boolean;
+  version: string | null;
   login: () => void;
   loginWithIbm: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -49,6 +51,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isNoAuthMode, setIsNoAuthMode] = useState(false);
   const [isIbmAuthMode, setIsIbmAuthMode] = useState(false);
+  const [version, setVersion] = useState<string | null>(null);
 
   const checkAuth = useCallback(async () => {
     setIsLoading(true);
@@ -64,6 +67,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const data = await response.json();
       console.log("[checkAuth] /api/auth/me response:", data);
+      if (data.version) setVersion(data.version);
 
       // Check auth mode flags
       if (data.ibm_auth_mode) {
@@ -139,6 +143,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           localStorage.setItem("auth_purpose", "app_auth");
           localStorage.setItem("connecting_connector_id", result.connection_id);
           localStorage.setItem("connecting_connector_type", "app_auth");
+          localStorage.setItem("auth_redirect_to", window.location.pathname);
 
           console.log("Stored localStorage items:", {
             auth_purpose: localStorage.getItem("auth_purpose"),
@@ -150,6 +155,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ),
           });
 
+          const state = isIbmAuthMode
+            ? encodeBase64(
+                `id=${result.connection_id}&return=${window.location.origin}/auth/callback`,
+              )
+            : result.connection_id;
+
+          console.log("OAuth state (encoded):", state);
+
           const authUrl =
             `${result.oauth_config.authorization_endpoint}?` +
             `client_id=${result.oauth_config.client_id}&` +
@@ -158,7 +171,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             `redirect_uri=${encodeURIComponent(result.oauth_config.redirect_uri)}&` +
             `access_type=offline&` +
             `prompt=select_account&` +
-            `state=${result.connection_id}`;
+            `state=${encodeURIComponent(state)}`;
 
           console.log("Redirecting to OAuth URL:", authUrl);
           window.location.href = authUrl;
@@ -197,9 +210,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const logout = async () => {
-    // Don't allow logout in no-auth mode or IBM auth mode
-    if (isNoAuthMode || isIbmAuthMode) {
-      console.log("Logout attempted in no-auth/IBM auth mode - ignored");
+    if (isNoAuthMode) {
       return;
     }
 
@@ -227,6 +238,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: !!user,
     isNoAuthMode,
     isIbmAuthMode,
+    version,
     login,
     loginWithIbm,
     logout,

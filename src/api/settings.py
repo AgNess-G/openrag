@@ -1,3 +1,4 @@
+import asyncio
 import json
 import platform
 from fastapi import Depends, Request, HTTPException
@@ -36,6 +37,7 @@ from dependencies import (
 from session_manager import User
 
 logger = get_logger(__name__)
+_background_tasks: set[asyncio.Task] = set()
 
 
 class SettingsUpdateBody(BaseModel):
@@ -830,30 +832,31 @@ async def update_settings(
                 {"error": "Failed to save configuration"}, status_code=500
             )
 
-        # Update Langflow global variables and model values if provider settings changed
+        # Refresh patched client immediately so subsequent requests pick up latest config.
         await clients.refresh_patched_client()
 
+        # Run expensive Langflow sync in the background to keep settings updates responsive.
         if should_validate or provider_updated:
-            try:
-                flows_service = _get_flows_service()
-
-                # Update global variables
-                await _update_langflow_global_variables(current_config, flows_service=flows_service)
-
-                # Update LLM client credentials when embedding selection changes
-                if body.embedding_provider is not None or body.embedding_model is not None:
-                    await _update_mcp_servers_with_provider_credentials(
-                        current_config, session_manager, flows_service=flows_service
-                    )
-
-                # Update model values if provider or model changed (including removals that trigger fallback)
-                if body.llm_provider is not None or body.llm_model is not None or body.embedding_provider is not None or body.embedding_model is not None or provider_updated:
-                    await _update_langflow_model_values(current_config, flows_service)
-
-            except Exception as e:
-                logger.error(f"Failed to update Langflow settings: {str(e)}")
-                # Don't fail the entire settings update if Langflow update fails
-                # The config was still saved
+            task = asyncio.create_task(
+                _run_async_post_save_langflow_updates(
+                    session_manager=session_manager,
+                    update_mcp_servers=(
+                        body.embedding_provider is not None
+                        or body.embedding_model is not None
+                        or provider_updated
+                    ),
+                    update_model_values=(
+                        body.llm_provider is not None
+                        or body.llm_model is not None
+                        or body.embedding_provider is not None
+                        or body.embedding_model is not None
+                        or provider_updated
+                    ),
+                )
+            )
+            # Keep a strong reference until completion to avoid premature GC cancellation.
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
 
 
         set_fields = [k for k, v in body.model_dump().items() if v is not None]
@@ -1122,7 +1125,7 @@ async def onboarding(
         # Initialize the OpenSearch index if embedding model is configured
         if body.embedding_model or body.embedding_provider:
             try:
-                from main import init_index_when_ready
+                from main import init_index
                 from config.settings import IBM_AUTH_ENABLED, clients as app_clients
 
                 opensearch_client = None
@@ -1132,7 +1135,8 @@ async def onboarding(
                 logger.info(
                     "Initializing OpenSearch index after onboarding configuration"
                 )
-                await init_index_when_ready(opensearch_client)
+                admin_username = user.user_id if IBM_AUTH_ENABLED and user else None
+                await init_index(opensearch_client, admin_username=admin_username)
                 logger.info("OpenSearch index initialization completed successfully")
             except Exception as e:
                 logger.error(
@@ -1402,6 +1406,37 @@ async def _update_langflow_global_variables(config, flows_service=None):
         raise
 
 
+async def _run_async_post_save_langflow_updates(
+    session_manager,
+    update_mcp_servers: bool,
+    update_model_values: bool,
+) -> None:
+    """Apply post-save Langflow synchronization asynchronously."""
+    try:
+        current_config = get_openrag_config()
+        flows_service = _get_flows_service()
+
+        # Update global variables
+        await _update_langflow_global_variables(
+            current_config, flows_service=flows_service
+        )
+
+        # Update LLM client credentials when embedding selection changes
+        if update_mcp_servers:
+            await _update_mcp_servers_with_provider_credentials(
+                current_config, session_manager, flows_service=flows_service
+            )
+
+        # Update model values if provider/model changed (including removals/fallbacks)
+        if update_model_values:
+            await _update_langflow_model_values(current_config, flows_service)
+
+        logger.info("Completed asynchronous Langflow post-save sync")
+    except Exception as e:
+        # Do not fail user request if async sync fails; keep parity with existing behavior.
+        logger.error(f"Failed to update Langflow settings asynchronously: {str(e)}")
+
+
 async def _update_mcp_servers_with_provider_credentials(config, session_manager = None, flows_service=None):
     # Update MCP servers with provider credentials
     try:
@@ -1637,8 +1672,6 @@ async def rollback_onboarding(
                 {"error": "No onboarding configuration to rollback"}, status_code=400
             )
 
-            jwt_token = user.jwt_token
-
         logger.info("Rolling back onboarding configuration due to file failures")
 
         # Get all tasks for the user
@@ -1701,7 +1734,7 @@ async def rollback_onboarding(
                         if filename:
                             try:
                                 opensearch_client = session_manager.get_user_opensearch_client(
-                                    user.user_id, jwt_token
+                                    user.user_id, user.jwt_token
                                 )
                                 from utils.opensearch_queries import build_filename_delete_body
                                 from config.settings import get_index_name

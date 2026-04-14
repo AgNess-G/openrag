@@ -156,10 +156,46 @@ http://{{ include "openrag.fullname" . }}-backend:{{ .Values.backend.service.por
 {{- end }}
 
 {{/*
+Generate the general OpenSearch Host
+*/}}
+{{- define "openrag.opensearch.host" -}}
+{{- if .Values.global.opensearch.host -}}
+{{- .Values.global.opensearch.host -}}
+{{- else -}}
+{{- printf "%s-opensearch.%s.svc.cluster.local" (include "openrag.fullname" .) .Release.Namespace -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Generate the OpenSearch URL
 */}}
 {{- define "openrag.opensearch.url" -}}
-{{ .Values.global.opensearch.scheme }}://{{ .Values.global.opensearch.host }}:{{ .Values.global.opensearch.port }}
+{{ .Values.global.opensearch.scheme }}://{{ include "openrag.opensearch.host" . }}:{{ .Values.global.opensearch.port }}
+{{- end }}
+
+{{/*
+Generate the Langflow-specific OpenSearch Host
+*/}}
+{{- define "openrag.langflow.opensearch.host" -}}
+{{- if .Values.global.opensearch.langflowHost -}}
+{{- .Values.global.opensearch.langflowHost -}}
+{{- else -}}
+{{- include "openrag.opensearch.host" . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Generate the Langflow-specific OpenSearch Port
+*/}}
+{{- define "openrag.langflow.opensearch.port" -}}
+{{- default .Values.global.opensearch.port .Values.global.opensearch.langflowPort }}
+{{- end }}
+
+{{/*
+Generate the Langflow-specific OpenSearch URL
+*/}}
+{{- define "openrag.langflow.opensearch.url" -}}
+{{ .Values.global.opensearch.scheme }}://{{ include "openrag.langflow.opensearch.host" . }}:{{ include "openrag.langflow.opensearch.port" . }}
 {{- end }}
 
 {{/*
@@ -168,3 +204,48 @@ Generate the Docling URL
 {{- define "openrag.docling.url" -}}
 {{ .Values.global.docling.scheme }}://{{ .Values.global.docling.host }}:{{ .Values.global.docling.port }}
 {{- end }}
+
+{{/*
+PostgreSQL component labels
+*/}}
+{{- define "openrag.postgres.labels" -}}
+{{ include "openrag.labels" . }}
+app.kubernetes.io/component: postgres
+{{- end }}
+
+{{/*
+PostgreSQL selector labels
+*/}}
+{{- define "openrag.postgres.selectorLabels" -}}
+{{ include "openrag.selectorLabels" . }}
+app.kubernetes.io/component: postgres
+{{- end }}
+
+{{/*
+Generate the PostgreSQL service URL
+*/}}
+{{- define "openrag.postgres.url" -}}
+postgresql://{{ .Values.postgres.username }}@{{ include "openrag.fullname" . }}-postgres:{{ .Values.postgres.service.port }}/{{ .Values.postgres.database }}
+{{- end }}
+
+{{/*
+Generate a strong random password for PostgreSQL
+Uses derivePassword for deterministic generation based on release context
+This ensures the same password is generated across all templates in a single Helm operation
+Always generates a secure 32-character password stored only in Kubernetes secret
+Note: Password is auto-generated on first install and persists in the secret
+*/}}
+{{- define "openrag.postgres.password" -}}
+{{- derivePassword 1 "maximum" .Release.Name "openrag-postgres" .Chart.Name -}}
+{{- end -}}
+
+{{/*
+Generate a strong random session secret for Backend
+Uses derivePassword for deterministic generation based on release context
+This ensures the same secret is generated across all templates in a single Helm operation
+Always generates a secure session secret stored only in Kubernetes secret
+Note: Secret is auto-generated on first install and persists in the secret
+*/}}
+{{- define "openrag.backend.sessionSecret" -}}
+{{- derivePassword 1 "maximum" .Release.Name "openrag-backend-session" .Chart.Name -}}
+{{- end -}}

@@ -39,8 +39,9 @@ class ConnectionConfig:
 class ConnectionManager:
     """Manages multiple connector connections with persistence"""
 
-    def __init__(self, connections_file: str = "data/connections.json"):
-        self.connections_file = Path(connections_file)
+    def __init__(self, connections_file: str = None):
+        from config.paths import get_data_file
+        self.connections_file = Path(connections_file or get_data_file("connections.json"))
         # Ensure data directory exists
         self.connections_file.parent.mkdir(parents=True, exist_ok=True)
         self.connections: Dict[str, ConnectionConfig] = {}
@@ -113,7 +114,7 @@ class ConnectionManager:
         secret_keys = {
             "api_key", "hmac_secret_key", "secret_key", "client_secret",
             "aws_secret_access_key", "ibm_api_key", "access_token", "refresh_token",
-            "access_key", "hmac_access_key", "service_instance_id"
+            "access_key", "hmac_access_key", "service_instance_id", "basic_credentials"
         }
         
         data = {"connections": []}

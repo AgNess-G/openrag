@@ -1,3 +1,4 @@
+from config.paths import get_flows_path
 import asyncio
 import os
 from utils.env_utils import get_env_int, get_env_float
@@ -21,6 +22,11 @@ logger = get_logger(__name__)
 # Environment variables
 OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST", "localhost")
 OPENSEARCH_PORT = get_env_int("OPENSEARCH_PORT", 9200)
+
+# Optional: Langflow-specific OpenSearch endpoint
+LANGFLOW_OPENSEARCH_HOST = os.getenv("LANGFLOW_OPENSEARCH_HOST", OPENSEARCH_HOST)
+LANGFLOW_OPENSEARCH_PORT = get_env_int("LANGFLOW_OPENSEARCH_PORT", OPENSEARCH_PORT)
+
 OPENSEARCH_USERNAME = os.getenv("OPENSEARCH_USERNAME", "admin")
 OPENSEARCH_PASSWORD = os.getenv("OPENSEARCH_PASSWORD")
 LANGFLOW_URL = os.getenv("LANGFLOW_URL", "http://localhost:7860")
@@ -96,7 +102,6 @@ LANGFLOW_CONNECT_TIMEOUT = get_env_float("LANGFLOW_CONNECT_TIMEOUT", 30.0)  # 30
 # Default: 3600 seconds (60 minutes)
 INGESTION_TIMEOUT = get_env_int("INGESTION_TIMEOUT", 3600)
 
-
 def is_no_auth_mode():
     """Check if we're running in no-auth mode (OAuth credentials missing)"""
     if IBM_AUTH_ENABLED:
@@ -109,6 +114,11 @@ def is_no_auth_mode():
 WEBHOOK_BASE_URL = os.getenv(
     "WEBHOOK_BASE_URL"
 )  # No default - must be explicitly configured
+
+# OAuth callback broker URL -- when set, Google (and other providers) redirect
+# here instead of directly to the frontend.  The broker then forwards to the
+# actual frontend origin that is carried in the OAuth state parameter.
+OAUTH_BROKER_URL = os.getenv("OAUTH_BROKER_URL")
 
 # OpenSearch configuration
 VECTOR_DIM = 1536
@@ -820,24 +830,32 @@ class AppClients:
         )
 
 
-# Component template paths
-WATSONX_LLM_COMPONENT_PATH = os.getenv(
-    "WATSONX_LLM_COMPONENT_PATH", "flows/components/watsonx_llm.json"
+# Component template paths — derived from the centralized flows directory
+def _component_path(env_var: str, filename: str) -> str:
+    """Return a component path, using the env var override or the centralized flows dir."""
+    env_val = os.getenv(env_var)
+    if env_val:
+        return env_val
+    flows_dir = get_flows_path()
+    return os.path.join(flows_dir, "components", filename)
+
+WATSONX_LLM_COMPONENT_PATH = _component_path(
+    "WATSONX_LLM_COMPONENT_PATH", "watsonx_llm.json"
 )
-WATSONX_LLM_TEXT_COMPONENT_PATH = os.getenv(
-    "WATSONX_LLM_TEXT_COMPONENT_PATH", "flows/components/watsonx_llm_text.json"
+WATSONX_LLM_TEXT_COMPONENT_PATH = _component_path(
+    "WATSONX_LLM_TEXT_COMPONENT_PATH", "watsonx_llm_text.json"
 )
-WATSONX_EMBEDDING_COMPONENT_PATH = os.getenv(
-    "WATSONX_EMBEDDING_COMPONENT_PATH", "flows/components/watsonx_embedding.json"
+WATSONX_EMBEDDING_COMPONENT_PATH = _component_path(
+    "WATSONX_EMBEDDING_COMPONENT_PATH", "watsonx_embedding.json"
 )
-OLLAMA_LLM_COMPONENT_PATH = os.getenv(
-    "OLLAMA_LLM_COMPONENT_PATH", "flows/components/ollama_llm.json"
+OLLAMA_LLM_COMPONENT_PATH = _component_path(
+    "OLLAMA_LLM_COMPONENT_PATH", "ollama_llm.json"
 )
-OLLAMA_LLM_TEXT_COMPONENT_PATH = os.getenv(
-    "OLLAMA_LLM_TEXT_COMPONENT_PATH", "flows/components/ollama_llm_text.json"
+OLLAMA_LLM_TEXT_COMPONENT_PATH = _component_path(
+    "OLLAMA_LLM_TEXT_COMPONENT_PATH", "ollama_llm_text.json"
 )
-OLLAMA_EMBEDDING_COMPONENT_PATH = os.getenv(
-    "OLLAMA_EMBEDDING_COMPONENT_PATH", "flows/components/ollama_embedding.json"
+OLLAMA_EMBEDDING_COMPONENT_PATH = _component_path(
+    "OLLAMA_EMBEDDING_COMPONENT_PATH", "ollama_embedding.json"
 )
 
 # Component IDs in flows

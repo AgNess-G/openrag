@@ -7,6 +7,7 @@ import {
   type GetRowIdParams,
   themeQuartz,
   type ValueFormatterParams,
+  type ValueGetterParams,
 } from "ag-grid-community";
 import { AgGridReact, type CustomCellRendererProps } from "ag-grid-react";
 import { Cloud, FileIcon, Globe, RefreshCw } from "lucide-react";
@@ -22,6 +23,7 @@ import "@/components/AgGrid/registerAgGridModules";
 import "@/components/AgGrid/agGridStyles.css";
 import { toast } from "sonner";
 import { KnowledgeActionsDropdown } from "@/components/knowledge-actions-dropdown";
+import { KnowledgeSearchBar } from "@/components/knowledge-search-bar";
 import { KnowledgeSearchInput } from "@/components/knowledge-search-input";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -29,7 +31,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useIsCloudBrand } from "@/contexts/brand-context";
+import {
+  buildKnowledgeTableRows,
+  getKnowledgeFileIdentity,
+} from "@/lib/knowledge-table-state";
 import { parseTimestampMs } from "@/lib/time-utils";
+import { cn } from "@/lib/utils";
 import {
   DeleteConfirmationDialog,
   formatFilesToDelete,
@@ -74,6 +82,7 @@ function getSourceIcon(connectorType?: string) {
 }
 
 function SearchPage() {
+  const isCloudBrand = useIsCloudBrand();
   const queryClient = useQueryClient();
   const router = useRouter();
   const {
@@ -195,10 +204,12 @@ function SearchPage() {
 
   const {
     data: searchData = [],
-    isFetching,
+    isLoading: isSearchLoading,
     error,
     isError,
-  } = useGetSearchQuery(queryOverride, parsedFilterData);
+  } = useGetSearchQuery(queryOverride, parsedFilterData, {
+    refetchInterval: 5000,
+  });
 
   const isOpenragDocsRow = useCallback((file?: File) => {
     return (
@@ -208,21 +219,50 @@ function SearchPage() {
   }, []);
 
   const getFileIdentity = useCallback((file?: File) => {
-    if (!file) {
+    return getKnowledgeFileIdentity(file);
+  }, []);
+
+  const getOwnerLabel = useCallback((file?: File): string => {
+    return file?.owner_name?.trim() || file?.owner_email?.trim() || "—";
+  }, []);
+
+  const normalizeSourceForSort = useCallback((value?: string): string => {
+    const trimmed = (value || "").trim();
+    if (!trimmed) {
       return "";
     }
 
-    const normalizedFilename = file.filename?.trim();
-    if (normalizedFilename) {
-      return normalizedFilename;
+    try {
+      const parsed = new URL(trimmed);
+      const hostname = parsed.hostname.toLowerCase();
+      const pathname = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+      return `${hostname}${pathname}`;
+    } catch {
+      return trimmed
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .split(/[?#]/)[0]
+        .replace(/\/+$/, "");
     }
+  }, []);
 
-    const normalizedSourceUrl = file.source_url?.trim();
-    if (normalizedSourceUrl) {
-      return normalizedSourceUrl;
+  const getStatusSortRank = useCallback((status?: File["status"]): number => {
+    switch (status) {
+      case "active":
+        return 0;
+      case "processing":
+        return 1;
+      case "sync":
+        return 2;
+      case "failed":
+        return 3;
+      case "unavailable":
+        return 4;
+      case "hidden":
+        return 5;
+      default:
+        return 0;
     }
-
-    return "";
   }, []);
 
   const hasOpenragRefreshCueFromTasks = tasks.some((task) => {
@@ -262,68 +302,11 @@ function SearchPage() {
       lastErrorRef.current = null;
     }
   }, [isError, error]);
-  // Convert TaskFiles to File format and merge with backend results
-  const taskFilesAsFiles: File[] = taskFiles.map((taskFile) => {
-    const normalizedFilename =
-      taskFile.filename?.trim() ||
-      taskFile.source_url?.trim() ||
-      "Untitled source";
-
-    return {
-      filename: normalizedFilename,
-      mimetype: taskFile.mimetype,
-      source_url: taskFile.source_url || "",
-      size: taskFile.size,
-      connector_type: taskFile.connector_type,
-      status: taskFile.status,
-      error: taskFile.error,
-      embedding_model: taskFile.embedding_model,
-      embedding_dimensions: taskFile.embedding_dimensions,
-    };
-  });
-  // Create a map of task files by filename for quick lookup
-  const taskFileMap = new Map(
-    taskFilesAsFiles.map((file) => [getFileIdentity(file), file]),
+  const fileResults = buildKnowledgeTableRows(
+    searchData as File[],
+    taskFiles,
+    !!parsedFilterData,
   );
-  // Override backend files with task file status if they exist.
-  // Keep openrag_docs rows sourced from indexed search results so
-  // OpenRAG docs do not appear as pending in the table.
-  const backendFiles = (searchData as File[]).map((file) => {
-    if (file.connector_type === "openrag_docs") {
-      return file;
-    }
-    const taskFile = taskFileMap.get(getFileIdentity(file));
-    if (taskFile) {
-      // Override backend file with task file data (includes status)
-      return { ...file, ...taskFile };
-    }
-    return file;
-  });
-
-  const filteredTaskFiles = taskFilesAsFiles.filter((taskFile) => {
-    // Ignore the synthetic refresh task row from docs URL ingestion.
-    // The table should only show indexed docs, not orchestration task labels.
-    if (
-      taskFile.filename === "OpenRAG docs refresh" ||
-      taskFile.source_url.includes("openr.ag")
-    ) {
-      return false;
-    }
-    // Do not render task-only openrag_docs placeholder rows in the table.
-    // OpenRAG default docs should be represented only by indexed search results.
-    if (taskFile.connector_type === "openrag_docs") {
-      return false;
-    }
-    return (
-      taskFile.status !== "active" &&
-      !backendFiles.some(
-        (backendFile) =>
-          getFileIdentity(backendFile) === getFileIdentity(taskFile),
-      )
-    );
-  });
-  // Combine task files first, then backend files
-  const fileResults = [...backendFiles, ...filteredTaskFiles];
 
   const gridRows = fileResults;
   const gridRef = useRef<AgGridReact>(null);
@@ -332,19 +315,33 @@ function SearchPage() {
     {
       field: "filename",
       headerName: "Source",
+      sortable: true,
+      comparator: (valueA?: string, valueB?: string) => {
+        const sourceA = normalizeSourceForSort(valueA);
+        const sourceB = normalizeSourceForSort(valueB);
+        if (sourceA === sourceB) {
+          const fallbackA = (valueA || "").trim().toLowerCase();
+          const fallbackB = (valueB || "").trim().toLowerCase();
+          if (fallbackA === fallbackB) {
+            return 0;
+          }
+          return fallbackA < fallbackB ? -1 : 1;
+        }
+        return sourceA < sourceB ? -1 : 1;
+      },
       checkboxSelection: (params: CheckboxSelectionCallbackParams<File>) =>
         (params?.data?.status || "active") === "active",
       headerCheckboxSelection: true,
-      initialFlex: 2,
-      minWidth: 220,
+      ...(isCloudBrand
+        ? { flex: 2.2, minWidth: 260 }
+        : { initialFlex: 2, minWidth: 220 }),
       cellRenderer: ({ data, value }: CustomCellRendererProps<File>) => {
-        // Read status directly from data on each render
         const status = data?.status || "active";
         const isActive = status === "active";
         const showOpenragSourceAnimation =
           isOpenragDocsRow(data) && hasOpenragRefreshCue;
         return (
-          <div className="flex items-center overflow-hidden w-full">
+          <div className="flex items-center overflow-hidden w-full min-w-0 h-full">
             <div
               className={`transition-opacity duration-200 ${
                 isActive ? "w-0" : "w-7"
@@ -352,11 +349,16 @@ function SearchPage() {
             ></div>
             <button
               type="button"
-              className="flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors text-left flex-1 overflow-hidden"
+              className={cn(
+                "flex items-center gap-2 text-left flex-1 overflow-hidden transition-colors",
+                isActive
+                  ? isCloudBrand
+                    ? "cursor-pointer hover:text-primary"
+                    : "cursor-pointer hover:text-blue-600"
+                  : "cursor-default",
+              )}
               onClick={() => {
-                if (!isActive) {
-                  return;
-                }
+                if (!isActive) return;
                 router.push(
                   `/knowledge/chunks?filename=${encodeURIComponent(
                     data?.filename ?? "",
@@ -368,11 +370,12 @@ function SearchPage() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
-                    className={`font-medium truncate ${
+                    className={cn(
+                      "font-medium truncate min-w-0",
                       showOpenragSourceAnimation
                         ? "text-primary animate-pulse"
-                        : "text-foreground"
-                    }`}
+                        : "text-foreground",
+                    )}
                   >
                     {value}
                   </span>
@@ -389,29 +392,62 @@ function SearchPage() {
     {
       field: "size",
       headerName: "Size",
+      ...(isCloudBrand ? { flex: 1, minWidth: 110 } : {}),
+      sortable: true,
+      comparator: (valueA?: number, valueB?: number) =>
+        (valueA || 0) - (valueB || 0),
       valueFormatter: (params: ValueFormatterParams<File>) =>
         params.value ? `${Math.round(params.value / 1024)} KB` : "-",
+      cellClass: isCloudBrand ? "text-muted-foreground" : undefined,
     },
     {
       field: "mimetype",
       headerName: "Type",
+      ...(isCloudBrand ? { flex: 1, minWidth: 110 } : {}),
+      cellClass: isCloudBrand ? "text-muted-foreground" : undefined,
+      sortable: true,
     },
     {
       field: "owner",
       headerName: "Owner",
+      ...(isCloudBrand ? { flex: 1.4, minWidth: 180 } : {}),
       valueFormatter: (params: ValueFormatterParams<File>) =>
         params.data?.owner_name || params.data?.owner_email || "—",
+      cellClass: isCloudBrand ? "text-muted-foreground" : undefined,
+      sortable: true,
+      valueGetter: (params: ValueGetterParams<File>) =>
+        getOwnerLabel(params.data),
+      comparator: (valueA?: string, valueB?: string) =>
+        (valueA || "—").localeCompare(valueB || "—", undefined, {
+          sensitivity: "base",
+        }),
     },
     {
       field: "chunkCount",
       headerName: "Chunks",
+      ...(isCloudBrand ? { flex: 0.9, minWidth: 95 } : {}),
+      sortable: true,
+      comparator: (valueA?: number, valueB?: number) =>
+        (valueA || 0) - (valueB || 0),
       valueFormatter: (params: ValueFormatterParams<File>) =>
         params.data?.chunkCount?.toString() || "-",
+      cellClass: isCloudBrand ? "text-muted-foreground" : undefined,
     },
     {
       field: "avgScore",
       headerName: "Avg score",
+      ...(isCloudBrand ? { flex: 1, minWidth: 120 } : {}),
+      sortable: true,
+      comparator: (valueA?: number, valueB?: number) =>
+        (valueA || 0) - (valueB || 0),
       cellRenderer: ({ value }: CustomCellRendererProps<File>) => {
+        if (isCloudBrand) {
+          return (
+            <span className="text-muted-foreground">
+              {typeof value === "number" ? value.toFixed(2) : "-"}
+            </span>
+          );
+        }
         return (
           <span className="text-xs text-accent-emerald-foreground bg-accent-emerald px-2 py-1 rounded">
             {value?.toFixed(2) ?? "-"}
@@ -422,6 +458,8 @@ function SearchPage() {
     {
       field: "embedding_model",
       headerName: "Embedding model",
+      ...(isCloudBrand ? { flex: 1.4 } : {}),
+      sortable: true,
       minWidth: 200,
       cellRenderer: ({ data }: CustomCellRendererProps<File>) => (
         <span className="text-xs text-muted-foreground">
@@ -432,7 +470,10 @@ function SearchPage() {
     {
       field: "embedding_dimensions",
       headerName: "Dimensions",
-      width: 110,
+      ...(isCloudBrand ? { flex: 0.9, minWidth: 110 } : { width: 110 }),
+      sortable: true,
+      comparator: (valueA?: number, valueB?: number) =>
+        (valueA || 0) - (valueB || 0),
       cellRenderer: ({ data }: CustomCellRendererProps<File>) => (
         <span className="text-xs text-muted-foreground">
           {typeof data?.embedding_dimensions === "number"
@@ -444,11 +485,26 @@ function SearchPage() {
     {
       field: "status",
       headerName: "Status",
+      ...(isCloudBrand ? { flex: 1, minWidth: 130 } : {}),
+      sortable: true,
+      valueGetter: (params: ValueGetterParams<File>) =>
+        params.data?.status || "active",
+      comparator: (valueA?: File["status"], valueB?: File["status"]) =>
+        getStatusSortRank(valueA) - getStatusSortRank(valueB),
       cellRenderer: ({ data }: CustomCellRendererProps<File>) => {
         const status = data?.status || "active";
         const showOpenragRefreshCue =
           isOpenragDocsRow(data) && hasOpenragRefreshCue;
+
         if (showOpenragRefreshCue) {
+          if (isCloudBrand) {
+            return (
+              <div className="inline-flex items-center gap-2 text-primary">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span className="text-sm font-medium">Refreshing</span>
+              </div>
+            );
+          }
           return (
             <div className="inline-flex items-center justify-center h-5 w-5">
               <RefreshCw
@@ -458,11 +514,17 @@ function SearchPage() {
             </div>
           );
         }
+
         if (status === "failed") {
           return (
             <button
               type="button"
-              className="inline-flex h-full w-full items-center text-red-500 transition hover:text-red-400"
+              className={cn(
+                "inline-flex items-center h-full transition",
+                isCloudBrand
+                  ? "text-destructive hover:opacity-80"
+                  : "w-full text-red-500 hover:text-red-400",
+              )}
               aria-label="View ingestion error"
               data-testid="failed-status-cell-trigger"
               onClick={() => {
@@ -475,15 +537,23 @@ function SearchPage() {
             </button>
           );
         }
+
         return <StatusBadge status={status} />;
       },
     },
     {
+      colId: "actions",
+      headerName: "",
+      width: isCloudBrand ? 56 : 40,
+      minWidth: isCloudBrand ? 56 : 0,
+      ...(isCloudBrand ? { maxWidth: 56 } : { initialFlex: 0 }),
+      sortable: false,
+      filter: false,
+      resizable: false,
+      suppressMovable: true,
       cellRenderer: ({ data }: CustomCellRendererProps<File>) => {
         const status = data?.status || "active";
-        if (status !== "active") {
-          return null;
-        }
+        if (status !== "active") return null;
         return (
           <KnowledgeActionsDropdown
             filename={data?.filename || ""}
@@ -492,24 +562,18 @@ function SearchPage() {
         );
       },
       cellStyle: {
-        alignItems: "center",
         display: "flex",
+        alignItems: "center",
         justifyContent: "center",
         padding: 0,
       },
-      colId: "actions",
-      filter: false,
-      minWidth: 0,
-      width: 40,
-      resizable: false,
-      sortable: false,
-      initialFlex: 0,
     },
   ];
 
   const defaultColDef: ColDef<File> = {
     resizable: false,
     suppressMovable: true,
+    ...(isCloudBrand ? { sortable: false } : {}),
     initialFlex: 1,
     minWidth: 100,
   };
@@ -575,6 +639,7 @@ function SearchPage() {
           ? error.message
           : "Failed to delete some documents",
       );
+      setShowBulkDeleteDialog(false);
     }
   };
 
@@ -591,127 +656,170 @@ function SearchPage() {
     <>
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold">Project Knowledge</h2>
+          <h2
+            className={cn(
+              "text-lg font-semibold",
+              isCloudBrand && "ibm-section-title",
+            )}
+          >
+            Project knowledge
+          </h2>
         </div>
+        {isCloudBrand ? (
+          <KnowledgeSearchBar />
+        ) : (
+          /* Search Input Area */
+          <div className="flex-1 flex items-center flex-shrink-0 flex-wrap-reverse gap-3 mb-6">
+            <KnowledgeSearchInput />
 
-        {/* Search Input Area */}
-        <div className="flex-1 flex items-center flex-shrink-0 flex-wrap-reverse gap-3 mb-6">
-          <KnowledgeSearchInput />
-
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-lg flex-shrink-0"
-            disabled={syncAllConnectorsMutation.isPending}
-            onClick={async () => {
-              try {
-                toast.info("Syncing all cloud connectors...");
-                const result = await syncAllConnectorsMutation.mutateAsync();
-                if (result.status === "no_files") {
-                  toast.info(
-                    result.message ||
-                      "No cloud files to sync. Add files from cloud connectors first.",
-                  );
-                } else if (
-                  result.synced_connectors &&
-                  result.synced_connectors.length > 0
-                ) {
-                  toast.success(
-                    `Sync started for ${result.synced_connectors.join(", ")}. Check task notifications for progress.`,
-                  );
-                } else if (result.errors && result.errors.length > 0) {
-                  toast.error("Some connectors failed to sync");
-                }
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to sync connectors",
-                );
-              }
-            }}
-          >
-            {syncAllConnectorsMutation.isPending ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Syncing...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Sync
-              </>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-lg flex-shrink-0"
-            disabled={refreshOpenragDocsMutation.isPending}
-            onClick={async () => {
-              try {
-                toast.info("Refreshing OpenRAG docs...");
-                const result = await refreshOpenragDocsMutation.mutateAsync();
-                toast.success(result.message);
-              } catch (error) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to refresh OpenRAG docs",
-                );
-              }
-            }}
-          >
-            {refreshOpenragDocsMutation.isPending ? (
-              <>Refreshing docs...</>
-            ) : (
-              <>Fetch latest docs</>
-            )}
-          </Button>
-          {selectedRows.length > 0 && (
             <Button
               type="button"
-              variant="destructive"
+              variant="outline"
               className="rounded-lg flex-shrink-0"
-              onClick={() => setShowBulkDeleteDialog(true)}
+              disabled={syncAllConnectorsMutation.isPending}
+              onClick={async () => {
+                try {
+                  toast.info("Syncing all cloud connectors...");
+                  const result = await syncAllConnectorsMutation.mutateAsync();
+                  if (result.status === "no_files") {
+                    toast.info(
+                      result.message ||
+                        "No cloud files to sync. Add files from cloud connectors first.",
+                    );
+                  } else if (
+                    result.synced_connectors &&
+                    result.synced_connectors.length > 0
+                  ) {
+                    toast.success(
+                      `Sync started for ${result.synced_connectors.join(", ")}. Check task notifications for progress.`,
+                    );
+                  } else if (result.errors && result.errors.length > 0) {
+                    toast.error("Some connectors failed to sync");
+                  }
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to sync connectors",
+                  );
+                }
+              }}
             >
-              Delete
+              {syncAllConnectorsMutation.isPending ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Sync
+                </>
+              )}
             </Button>
-          )}
-          <div className="ml-auto">
-            <KnowledgeDropdown />
-          </div>
-        </div>
-        <AgGridReact
-          className="w-full overflow-auto"
-          columnDefs={columnDefs as ColDef<File>[]}
-          defaultColDef={defaultColDef}
-          loading={isFetching}
-          ref={gridRef}
-          theme={themeQuartz.withParams({ browserColorScheme: "inherit" })}
-          rowData={gridRows}
-          rowSelection="multiple"
-          rowMultiSelectWithClick={false}
-          suppressRowClickSelection={true}
-          getRowId={(params: GetRowIdParams<File>) =>
-            getFileIdentity(params.data)
-          }
-          domLayout="normal"
-          onSelectionChanged={onSelectionChanged}
-          pagination={pagination}
-          paginationPageSize={paginationPageSize}
-          paginationPageSizeSelector={paginationPageSizeSelector}
-          noRowsOverlayComponent={() => (
-            <div className="text-center pb-[45px]">
-              <div className="text-lg text-primary font-semibold">
-                No knowledge
-              </div>
-              <div className="text-sm mt-1 text-muted-foreground">
-                Add files from local or your preferred cloud.
-              </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-lg flex-shrink-0"
+              disabled={refreshOpenragDocsMutation.isPending}
+              onClick={async () => {
+                try {
+                  toast.info("Refreshing OpenRAG docs...");
+                  const result = await refreshOpenragDocsMutation.mutateAsync();
+                  toast.success(result.message);
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to refresh OpenRAG docs",
+                  );
+                }
+              }}
+            >
+              {refreshOpenragDocsMutation.isPending ? (
+                <>Refreshing docs...</>
+              ) : (
+                <>Fetch latest docs</>
+              )}
+            </Button>
+            {selectedRows.length > 0 && (
+              <Button
+                type="button"
+                variant="destructive"
+                className="rounded-lg flex-shrink-0"
+                onClick={() => setShowBulkDeleteDialog(true)}
+              >
+                Delete
+              </Button>
+            )}
+            <div className="ml-auto">
+              <KnowledgeDropdown />
             </div>
-          )}
-        />
+          </div>
+        )}
+        {isCloudBrand ? (
+          <AgGridReact
+            className="w-full overflow-auto border"
+            columnDefs={columnDefs as ColDef<File>[]}
+            defaultColDef={defaultColDef}
+            loading={isSearchLoading || deleteDocumentMutation.isPending}
+            ref={gridRef}
+            theme={themeQuartz.withParams({ browserColorScheme: "inherit" })}
+            rowData={gridRows}
+            rowSelection="multiple"
+            getRowId={(params: GetRowIdParams<File>) =>
+              getFileIdentity(params.data)
+            }
+            domLayout="normal"
+            onSelectionChanged={onSelectionChanged}
+            pagination={pagination}
+            paginationPageSize={paginationPageSize}
+            paginationPageSizeSelector={paginationPageSizeSelector}
+            headerHeight={64}
+            rowHeight={64}
+            noRowsOverlayComponent={() => (
+              <div className="text-center pb-[45px]">
+                <div className="text-lg text-primary font-semibold">
+                  No knowledge
+                </div>
+                <div className="text-sm mt-1 text-muted-foreground">
+                  Add files from local or your preferred cloud.
+                </div>
+              </div>
+            )}
+          />
+        ) : (
+          <AgGridReact
+            className="w-full overflow-auto"
+            columnDefs={columnDefs as ColDef<File>[]}
+            defaultColDef={defaultColDef}
+            loading={isSearchLoading || deleteDocumentMutation.isPending}
+            ref={gridRef}
+            theme={themeQuartz.withParams({ browserColorScheme: "inherit" })}
+            rowData={gridRows}
+            rowSelection="multiple"
+            rowMultiSelectWithClick={false}
+            suppressRowClickSelection={true}
+            getRowId={(params: GetRowIdParams<File>) =>
+              getFileIdentity(params.data)
+            }
+            domLayout="normal"
+            onSelectionChanged={onSelectionChanged}
+            pagination={pagination}
+            paginationPageSize={paginationPageSize}
+            paginationPageSizeSelector={paginationPageSizeSelector}
+            noRowsOverlayComponent={() => (
+              <div className="text-center pb-[45px]">
+                <div className="text-lg text-primary font-semibold">
+                  No knowledge
+                </div>
+                <div className="text-sm mt-1 text-muted-foreground">
+                  Add files from local or your preferred cloud.
+                </div>
+              </div>
+            )}
+          />
+        )}
       </div>
 
       {/* Bulk Delete Confirmation Dialog */}

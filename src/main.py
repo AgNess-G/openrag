@@ -14,13 +14,13 @@ from html.parser import HTMLParser
 from connectors.langflow_connector_service import LangflowConnectorService
 from connectors.service import ConnectorService
 from services.flows_service import FlowsService
-from utils.container_utils import detect_container_environment
 from utils.embeddings import create_dynamic_index_body
 from utils.logging_config import configure_from_env, get_logger
 from utils.encryption import enforce_startup_prerequisites
 from utils.telemetry import TelemetryClient, Category, MessageId
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
 # API endpoints
@@ -215,11 +215,15 @@ async def _ensure_opensearch_index():
         # The service can still function, document operations might fail later
 
 
-async def init_index(opensearch_client=None):
+async def init_index(opensearch_client=None, admin_username: str = None):
     """Initialize OpenSearch index and security roles"""
     os_client = opensearch_client or clients.opensearch
     try:
         await wait_for_opensearch(opensearch_client)
+
+        # Initialize OpenSearch security configuration (roles and mapping)
+        from utils.opensearch_utils import setup_opensearch_security
+        await setup_opensearch_security(os_client, admin_username=admin_username)
 
         # Get the configured embedding model from user configuration
         config = get_openrag_config()
@@ -249,10 +253,23 @@ async def init_index(opensearch_client=None):
             )
         else:
             logger.info(
-                "Index already exists, skipping creation",
+                "Index already exists, skipping creation and changing number of replicas",
                 index_name=index_name,
                 embedding_model=embedding_model,
             )
+            # Set number of replicas to 0 to not create unused nodes in OpenSearch, in case it was created with more replicas
+            current = await os_client.indices.get_settings(index=index_name)
+            current_replicas = int(
+                current[index_name]["settings"]["index"].get("number_of_replicas", 1)
+            )
+            if current_replicas != 0:
+                await os_client.indices.put_settings(
+                    index=index_name,
+                    body={"index": {"number_of_replicas": 0}},
+                )
+                logger.info(
+                    "Updated documents index settings",
+                    )
             await TelemetryClient.send_event(
                 Category.OPENSEARCH_INDEX, MessageId.ORB_OS_INDEX_EXISTS
             )
@@ -260,6 +277,9 @@ async def init_index(opensearch_client=None):
         # Create knowledge filters index
         knowledge_filter_index_name = "knowledge_filters"
         knowledge_filter_index_body = {
+            "settings": {
+                "index": {"number_of_replicas": 0, "number_of_shards": 1},
+            },
             "mappings": {
                 "properties": {
                     "id": {"type": "keyword"},
@@ -273,7 +293,7 @@ async def init_index(opensearch_client=None):
                     "created_at": {"type": "date"},
                     "updated_at": {"type": "date"},
                 }
-            }
+            },
         }
 
         if not await os_client.indices.exists(index=knowledge_filter_index_name):
@@ -292,6 +312,19 @@ async def init_index(opensearch_client=None):
                 "Knowledge filters index already exists, skipping creation",
                 index_name=knowledge_filter_index_name,
             )
+
+            current = await os_client.indices.get_settings(index=knowledge_filter_index_name)
+            current_replicas = int(
+                current[knowledge_filter_index_name]["settings"]["index"].get("number_of_replicas", 1)
+            )
+            if current_replicas != 0:
+                await os_client.indices.put_settings(
+                    index=knowledge_filter_index_name,
+                    body={"index": {"number_of_replicas": 0}},
+                )
+                logger.info(
+                    "Updated knowledge filters index settings",
+                    )
 
         # Create API keys index for public API authentication
         if not await os_client.indices.exists(index=API_KEYS_INDEX_NAME):
@@ -322,16 +355,10 @@ async def init_index(opensearch_client=None):
             ) from e
         raise e
 
-
-async def init_index_when_ready(opensearch_client=None):
-    """Wait for the OpenSearch service to be ready and then initialize the OpenSearch index."""
-    await wait_for_opensearch(opensearch_client)
-    await init_index(opensearch_client)
-
-
 def generate_jwt_keys():
     """Generate RSA keys for JWT signing if they don't exist"""
-    keys_dir = "keys"
+    from config.paths import get_keys_path
+    keys_dir = get_keys_path()
     private_key_path = os.path.join(keys_dir, "private_key.pem")
     public_key_path = os.path.join(keys_dir, "public_key.pem")
 
@@ -388,17 +415,10 @@ def generate_jwt_keys():
 
 def _get_documents_dir():
     """Get the documents directory path, handling both Docker and local environments."""
-    # In Docker, the volume is mounted at /app/openrag-documents
-    # Locally, we use openrag-documents
-    container_env = detect_container_environment()
-    if container_env:
-        path = os.path.abspath("/app/openrag-documents")
-        logger.debug(f"Running in {container_env}, using container path: {path}")
-        return path
-    else:
-        path = os.path.abspath(os.path.join(os.getcwd(), "openrag-documents"))
-        logger.debug(f"Running locally, using local path: {path}")
-        return path
+    from config.paths import get_documents_path
+    path = get_documents_path()
+    logger.debug(f"Using documents path: {path}")
+    return path
 
 
 def _should_use_url_default_docs_ingest() -> bool:
@@ -1066,7 +1086,7 @@ async def opensearch_health_ready(request):
     from config.settings import IBM_AUTH_ENABLED, OPENSEARCH_URL
 
     if IBM_AUTH_ENABLED:
-        logger.debug("[IBM Auth] IBM auth mode enabled, health check per-request")
+        logger.debug("[OpenSearch Security] OpenSearch auth mode enabled, health check per-request")
         # In IBM auth mode we cannot rely on the global OpenSearch client
         # (auth is established per-request), so perform a lightweight,
         # unauthenticated connectivity check against the OpenSearch endpoint.
@@ -1076,17 +1096,17 @@ async def opensearch_health_ready(request):
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.get(f"{opensearch_url}/")
             if resp.status_code < 500:
-                logger.debug("[IBM Auth] OpenSearch health check successful")
+                logger.debug("[OpenSearch Security] OpenSearch health check successful")
                 return JSONResponse(
                     {
                         "status": "ready",
                         "dependencies": {"opensearch": "up"},
-                        "note": "IBM auth mode - connectivity verified via unauthenticated probe",
+                        "note": "OpenSearch auth mode - connectivity verified via unauthenticated probe",
                     },
                     status_code=200,
                 )
             else:
-                logger.debug("[IBM Auth] OpenSearch health check failed")
+                logger.debug("[OpenSearch Security] OpenSearch health check failed")
                 return JSONResponse(
                     {
                         "status": "not_ready",
@@ -1096,7 +1116,7 @@ async def opensearch_health_ready(request):
                     status_code=503,
                 )
         except Exception as e:
-            logger.error("[IBM Auth] OpenSearch health check failed", error=str(e))
+            logger.error("[OpenSearch Security] OpenSearch health check failed", error=str(e))
             return JSONResponse(
                 {
                     "status": "not_ready",
@@ -1113,7 +1133,7 @@ async def opensearch_health_ready(request):
             status_code=200,
         )
     except Exception as e:
-        logger.error("[IBM Auth] OpenSearch health check failed", error=str(e))
+        logger.error("[OpenSearch Security] OpenSearch health check failed", error=str(e))
         return JSONResponse(
             {
                 "status": "not_ready",
@@ -1244,6 +1264,17 @@ async def startup_tasks(services):
         # Only initialize basic OpenSearch connection, not the index
         # Index will be created after onboarding when we know the embedding model
         await wait_for_opensearch()
+
+        # Setup OpenSearch security (roles and mappings) after connection is established
+        try:
+            from utils.opensearch_utils import setup_opensearch_security
+            await setup_opensearch_security(clients.opensearch)
+            logger.info("OpenSearch security configuration completed successfully")
+        except Exception as e:
+            logger.warning(
+                "Failed to setup OpenSearch security configuration - continuing anyway",
+                error=str(e)
+            )
 
         if DISABLE_INGEST_WITH_LANGFLOW:
             await _ensure_opensearch_index()
@@ -1478,6 +1509,11 @@ async def create_app():
     app = FastAPI(title="OpenRAG API", version=OPENRAG_VERSION, debug=True)
     app.state.services = services  # Store services for cleanup
     app.state.background_tasks = set()
+    
+    try:
+        Instrumentator().instrument(app).expose(app)
+    except Exception as e:
+        logger.error(f"Failed to instrument app with Prometheus: {str(e)}")
 
     # Register route handlers — auth and service injection done via FastAPI Depends() in each handler
 
@@ -2032,15 +2068,25 @@ async def create_app():
         await TelemetryClient.send_event(
             Category.APPLICATION_SHUTDOWN, MessageId.ORB_APP_SHUTDOWN
         )
+        logger.info("Application shutdown initiated")
+        
+        # Gracefully shutdown OpenSearch connection first
+        try:
+            from utils.opensearch_utils import graceful_opensearch_shutdown
+            await graceful_opensearch_shutdown(clients.opensearch)
+        except Exception as e:
+            logger.error("Error during graceful OpenSearch shutdown", error=str(e))
+        
         await cleanup_subscriptions_proper(services)
         # Cleanup task service (cancels background tasks and process pool)
         await services["task_service"].shutdown()
-        # Cleanup async clients
+        # Cleanup async clients (this will also close OpenSearch client if not already closed)
         await clients.cleanup()
         # Cleanup telemetry client
         from utils.telemetry.client import cleanup_telemetry_client
 
         await cleanup_telemetry_client()
+        logger.info("Application shutdown completed")
 
     return app
 

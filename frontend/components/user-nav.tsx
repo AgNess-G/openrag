@@ -11,11 +11,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/auth-context";
+import { useIsCloudBrand } from "@/contexts/brand-context";
+import { cn } from "@/lib/utils";
 import ThemeButtons from "./theme-switcher-buttons";
 
 export function UserNav() {
-  const { user, isLoading, isAuthenticated, isNoAuthMode, login, logout } =
-    useAuth();
+  const isCloudBrand = useIsCloudBrand();
+  const {
+    user,
+    isLoading,
+    isAuthenticated,
+    isNoAuthMode,
+    login,
+    logout,
+    version,
+  } = useAuth();
   const { theme, setTheme } = useTheme();
 
   if (isLoading) {
@@ -31,9 +41,19 @@ export function UserNav() {
         className="flex justify-center items-center gap-2 h-8 w-8 mr-2 rounded-md  hover:bg-muted rounded-lg "
       >
         {theme === "dark" ? (
-          <Sun size={16} className="text-muted-foreground" />
+          <Sun
+            size={16}
+            className={
+              isCloudBrand ? "text-foreground" : "text-muted-foreground"
+            }
+          />
         ) : (
-          <Moon size={16} className="text-muted-foreground" />
+          <Moon
+            size={16}
+            className={
+              isCloudBrand ? "text-foreground" : "text-muted-foreground"
+            }
+          />
         )}
       </button>
     );
@@ -74,7 +94,13 @@ export function UserNav() {
               )}
             </AvatarFallback>
           </Avatar>
-          <ChevronsUpDown size={16} className="text-muted-foreground mx-2" />
+          <ChevronsUpDown
+            size={16}
+            className={cn(
+              "mx-2",
+              isCloudBrand ? "text-foreground" : "text-muted-foreground",
+            )}
+          />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 p-0" align="end" forceMount>
@@ -87,6 +113,17 @@ export function UserNav() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="m-0" />
+        {version && (
+          <>
+            <div className="flex items-center justify-between pl-3 pr-2 h-9">
+              <span className="text-sm">Version</span>
+              <p className="text-xs leading-none text-muted-foreground">
+                v{version}
+              </p>
+            </div>
+            <DropdownMenuSeparator className="m-0" />
+          </>
+        )}
         <div className="flex items-center justify-between pl-3 pr-2 h-9">
           <span className="text-sm">Theme</span>
           <ThemeButtons />
@@ -97,7 +134,12 @@ export function UserNav() {
           onClick={logout}
           className="flex items-center hover:bg-muted w-full h-9 px-3"
         >
-          <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />
+          <LogOut
+            className={cn(
+              "mr-2 h-4 w-4",
+              isCloudBrand ? "text-foreground" : "text-muted-foreground",
+            )}
+          />
           <span className="text-sm">Logout</span>
         </button>
       </DropdownMenuContent>
