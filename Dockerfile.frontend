@@ -1,11 +1,24 @@
 FROM node:20.20.0-slim
 
 # Upgrade npm to fix CVEs in system npm installation
-# npm@latest should be >= 10.9.0 which includes all security fixes
-RUN npm install -g npm@latest && npm --version && \
-    # Force update npm's own vulnerable dependencies
-    cd /usr/local/lib/node_modules/npm && \
-    npm install brace-expansion@5.0.5 picomatch@4.0.4 --save --legacy-peer-deps || true
+RUN npm install -g npm@latest && npm --version
+
+# Manually fix vulnerable packages in npm's own node_modules
+RUN cd /tmp && \
+    npm pack brace-expansion@5.0.5 && \
+    npm pack picomatch@4.0.4 && \
+    # Find npm installation directory
+    NPM_DIR=$(npm root -g)/npm && \
+    # Replace brace-expansion
+    tar -xzf brace-expansion-5.0.5.tgz && \
+    rm -rf $NPM_DIR/node_modules/brace-expansion && \
+    mv package $NPM_DIR/node_modules/brace-expansion && \
+    # Replace picomatch in tinyglobby
+    tar -xzf picomatch-4.0.4.tgz && \
+    rm -rf $NPM_DIR/node_modules/tinyglobby/node_modules/picomatch && \
+    mv package $NPM_DIR/node_modules/tinyglobby/node_modules/picomatch && \
+    # Cleanup
+    cd / && rm -rf /tmp/*.tgz
 
 # Upgrade npm to fix CVEs in system npm installation
 # npm@latest should be >= 10.9.0 which includes all security fixes
