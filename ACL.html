@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * 'self' data: https: file:; script-src * 'unsafe-inline'; style-src * 'unsafe-inline' https: file:; font-src * https: file:;">
+    <title>Markdown: Rich Preview</title>
+    <link rel="stylesheet" href="file:///Users/edwin.jose/.cursor/extensions/nur-srijan.markdown-rich-preview-1.2.0-universal/assets/vendor/highlight/styles/github-dark.min.css" onerror="console.error('Failed to load Highlight.js CSS:', this.href)">
+    <link rel="stylesheet" href="file:///Users/edwin.jose/.cursor/extensions/nur-srijan.markdown-rich-preview-1.2.0-universal/assets/vendor/katex/katex.min.css" onerror="console.error('Failed to load KaTeX CSS:', this.href)">
+    <script>
+        // Highlighting is done on the extension side during markdown parsing.
+        // No browser-side initialization of highlight.js is needed.
+
+        // Copy to clipboard function
+        function copyToClipboard(button) {
+            const codeBlock = button.closest('.code-block');
+            const code = codeBlock.querySelector('code').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.backgroundColor = '#4CAF50';
+                button.style.color = 'white';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.backgroundColor = '';
+                    button.style.color = '';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+    </script>
+    <style>
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            padding: 0 20px;
+        }
+        img.emoji {
+            height: 1em;
+            width: 1em;
+            margin: 0 .05em 0 .1em;
+            vertical-align: -0.1em;
+            display: inline;
+        }
+        h1, h2, h3, h4, h5, h6 {
+            font-weight: 600;
+            margin-top: 24px;
+            margin-bottom: 16px;
+            line-height: 1.25;
+        }
+        h1 { 
+            font-size: 2em; 
+            border-bottom: 1px solid #eaecef; 
+            padding-bottom: 0.3em;
+            margin-top: 0.67em 0;
+        }
+        h2 { 
+            font-size: 1.5em; 
+            border-bottom: 1px solid #eaecef; 
+            padding-bottom: 0.3em;
+            margin-top: 1.5em;
+        }
+        h3 { 
+            font-size: 1.25em; 
+            margin-top: 1.25em;
+        }
+        h4 { 
+            font-size: 1em; 
+            margin-top: 1em;
+        }
+        a { 
+            color: #0366d6; 
+            text-decoration: none; 
+        }
+        a:hover { 
+            text-decoration: underline; 
+        }
+        strong { 
+            font-weight: 600; 
+        }
+        pre {
+            background-color:rgb(9, 7, 10);
+            overflow: auto;
+            margin: 0;
+        }
+        code {
+            font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+            padding: 0.2em 0.4em;
+            font-size: 90%;
+        }
+        pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        .code-block {
+            position: relative;
+            background-color:rgb(9, 7, 10);
+            border-radius: 6px;
+            margin: 1em 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 10px;
+            background-color:rgb(32, 30, 43);
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+        }
+        .language {
+            color: #efe9e9;
+            font-size: 0.9em;
+            font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+        .copy-button {
+            padding: 4px 8px;
+            font-size: 0.9em;
+            color: #efe9e9;
+            background-color: transparent;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .copy-button:hover {
+            background-color: #e9e9e9;
+            border-color: #ccc;
+        }
+        blockquote {
+            margin: 0;
+            padding: 0 1em;
+            color: #6a737d;
+            border-left: 0.25em solid #dfe2e5;
+        }
+        ul, ol {
+            padding-left: 2em;
+        }
+        table {
+            border-collapse: collapse;
+            border-spacing: 0;
+            width: 100%;
+            overflow: auto;
+            margin-bottom: 16px;
+        }
+        table th {
+            font-weight: 600;
+        }
+        table th, table td {
+            padding: 6px 13px;
+            border: 1px solid var(--vscode-editorGroup-border, #dfe2e5);
+        }
+        table tr {
+            background-color: var(--vscode-editor-background, #fff);
+            border-top: 1px solid var(--vscode-editorGroup-border, #c6cbd1);
+        }
+        table tr:nth-child(2n) {
+            background-color: var(--vscode-list-hoverBackground, #f6f8fa);
+        }
+        img {
+            max-width: 100%;
+            box-sizing: content-box;
+        }
+        /* GitHub-style Alerts */
+        .markdown-alert {
+            padding: 0.25rem 1rem;
+            margin-bottom: 1rem;
+            color: inherit;
+            border-left: 0.25em solid #dfe2e5;
+            border-radius: 6px;
+        }
+        .markdown-alert-title {
+            display: flex;
+            align-items: center;
+            font-weight: 500;
+            line-height: 1;
+        }
+        .markdown-alert-title svg {
+            margin-right: 8px;
+        }
+        .markdown-alert-note { border-left-color: #0969da; }
+        .markdown-alert-note .markdown-alert-title { color: #0969da; }
+        .markdown-alert-tip { border-left-color: #1a7f37; }
+        .markdown-alert-tip .markdown-alert-title { color: #1a7f37; }
+        .markdown-alert-important { border-left-color: #8250df; }
+        .markdown-alert-important .markdown-alert-title { color: #8250df; }
+        .markdown-alert-warning { border-left-color: #9a6700; }
+        .markdown-alert-warning .markdown-alert-title { color: #9a6700; }
+        .markdown-alert-caution { border-left-color: #d1242f; }
+        .markdown-alert-caution .markdown-alert-title { color: #d1242f; }
+
+        /* Footnotes */
+        .footnotes {
+            font-size: 12px;
+            color: #6a737d;
+            border-top: 1px solid #dfe2e5;
+            margin-top: 24px;
+        }
+        .footnotes ol {
+            padding-left: 16px;
+        }
+        .footnote-backref {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            margin-left: 4px;
+        }
+
+        /* Task Lists */
+        ul.contains-task-list {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .task-list-item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 4px;
+        }
+        .task-list-item input[type="checkbox"] {
+            margin: 0.25em 0.5em 0 0;
+            vertical-align: middle;
+        }
+
+        /* Front Matter */
+        .front-matter {
+            margin-bottom: 24px;
+            border: 1px solid var(--vscode-editorGroup-border, #dfe2e5);
+            border-radius: 6px;
+            padding: 12px;
+            background-color: var(--vscode-list-hoverBackground, #f6f8fa);
+        }
+        .front-matter table {
+            margin-bottom: 0;
+            border: none;
+        }
+        .front-matter table tr {
+            background-color: transparent;
+            border: none;
+        }
+        .front-matter table td {
+            border: none;
+            padding: 4px 8px;
+        }
+        .front-matter-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground, #6a737d);
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <h1 id="acl-and-document-level-security-dls-in-openrag">ACL and Document-Level Security (DLS) in OpenRAG</h1>
+<h2 id="important-notes">Important Notes</h2>
+<blockquote>
+<p><strong>Onboarding / Org Admin</strong>: The first user onboarded gets <code>all_access</code> role in OpenSearch, bypassing DLS - can see ALL chunks across all users. This is by design for organization administrator.</p>
+</blockquote>
+<blockquote>
+<p><strong>Tested Connectors</strong>: ACL ingestion and DLS behavior have been validated for <strong>SharePoint</strong> and <strong>Google Drive</strong> only.</p>
+</blockquote>
+<blockquote>
+<p><strong>AWS S3 and IBM COS</strong>: Different ownership model - the <strong>ingesting user</strong> becomes document owner in OpenRAG (not cloud ACL-based sharing like Drive/SharePoint).</p>
+</blockquote>
+<hr />
+<h2 id="what-the-functionality-is">What the Functionality Is</h2>
+<p>OpenRAG stores "who may see this document" on every indexed chunk (<code>owner</code>, <code>allowed_users</code>, <code>allowed_groups</code>).</p>
+<p>Connectors fill that from the source system when a file is ingested, so search respects the same idea as "shared with" in Drive or SharePoint. By default the user who ingests the document is considered as owner for the document.</p>
+<p>OpenSearch applies Document-Level Security (DLS) so each logged-in user only gets chunks they are allowed to see (when security mode and user identities are set up correctly).</p>
+<hr />
+<h2 id="how-it-works">How It Works</h2>
+<ol>
+<li>Connector downloads file metadata + permissions</li>
+<li>Builds a <code>DocumentACL</code></li>
+<li>Document is chunked and indexed with those fields on each chunk</li>
+<li>When someone searches, OpenSearch filters results using the current user's identity against <code>owner</code> and <code>allowed_users</code></li>
+</ol>
+<hr />
+<h2 id="example-for-sharepoint-and-google-drive">Example (For SharePoint and Google Drive)</h2>
+<ul>
+<li>File in Drive/SharePoint is owned by <code>alice@company.com</code> and shared read-only with <code>bob@company.com</code></li>
+<li>After sync, chunks are indexed with <code>owner</code> and <code>allowed_users</code> reflecting those identities (Drive uses emails / SharePoint uses email when present)</li>
+<li>Alice and Bob can see the chunks in search if their OpenRAG/OpenSearch user id matches those strings (same as <code>${user.name}</code> in DLS)</li>
+<li>Someone else should not see those chunks unless they appear in <code>owner</code> / <code>allowed_users</code> or your deployment uses a special case (e.g. no-auth mode or documents without owner)</li>
+</ul>
+<hr />
+<h2 id="connector-testing-status">Connector Testing Status</h2>
+<table>
+<thead>
+<tr>
+<th>Connector</th>
+<th>ACL Tested</th>
+<th>DLS Tested</th>
+<th>Owner</th>
+<th>Identity Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Google Drive</strong></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Source file owner + ingesting user</td>
+<td>Email addresses</td>
+<td>Inherits file permissions (owner, readers, groups)</td>
+</tr>
+<tr>
+<td><strong>SharePoint</strong></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Source file owner + ingesting user</td>
+<td>Email / Display name</td>
+<td>Inherits file permissions via MS Graph API</td>
+</tr>
+<tr>
+<td><strong>AWS S3</strong></td>
+<td>No</td>
+<td>No</td>
+<td><strong>Ingesting user</strong></td>
+<td>OpenRAG user ID</td>
+<td>Ingesting user becomes owner; S3 ACL grants -&gt; allowed_users</td>
+</tr>
+<tr>
+<td><strong>IBM COS</strong></td>
+<td>No</td>
+<td>No</td>
+<td><strong>Ingesting user</strong></td>
+<td>OpenRAG user ID</td>
+<td>Ingesting user becomes owner; fallback to service instance ID</td>
+</tr>
+<tr>
+<td><strong>OneDrive</strong></td>
+<td>No</td>
+<td>No</td>
+<td>Source file owner + ingesting user</td>
+<td>Email / Display name</td>
+<td>Similar to SharePoint (Graph API)</td>
+</tr>
+<tr>
+<td><strong>Local Upload</strong></td>
+<td>N/A</td>
+<td>Yes</td>
+<td><strong>Uploading user</strong></td>
+<td>OpenRAG user ID</td>
+<td>Uploading user is owner; no allow-lists</td>
+</tr>
+</tbody></table>
+<hr />
+<h2 id="technical-details">Technical Details</h2>
+<h3 id="definitions">Definitions</h3>
+<ul>
+<li><strong>ACL</strong> — Access Control List: <code>owner</code>, <code>allowed_users</code>, and <code>allowed_groups</code> stored on each indexed chunk (<code>DocumentACL</code> in <code>src/connectors/base.py</code>).</li>
+<li><strong>DLS</strong> — Document-Level Security: OpenSearch Security filters reads using the <code>openrag_user_role</code> query on <code>owner</code> / <code>allowed_users</code> (see <code>securityconfig/roles.yml</code>). Users with <code>all_access</code> are not restricted by that filter.</li>
+</ul>
+<h3 id="documentacl-fields">DocumentACL Fields</h3>
+<p>From <code>src/connectors/base.py</code>:</p>
+<ul>
+<li><code>owner</code>: Single user ID (email or identifier)</li>
+<li><code>allowed_users</code>: List of user IDs who can read</li>
+<li><code>allowed_groups</code>: List of group IDs who can read</li>
+</ul>
+<h3 id="flow-diagram">Flow Diagram</h3>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="language">mermaid</span>
+                        <button class="copy-button" onclick="copyToClipboard(this)" title="Copy to clipboard">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <pre><code class="hljs language-plaintext">flowchart TD
+    A[Connector downloads file] --&gt; B[Extract source permissions]
+    B --&gt; C[Build DocumentACL]
+    C --&gt; D[Chunk document]
+    D --&gt; E[Index chunks with ACL fields]
+    E --&gt; F[User searches]
+    F --&gt; G[OpenSearch DLS filters by owner/allowed_users]
+    G --&gt; H[User sees only permitted chunks]</code></pre>
+                </div>
+            <h3 id="dls-query-logic">DLS Query Logic</h3>
+<p>From <code>securityconfig/roles.yml</code> - <code>openrag_user_role</code>:</p>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="language">json</span>
+                        <button class="copy-button" onclick="copyToClipboard(this)" title="Copy to clipboard">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"bool"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"should"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-punctuation">{</span><span class="hljs-attr">"term"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span><span class="hljs-attr">"owner"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"${user.name}"</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-punctuation">{</span><span class="hljs-attr">"term"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span><span class="hljs-attr">"allowed_users"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"${user.name}"</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-punctuation">{</span><span class="hljs-attr">"bool"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span><span class="hljs-attr">"must_not"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span><span class="hljs-attr">"exists"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span><span class="hljs-attr">"field"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"owner"</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"minimum_should_match"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+                </div>
+            <p>A user can see a chunk if:</p>
+<ol>
+<li>They are the <code>owner</code>, OR</li>
+<li>They are in <code>allowed_users</code>, OR</li>
+<li>The chunk has no <code>owner</code> field (legacy/unowned)</li>
+</ol>
+<hr />
+<h2 id="connector-specific-behavior">Connector-Specific Behavior</h2>
+<h3 id="google-drive">Google Drive</h3>
+<ul>
+<li><strong>API</strong>: <code>permissions().list</code> on Drive API</li>
+<li><strong>Owner</strong>: Email from permission with <code>role == "owner"</code> or file <code>owners[0]</code></li>
+<li><strong>allowed_users</strong>: Emails where <code>type == "user"</code></li>
+<li><strong>allowed_groups</strong>: Emails where <code>type == "group"</code></li>
+</ul>
+<h3 id="sharepoint">SharePoint</h3>
+<ul>
+<li><strong>API</strong>: MS Graph <code>/drive/items/{id}/permissions</code></li>
+<li><strong>Owner</strong>: User with <code>"owner"</code> in <code>roles</code></li>
+<li><strong>allowed_users</strong>: <code>grantedTo.user.email</code> or <code>displayName</code></li>
+<li><strong>allowed_groups</strong>: <code>grantedToIdentities.group.displayName</code> or <code>id</code></li>
+</ul>
+<h3 id="aws-s3">AWS S3</h3>
+<ul>
+<li><strong>API</strong>: <code>get_object_acl</code></li>
+<li><strong>Owner</strong>: Set to <strong>ingesting OpenRAG user</strong> (via Langflow path) or S3 ACL owner (traditional path)</li>
+<li><strong>allowed_users</strong>: S3 grantees with <code>FULL_CONTROL</code> or <code>READ</code></li>
+<li><strong>allowed_groups</strong>: Always empty (S3 object ACLs don't map to app groups)</li>
+</ul>
+<h3 id="ibm-cos">IBM COS</h3>
+<ul>
+<li>Same as S3, with fallback to <code>service_instance_id</code> when owner unavailable</li>
+</ul>
+<h3 id="local-uploads">Local Uploads</h3>
+<ul>
+<li><strong>Owner</strong>: Authenticated OpenRAG user who uploads</li>
+<li><strong>allowed_users</strong>: Empty</li>
+<li><strong>allowed_groups</strong>: Empty</li>
+</ul>
+<hr />
+<h2 id="special-cases-and-caveats">Special Cases and Caveats</h2>
+<ul>
+<li><strong>No-auth mode</strong>: <code>owner</code> is <code>None</code> - documents may be visible to all (depends on DLS clause for missing owner)</li>
+<li><strong>ACL fetch failure</strong>: Connectors degrade gracefully - Drive returns owner-only ACL, SharePoint returns empty ACL, S3/COS use fallback owner</li>
+<li><strong><code>all_access</code> users</strong>: Not filtered by DLS - see everything in the instance</li>
+</ul>
+<hr />
+<h2 id="key-files-reference">Key Files Reference</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>src/connectors/base.py</code></td>
+<td><code>DocumentACL</code> dataclass definition</td>
+</tr>
+<tr>
+<td><code>src/connectors/google_drive/connector.py</code></td>
+<td><code>_extract_google_drive_acl()</code></td>
+</tr>
+<tr>
+<td><code>src/connectors/sharepoint/connector.py</code></td>
+<td><code>_extract_sharepoint_acl()</code></td>
+</tr>
+<tr>
+<td><code>src/connectors/aws_s3/connector.py</code></td>
+<td><code>_extract_acl()</code></td>
+</tr>
+<tr>
+<td><code>src/connectors/ibm_cos/connector.py</code></td>
+<td><code>_extract_acl()</code></td>
+</tr>
+<tr>
+<td><code>src/utils/acl_utils.py</code></td>
+<td>ACL change detection and bulk updates</td>
+</tr>
+<tr>
+<td><code>securityconfig/roles.yml</code></td>
+<td>DLS query for <code>openrag_user_role</code></td>
+</tr>
+</tbody></table>
+
+</body>
+</html>
