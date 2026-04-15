@@ -13,8 +13,8 @@ To improve the chances of your PR being accepted, review the following guideline
 
 <!-- Summarize your changes. Explain what you changed _and_ why. -->
 
-<!-- In this PR, I changed/added/removed .... --->
-<!-- This change is beneficial because .... --->
+<!-- In this PR, I changed/added/removed .... -->
+<!-- This change is beneficial because .... -->
 
 ## Related issues
 
@@ -27,7 +27,9 @@ The following [issues](https://github.com/langflow-ai/openrag/issues) are relate
 
 Select all that apply:
 
+- [ ] `build`: Changes to the build system or build tooling
 - [ ] `chore`: Chore or trivial change
+- [ ] `ci`: Changes to CI/CD pipelines or GitHub Actions
 - [ ] `docs`: Documentation update
 - [ ] `feat`: New feature or enhancement
 - [ ] `fix`: Bug fix
@@ -35,7 +37,7 @@ Select all that apply:
 - [ ] `refactor`: Rewrite existing code
 - [ ] `revert`: Revert a previously merged change
 - [ ] `style`: UX/UI changes
-- [ ] `test`, `ci`, or `build`: Changes to the project's build, CI/CD, GitHub Actions, tests, etc.
+- [ ] `test`: Changes to tests or test coverage
 
 💡The first word in your PR title must match one of the change categories to pass the PR title check.
 
@@ -58,7 +60,7 @@ Select the tests you ran to verify your changes:
 
 Explanation of tests (if needed):
 
-<!-- To test the changes in this PR, I .... --->
+<!-- To test the changes in this PR, I .... -->
 <!-- I tested my changes in the following environments/OS/architectures: ... -->
 
 ## Disclosure of AI-generated code
