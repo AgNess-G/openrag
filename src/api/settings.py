@@ -1248,7 +1248,7 @@ async def onboarding(
                 )
                 if openrag_docs_filter_id:
                     logger.info(
-                        "Created OpenRAG Docs knowledge filter",
+                        "OpenRAG Docs knowledge filter ready",
                         filter_id=openrag_docs_filter_id,
                     )
                     # Save the filter ID to the config
@@ -1305,7 +1305,7 @@ async def _create_openrag_docs_filter(
         existing = await opensearch_client.search(
             index=KNOWLEDGE_FILTERS_INDEX_NAME,
             body={
-                "query": {"term": {"name.keyword": "OpenRAG Docs"}},
+                "query": {"match_phrase": {"name": "OpenRAG Docs"}},
                 "_source": ["id"],
                 "size": 1,
             },
