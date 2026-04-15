@@ -67,6 +67,7 @@ from api.v1 import (
     models as v1_models,
     knowledge_filters as v1_knowledge_filters,
 )
+from mcp_http.server import create_mcp_server
 
 # Configuration and setup
 from config.settings import (
@@ -375,13 +376,7 @@ def generate_jwt_keys():
             )
             raise
     else:
-        # Ensure correct permissions on existing keys
-        try:
-            os.chmod(private_key_path, 0o600)
-            os.chmod(public_key_path, 0o644)
-            logger.info("RSA keys already exist, ensured correct permissions")
-        except OSError as e:
-            logger.error("Failed to set permissions on existing keys", error=str(e))
+        logger.info("RSA keys already exist")
 
 
 def _get_documents_dir():
@@ -1368,8 +1363,9 @@ async def initialize_services():
     await TelemetryClient.send_event(
         Category.SERVICE_INITIALIZATION, MessageId.ORB_SVC_INIT_START
     )
-    # Generate JWT keys if they don't exist
-    generate_jwt_keys()
+    # Generate JWT keys if they don't exist and a JWT signing key isn't specified
+    if not os.getenv("JWT_SIGNING_KEY"):
+        generate_jwt_keys()
 
     from config.settings import IBM_AUTH_ENABLED
 
@@ -1480,7 +1476,7 @@ async def create_app():
     app = FastAPI(title="OpenRAG API", version=OPENRAG_VERSION, debug=True)
     app.state.services = services  # Store services for cleanup
     app.state.background_tasks = set()
-    
+
     try:
         Instrumentator().instrument(app).expose(app)
     except Exception as e:
@@ -1976,6 +1972,32 @@ async def create_app():
         tags=["public"],
     )
 
+    # ===== FastMCP Streamable HTTP Server =====
+    # Exposes /v1/* endpoints as MCP tools at POST /mcp
+    # Client config: { "url": "http://localhost:8000/mcp", "headers": { "X-API-Key": "..." } }
+    logger.info("Creating MCP server")
+    mcp_server = create_mcp_server(app)
+    mcp_http_app = mcp_server.http_app(transport="streamable-http", path="/")
+    app.mount("/mcp", mcp_http_app)
+    logger.info("MCP server mounted at /mcp (streamable-http)")
+
+    # FastMCP requires its own lifespan to be run so that the
+    # StreamableHTTPSessionManager task group is initialized before requests arrive.
+    # FastAPI does not automatically propagate lifespan to mounted sub-apps,
+    # so we wire it in manually via startup/shutdown handlers.
+    _mcp_lifespan_ctx = mcp_http_app.router.lifespan_context(mcp_http_app)
+
+    async def _start_mcp_lifespan():
+        await _mcp_lifespan_ctx.__aenter__()
+        logger.info("FastMCP lifespan started")
+
+    async def _stop_mcp_lifespan():
+        await _mcp_lifespan_ctx.__aexit__(None, None, None)
+        logger.info("FastMCP lifespan stopped")
+
+    app.add_event_handler("startup", _start_mcp_lifespan)
+    app.add_event_handler("shutdown", _stop_mcp_lifespan)
+
     # Add startup event handler
     @app.on_event("startup")
     async def startup_event():
@@ -2040,14 +2062,14 @@ async def create_app():
             Category.APPLICATION_SHUTDOWN, MessageId.ORB_APP_SHUTDOWN
         )
         logger.info("Application shutdown initiated")
-        
+
         # Gracefully shutdown OpenSearch connection first
         try:
             from utils.opensearch_utils import graceful_opensearch_shutdown
             await graceful_opensearch_shutdown(clients.opensearch)
         except Exception as e:
             logger.error("Error during graceful OpenSearch shutdown", error=str(e))
-        
+
         await cleanup_subscriptions_proper(services)
         # Cleanup task service (cancels background tasks and process pool)
         await services["task_service"].shutdown()
