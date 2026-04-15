@@ -12,8 +12,9 @@ logger = get_logger(__name__)
 class TaskProcessor:
     """Base class for task processors with shared processing logic"""
 
-    def __init__(self, document_service=None):
+    def __init__(self, document_service=None, models_service=None):
         self.document_service = document_service
+        self.models_service = models_service
 
     async def process_document_standard(
         self,
@@ -101,15 +102,35 @@ class TaskProcessor:
 
         texts = [c["text"] for c in slim_doc["chunks"]]
 
-        # Split into batches to avoid token limits (8191 limit, use 8000 with buffer)
-        text_batches = chunk_texts_for_embeddings(texts, max_tokens=8000)
+        litellm_embedding_model = await self.models_service.get_litellm_model_name(embedding_model) if self.models_service is not None else embedding_model
+
+        # Split into batches to avoid token limits (8191 limit, use 8000 with buffer or 2000 if it's ollama)
+        if "ollama" in litellm_embedding_model:
+            text_batches = chunk_texts_for_embeddings(texts, max_tokens=2000)
+        else:
+            text_batches = chunk_texts_for_embeddings(texts, max_tokens=8000)
         embeddings = []
 
         for batch in text_batches:
             resp = await clients.patched_embedding_client.embeddings.create(
-                model=embedding_model, input=batch
+                model=litellm_embedding_model, input=batch
             )
-            embeddings.extend([d.embedding for d in resp.data])
+            embeddings.extend([d["embedding"] if isinstance(d, dict) else d.embedding for d in resp.data])
+
+        if not embeddings or len(embeddings) == 0:
+            logger.error(
+                "No embeddings generated — document may be empty or unreadable",
+                file_hash=file_hash,
+                embedding_model=embedding_model,
+            )
+            return {"status": "error", "error": "No text content could be extracted from document"}
+
+        dimensions = len(embeddings[0])
+
+        # Ensure the embedding field exists for this model
+        embedding_field_name = await ensure_embedding_field_exists(
+            opensearch_client, embedding_model, get_index_name(), dimensions
+        )
 
         normalized_chunks = []
         for i, (chunk, vect) in enumerate(zip(slim_doc["chunks"], embeddings)):
@@ -201,6 +222,7 @@ class DocumentFileProcessor(TaskProcessor):
     def __init__(
         self,
         document_service,
+        models_service,
         owner_user_id: str = None,
         jwt_token: str = None,
         owner_name: str = None,
@@ -208,7 +230,7 @@ class DocumentFileProcessor(TaskProcessor):
         is_sample_data: bool = False,
         connector_type: str = "local",
     ):
-        super().__init__(document_service)
+        super().__init__(document_service, models_service)
         self.owner_user_id = owner_user_id
         self.jwt_token = jwt_token
         self.owner_name = owner_name
@@ -281,8 +303,9 @@ class ConnectorFileProcessor(TaskProcessor):
         owner_name: str = None,
         owner_email: str = None,
         document_service=None,
+        models_service=None,
     ):
-        super().__init__(document_service=document_service)
+        super().__init__(document_service=document_service, models_service=models_service)
         self.connector_service = connector_service
         self.connection_id = connection_id
         self.files_to_process = files_to_process
@@ -446,10 +469,11 @@ class S3FileProcessor(TaskProcessor):
         jwt_token: str = None,
         owner_name: str = None,
         owner_email: str = None,
+        models_service=None,
     ):
         import boto3
 
-        super().__init__(document_service)
+        super().__init__(document_service, models_service)
         self.bucket = bucket
         self.s3_client = s3_client or boto3.client("s3")
         self.owner_user_id = owner_user_id
@@ -468,7 +492,6 @@ class S3FileProcessor(TaskProcessor):
         import asyncio
         import datetime
         from config.settings import clients, get_embedding_model, get_index_name
-        from services.document_service import chunk_texts_for_embeddings
         file_task.status = TaskStatus.RUNNING
         file_task.updated_at = time.time()
 

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
+from agentd.tool_decorator import tool
+
 from auth_context import get_auth_context
+from config.embedding_constants import OPENAI_DEFAULT_EMBEDDING_MODEL
 from config.settings import (
-    EMBED_MODEL,
-    WATSONX_EMBEDDING_DIMENSIONS,
     clients,
     get_embedding_model,
+    get_openrag_config,
 )
 from services.knowledge_access import build_access_context
 from services.knowledge_backend import get_knowledge_backend_service
+from utils.container_utils import transform_localhost_url
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -20,28 +24,70 @@ EMBED_RETRY_INITIAL_DELAY = 1.0
 EMBED_RETRY_MAX_DELAY = 8.0
 
 
-class SearchService:
-    def __init__(self, session_manager=None):
-        self.session_manager = session_manager
-        self.knowledge_backend = get_knowledge_backend_service(session_manager)
+# Variable used to store the active instance for the tool wrapper
+_global_search_service = None
 
-    @staticmethod
-    def _format_embedding_model_for_client(model_name: str) -> str:
-        if any(
-            model_name.startswith(prefix + "/")
-            for prefix in ["openai", "ollama", "watsonx", "anthropic"]
-        ):
-            return model_name
-        if ":" in model_name:
-            return f"ollama/{model_name}"
-        if model_name in WATSONX_EMBEDDING_DIMENSIONS:
-            return f"watsonx/{model_name}"
+
+def register_search_service(service: "SearchService") -> None:
+    """
+    Explicitly register the active search service for the @tool wrapper.
+    This prevents stale instance risks and test interference.
+    """
+    global _global_search_service
+    _global_search_service = service
+
+
+@tool
+async def search_tool(query: str, embedding_model: str = None) -> Dict[str, Any]:
+    """
+    Use this tool to search for documents relevant to the query.
+
+    Args:
+        query (str): query string to search the corpus
+        embedding_model (str): Optional override for embedding model.
+                              If not provided, uses the current embedding
+                              model from configuration.
+
+    Returns:
+        dict (str, Any): {"results": [chunks]} on success
+    """
+    if not _global_search_service:
+        logger.error("SearchService tool called before initialization")
+        return {"results": [], "error": "Search service not available"}
+    return await _global_search_service.search_tool(query, embedding_model=embedding_model)
+
+
+class SearchService:
+    def __init__(self, session_manager=None, models_service=None):
+        self.session_manager = session_manager
+        self.models_service = models_service
+        self.knowledge_backend = get_knowledge_backend_service(session_manager)
+        self._configure_provider_env()
+
+    def _configure_provider_env(self):
+        """Set provider env vars once at init time."""
+        try:
+            config = get_openrag_config()
+            if config.providers.ollama.endpoint:
+                fixed = transform_localhost_url(config.providers.ollama.endpoint)
+                # Use setdefault to avoid clobbering existing env vars if they were
+                # set explicitly via shell, but ensures we have a working default.
+                os.environ.setdefault("OLLAMA_API_BASE", fixed)
+                os.environ.setdefault("OLLAMA_BASE_URL", fixed)
+        except Exception as e:
+            logger.debug("Could not configure Ollama endpoint from config", error=str(e))
+
+    async def _format_embedding_model_for_client(self, model_name: str) -> str:
+        # Prefer the centralized LiteLLM formatting utility from ModelsService.
+        if self.models_service is not None:
+            return await self.models_service.get_litellm_model_name(model_name)
+        # Fallback if service not injected (tests/etc)
         return model_name
 
     async def _generate_query_embedding(self, query: str, model_name: str) -> list[float]:
         import asyncio
 
-        formatted_model = self._format_embedding_model_for_client(model_name)
+        formatted_model = await self._format_embedding_model_for_client(model_name)
         delay = EMBED_RETRY_INITIAL_DELAY
         last_exception = None
 
@@ -107,7 +153,9 @@ class SearchService:
         filters = get_search_filters() or {}
         limit = get_search_limit()
         score_threshold = get_score_threshold()
-        resolved_embedding_model = embedding_model or get_embedding_model() or EMBED_MODEL
+        resolved_embedding_model = (
+            embedding_model or get_embedding_model() or OPENAI_DEFAULT_EMBEDDING_MODEL
+        )
         access_context = self._build_access_context()
         if access_context.enforce_acl and not access_context.principals:
             return {"results": [], "error": "Authentication required"}
@@ -151,7 +199,9 @@ class SearchService:
         if access_context.enforce_acl and not access_context.principals:
             return {"results": [], "error": "Authentication required"}
 
-        resolved_embedding_model = embedding_model or get_embedding_model() or EMBED_MODEL
+        resolved_embedding_model = (
+            embedding_model or get_embedding_model() or OPENAI_DEFAULT_EMBEDDING_MODEL
+        )
         return await self.knowledge_backend.search(
             query=query,
             embedding_model=resolved_embedding_model,
