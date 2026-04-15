@@ -235,10 +235,14 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
             if not embedding_model or embedding_model in embedding_fields_by_model:
                 continue
 
+            embedding = chunk.get("embedding")
+            dimensions = len(embedding) if embedding else 0
+
             embedding_fields_by_model[embedding_model] = await ensure_embedding_field_exists(
                 opensearch_client,
                 embedding_model,
                 get_index_name(),
+                dimensions,
             )
 
         for chunk in chunks:
