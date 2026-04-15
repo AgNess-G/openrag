@@ -125,13 +125,6 @@ class TaskProcessor:
             )
             return {"status": "error", "error": "No text content could be extracted from document"}
 
-        dimensions = len(embeddings[0])
-
-        # Ensure the embedding field exists for this model
-        embedding_field_name = await ensure_embedding_field_exists(
-            opensearch_client, embedding_model, get_index_name(), dimensions
-        )
-
         normalized_chunks = []
         for i, (chunk, vect) in enumerate(zip(slim_doc["chunks"], embeddings)):
             chunk_metadata = {
