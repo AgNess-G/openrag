@@ -2,7 +2,8 @@ import os
 from collections import Counter
 from typing import Any, Awaitable, Callable, Dict
 
-from config.settings import EMBED_MODEL, get_embedding_model, get_index_name
+from config.embedding_constants import OPENAI_DEFAULT_EMBEDDING_MODEL
+from config.settings import get_embedding_model, get_index_name
 from services.knowledge_access import KnowledgeAccessContext
 from services.knowledge_backend import KnowledgeBackend
 from utils.file_utils import get_filename_aliases
@@ -445,7 +446,7 @@ class AstraDBService(KnowledgeBackend):
         embedding_vector = None
         if not is_wildcard_match_all:
             resolved_embedding_model = (
-                embedding_model or get_embedding_model() or EMBED_MODEL
+                embedding_model or get_embedding_model() or OPENAI_DEFAULT_EMBEDDING_MODEL
             )
             embedding_vector = await embed_query(query, resolved_embedding_model)
 

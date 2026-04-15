@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from typing import Any, Awaitable, Callable, Dict
 
+from config.embedding_constants import OPENAI_DEFAULT_EMBEDDING_MODEL
 from config.settings import (
-    EMBED_MODEL,
     clients,
     get_embedding_model,
     get_index_name,
@@ -405,7 +405,7 @@ class OpenSearchKnowledgeBackend(KnowledgeBackend):
         available_models = []
         is_wildcard_match_all = isinstance(query, str) and query.strip() == "*"
         resolved_embedding_model = (
-            embedding_model or get_embedding_model() or EMBED_MODEL
+            embedding_model or get_embedding_model() or OPENAI_DEFAULT_EMBEDDING_MODEL
         )
 
         if not access_context.user_id and access_context.enforce_acl:
