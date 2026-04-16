@@ -1,21 +1,21 @@
-from config.paths import get_flows_path
 import asyncio
 import os
+
+from dotenv import load_dotenv
+load_dotenv(override=False)
+load_dotenv("../", override=False)
+
+from config.paths import get_flows_path
 from utils.env_utils import get_env_int, get_env_float
 
 import httpx
-from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from opensearchpy import AsyncOpenSearch
 from opensearchpy._async.http_aiohttp import AIOHttpConnection
 
 from utils.container_utils import get_container_host
 from utils.logging_config import get_logger
-# Import configuration manager
 from .config_manager import config_manager
-
-load_dotenv(override=False)
-load_dotenv("../", override=False)
 
 logger = get_logger(__name__)
 
