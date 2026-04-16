@@ -1115,6 +1115,8 @@ async def onboarding(
 
             # Update model values if provider or model fields were provided
             if body.llm_provider or body.llm_model or body.embedding_provider or body.embedding_model:
+                if not config_manager.save_config_file(current_config):
+                    logger.error("Failed to save embedding model to config")
                 await _update_langflow_model_values(current_config, flows_service)
 
         except Exception as e:
@@ -1161,9 +1163,6 @@ async def onboarding(
                     from main import ingest_default_documents_when_ready
 
                     ingestion_jwt = user.jwt_token if IBM_AUTH_ENABLED and user and user.jwt_token else None
-
-                    if not config_manager.save_config_file(current_config):
-                        logger.error("Failed to save embedding model to config")
 
                     task_id = await ingest_default_documents_when_ready(
                         document_service,
@@ -1485,15 +1484,17 @@ async def _update_mcp_servers_with_provider_credentials(config, session_manager 
 async def _update_langflow_model_values(config, flows_service):
     """Update model values across Langflow flows for all configured providers"""
     try:
+        import asyncio
+        tasks = []
+
         # 1. Update ONLY the current LLM provider
         llm_provider = config.agent.llm_provider.lower()
-        await flows_service.change_langflow_model_value(
-            llm_provider,
-            llm_model=config.agent.llm_model,
-            force_llm_update=True
-        )
-        logger.info(
-            f"Successfully updated Langflow flows for LLM provider {llm_provider}"
+        tasks.append(
+            flows_service.change_langflow_model_value(
+                llm_provider,
+                llm_model=config.agent.llm_model,
+                force_llm_update=True
+            )
         )
 
         # 2. Update ALL configured embedding providers
@@ -1514,14 +1515,17 @@ async def _update_langflow_model_values(config, flows_service):
                 else None
             )
 
-            await flows_service.change_langflow_model_value(
-                provider,
-                embedding_model=embedding_model,
-                force_embedding_update=True
+            tasks.append(
+                flows_service.change_langflow_model_value(
+                    provider,
+                    embedding_model=embedding_model,
+                    force_embedding_update=True
+                )
             )
-            logger.info(
-                f"Successfully updated Langflow flows for embedding provider {provider}"
-            )
+
+        # Run all model updates simultaneously
+        await asyncio.gather(*tasks)
+        logger.info("Successfully updated Langflow flows for all configured providers concurrently")
 
     except Exception as e:
         logger.error(f"Failed to update Langflow model values: {str(e)}")
