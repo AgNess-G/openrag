@@ -1193,13 +1193,14 @@ class FlowsService:
         # Update model field and call custom_component/update endpoint
         if "model" in template:
             if "options" not in template["model"]:
+                logger.warning(f"Model field not found in template for provider {provider_name}")
                 return False
 
             # Enable the model in Langflow first
-            if (await self._enable_model_in_langflow(provider_name, model_value)):
+            await self._enable_model_in_langflow(provider_name, model_value)
                 # Update template via Langflow API to get latest options
-                template = await self._update_component_langflow(template, template["model"]["value"]) or template
-                component_node["data"]["node"]["template"] = template
+            template = await self._update_component_langflow(template, template["model"]["value"]) or template
+            component_node["data"]["node"]["template"] = template
 
             # Find the specific model option for the provider
             if model_value:
