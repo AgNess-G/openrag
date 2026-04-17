@@ -1110,12 +1110,12 @@ async def onboarding(
                 current_config.providers.any_configured()):
                 await _update_langflow_global_variables(current_config, flows_service=flows_service)
 
+            if body.llm_provider or body.llm_model and not (body.embedding_provider or body.embedding_model):
+                await _update_langflow_model_values(current_config, flows_service, llm_model=body.llm_model, llm_provider=body.llm_provider)
+
             if body.embedding_provider or body.embedding_model:
                 await _update_mcp_servers_with_provider_credentials(current_config, session_manager=session_manager, flows_service=flows_service)
-
-            # Update model values if provider or model fields were provided
-            if body.llm_provider or body.llm_model or body.embedding_provider or body.embedding_model:
-                await _update_langflow_model_values(current_config, flows_service, body.llm_model, body.llm_provider, body.embedding_model, body.embedding_provider)
+                await _update_langflow_model_values(current_config, flows_service, embedding_model=body.embedding_model, embedding_provider=body.embedding_provider)
 
         except Exception as e:
             logger.error(
@@ -1479,57 +1479,58 @@ async def _update_mcp_servers_with_provider_credentials(config, session_manager 
         # Don't fail the entire settings update if MCP update fails
 
 
-async def _update_langflow_model_values(config, flows_service, llm_model, llm_provider, embedding_model, embedding_provider):
+async def _update_langflow_model_values(config, flows_service, llm_model=None, llm_provider=None, embedding_model=None, embedding_provider=None):
     """Update model values across Langflow flows for all configured providers"""
     try:
 
-        # 1. Update ONLY the current LLM provider
-        llm_provider = llm_provider.lower() if llm_provider else config.agent.llm_provider.lower()
-        llm_model = llm_model if llm_model else config.agent.llm_model
-        flows_service.change_langflow_model_value(
-            llm_provider,
-            llm_model=llm_model,
-            force_llm_update=True
-        )
-
-
-        if embedding_provider and embedding_model:
-            result = await flows_service.change_langflow_model_value(
-                embedding_provider,
-                embedding_model=embedding_model,
-                force_embedding_update=True
+        if not embedding_model and not embedding_provider:
+            # 1. Update ONLY the current LLM provider
+            current_llm_provider = llm_provider.lower() if llm_provider else config.agent.llm_provider.lower()
+            current_llm_model = llm_model if llm_model else config.agent.llm_model
+            await flows_service.change_langflow_model_value(
+                current_llm_provider,
+                llm_model=current_llm_model,
+                force_llm_update=True
             )
 
-            logger.info(
-                f"Successfully updated Langflow flows for embedding provider {embedding_provider}",
-                result=result
-            )
-        else: 
-            # 2. Update ALL configured embedding providers
-            embedding_providers = []
-            if config.providers.openai.configured:
-                embedding_providers.append("openai")
-            if config.providers.watsonx.configured:
-                embedding_providers.append("watsonx")
-            if config.providers.ollama.configured:
-                embedding_providers.append("ollama")
-
-            current_embedding_provider = config.knowledge.embedding_provider.lower()
-            for provider in embedding_providers:
-                # Use configured model for current provider, or None (first available) for others
-                embedding_model = (
-                    config.knowledge.embedding_model
-                    if provider == current_embedding_provider
-                    else None
+        if not llm_model and not llm_provider:
+            if embedding_provider and embedding_model:
+                result = await flows_service.change_langflow_model_value(
+                    embedding_provider,
+                    embedding_model=embedding_model,
+                    force_embedding_update=True
                 )
-                await flows_service.change_langflow_model_value(
-                        provider,
-                        embedding_model=embedding_model,
-                        force_embedding_update=True
-                    )
+
                 logger.info(
-                    f"Successfully updated Langflow flows for embedding provider {provider}"
+                    f"Successfully updated Langflow flows for embedding provider {embedding_provider}",
+                    result=result
                 )
+            else: 
+                # 2. Update ALL configured embedding providers
+                embedding_providers = []
+                if config.providers.openai.configured:
+                    embedding_providers.append("openai")
+                if config.providers.watsonx.configured:
+                    embedding_providers.append("watsonx")
+                if config.providers.ollama.configured:
+                    embedding_providers.append("ollama")
+
+                current_embedding_provider = config.knowledge.embedding_provider.lower()
+                for provider in embedding_providers:
+                    # Use configured model for current provider, or None (first available) for others
+                    embedding_model = (
+                        config.knowledge.embedding_model
+                        if provider == current_embedding_provider
+                        else None
+                    )
+                    await flows_service.change_langflow_model_value(
+                            provider,
+                            embedding_model=embedding_model,
+                            force_embedding_update=True
+                        )
+                    logger.info(
+                        f"Successfully updated Langflow flows for embedding provider {provider}"
+                    )
     except Exception as e:
         logger.error(f"Failed to update Langflow model values: {str(e)}")
         raise
