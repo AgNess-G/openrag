@@ -163,16 +163,19 @@ class ConfigManager:
         """Initialize configuration manager.
 
         Args:
-            config_file: Path to configuration file. Defaults to 'config.yaml' in project root.
+            config_file: Path to configuration file. If None, resolved lazily
+                from OPENRAG_CONFIG_PATH on first access.
         """
-        if config_file:
-            self.config_file = Path(config_file)
-        else:
-            from config.paths import get_config_file_path
-            self.config_file = Path(get_config_file_path())
+        self._config_file: Optional[Path] = Path(config_file) if config_file else None
         self._config: Optional[OpenRAGConfig] = None
 
-
+    @property
+    def config_file(self) -> Path:
+        """Lazily resolve config file path on first access."""
+        if self._config_file is None:
+            from config.paths import get_config_file_path
+            self._config_file = Path(get_config_file_path())
+        return self._config_file
 
     def load_config(self) -> OpenRAGConfig:
         """Load configuration from environment variables and config file.
