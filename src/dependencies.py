@@ -15,6 +15,7 @@ Usage:
         ...
 """
 
+import base64
 import dataclasses
 from typing import Optional
 
@@ -124,12 +125,13 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             logger.debug("[IBM Auth] IBM JWT claims decoded successfully")
             sub = claims.get("sub")
             if not sub:
-                logger.warning("IBM JWT is missing required 'sub' claim; treating as unauthenticated")
+                logger.warning(
+                    "IBM JWT is missing required 'sub' claim; treating as unauthenticated"
+                )
             else:
                 user_id = claims.get("username", sub)
                 email = claims.get("username", sub)
                 name = claims.get("display_name", claims.get("username", sub))
-
 
     if lh_credentials and lh_credentials.strip() != "":
         logger.debug("[IBM Auth] IBM LH credentials found in request headers")
@@ -165,7 +167,9 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
     # ibm_token = request.cookies.get(IBM_SESSION_COOKIE_NAME)
     if ibm_token and user_id:
         logger.debug("[IBM Auth] IBM JWT cookie present and user_id found")
-        logger.debug("[IBM Auth] LH credentials not available in header, reading from connections.json")
+        logger.debug(
+            "[IBM Auth] LH credentials not available in header, reading from connections.json"
+        )
         # lh credentials not available in header, read from connections service
         connector_service = request.app.state.services.get("connector_service")
         if connector_service:
@@ -185,7 +189,9 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
             logger.debug("[IBM Auth] IBM LH credentials set successfully")
             jwt_token = f"Basic {lh_credentials}"
         else:
-            logger.warning("[IBM Auth] IBM LH credentials not found in header or connections store. Using JWT token instead.")
+            logger.warning(
+                "[IBM Auth] IBM LH credentials not found in header or connections store. Using JWT token instead."
+            )
         user = User(
             user_id=user_id,
             email=email,
@@ -201,14 +207,18 @@ async def _get_ibm_user(request: Request, required: bool) -> Optional["User"]:
         return user
 
     if ibm_token and not user_id:
-        logger.warning("IBM JWT cookie present but could not extract user_id from claims.")
+        logger.warning(
+            "IBM JWT cookie present but could not extract user_id from claims."
+        )
         request.state.user = None
         return None
 
     # ── Option 2: ibm-auth-basic cookie (local dev, no Traefik) ─────────
     auth_header = request.cookies.get("ibm-auth-basic", "")
     if auth_header.startswith("Basic "):
-        logger.debug("[IBM Auth] Debug mode enabled, extracting IBM LH credentials from cookie")
+        logger.debug(
+            "[IBM Auth] Debug mode enabled, extracting IBM LH credentials from cookie"
+        )
         username, _ = extract_ibm_credentials(auth_header)
         logger.debug("[IBM Auth] IBM LH credentials extracted successfully")
         user = User(
@@ -350,16 +360,26 @@ async def get_api_key_user_async(
     if IBM_AUTH_ENABLED:
         ibm_username = request.headers.get("X-Username")
         ibm_api_key = request.headers.get("X-Api-Key")
+        #TODO: removed later
+        logger.debug(
+            "[IBM Auth] IBM username and API key found in request headers",
+            headers=request.headers,
+        )
         if ibm_username and ibm_api_key:
+            # check if ibm api key is base 64 encoded
+            userpass = f"{ibm_username}:{ibm_api_key}"
+            ibm_api_key_b64 = base64.b64encode(userpass.encode("utf-8")).decode("utf-8")
+       
+       
             user = User(
                 user_id=ibm_username,
                 email=ibm_username,
                 name=ibm_username,
                 picture=None,
                 provider="ibm_ams",
-                jwt_token=None,
+                jwt_token=f"Basic {ibm_api_key_b64}",
                 opensearch_username=ibm_username,
-                opensearch_credentials=ibm_api_key,
+                opensearch_credentials=ibm_api_key_b64,
             )
             request.state.user = user
             return user
