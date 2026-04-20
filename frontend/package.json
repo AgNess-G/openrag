@@ -78,6 +78,10 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5"
   },
+  "overrides": {
+    "brace-expansion": "5.0.5",
+    "picomatch": "4.0.4"
+  },
   "lint-staged": {
     "**/*.{js,ts,jsx,tsx,css}": "biome check --write --files-ignore-unknown=true"
   }

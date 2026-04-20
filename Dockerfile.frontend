@@ -3,27 +3,6 @@ FROM node:20.20.0-slim
 # Upgrade npm to fix CVEs in system npm installation
 RUN npm install -g npm@latest && npm --version
 
-# Manually fix vulnerable packages in npm's own node_modules
-RUN cd /tmp && \
-    # Download fixed versions
-    npm pack brace-expansion@5.0.5 && \
-    npm pack picomatch@4.0.4 && \
-    # Find npm installation directory
-    NPM_DIR=$(npm root -g)/npm && \
-    echo "NPM directory: $NPM_DIR" && \
-    # Replace brace-expansion
-    tar -xzf brace-expansion-5.0.5.tgz && \
-    rm -rf $NPM_DIR/node_modules/brace-expansion && \
-    cp -r package $NPM_DIR/node_modules/brace-expansion && \
-    rm -rf package && \
-    # Replace picomatch in tinyglobby
-    tar -xzf picomatch-4.0.4.tgz && \
-    mkdir -p $NPM_DIR/node_modules/tinyglobby/node_modules && \
-    rm -rf $NPM_DIR/node_modules/tinyglobby/node_modules/picomatch && \
-    cp -r package $NPM_DIR/node_modules/tinyglobby/node_modules/picomatch && \
-    # Cleanup
-    cd / && rm -rf /tmp/*
-
 # Set working directory and ensure it is owned by the non-root node user 
 WORKDIR /app
 RUN chown node:node /app
@@ -33,7 +12,7 @@ USER node
 
 # Copy frontend dependencies
 COPY --chown=node:node frontend/package*.json ./
-RUN npm install && npm audit fix --force || true
+RUN npm install
 
 # Copy frontend source
 COPY --chown=node:node frontend/ ./
