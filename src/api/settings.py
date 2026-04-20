@@ -1163,6 +1163,10 @@ async def onboarding(
                     # Import the function here to avoid circular imports
                     from main import ingest_default_documents_when_ready
 
+                    if not config_manager.save_config_file(current_config):
+                        logger.error("Failed to save embedding model to config")
+                        return JSONResponse({"error": "Failed to save configuration"}, status_code=500)
+
                     ingestion_jwt = user.jwt_token if IBM_AUTH_ENABLED and user and user.jwt_token else None
 
                     task_id = await ingest_default_documents_when_ready(
