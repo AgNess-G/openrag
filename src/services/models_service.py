@@ -497,7 +497,6 @@ class ModelsService:
                 embed_params = {
                     "version": "2026-04-15",
                     "filters": "function_embedding,!lifecycle_withdrawn",
-                    "tech_preview": False,
                 }
                 if project_id:
                     embed_params["project_id"] = project_id
