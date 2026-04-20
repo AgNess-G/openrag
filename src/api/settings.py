@@ -1110,8 +1110,11 @@ async def onboarding(
                 current_config.providers.any_configured()):
                 await _update_langflow_global_variables(current_config, flows_service=flows_service)
 
-            if body.llm_provider or body.llm_model and not (body.embedding_provider or body.embedding_model):
-                await _update_langflow_model_values(current_config, flows_service, llm_model=body.llm_model, llm_provider=body.llm_provider)
+            if (body.llm_provider or body.llm_model) and not (body.embedding_provider or body.embedding_model):
+                await _update_langflow_model_values(
+                    current_config, flows_service,
+                    llm_model=body.llm_model, llm_provider=body.llm_provider
+                )
 
             if body.embedding_provider or body.embedding_model:
                 await _update_mcp_servers_with_provider_credentials(current_config, session_manager=session_manager, flows_service=flows_service)
