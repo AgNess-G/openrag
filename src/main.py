@@ -1,3 +1,5 @@
+import bootstrap  # noqa: F401
+from contextlib import asynccontextmanager
 from utils.version_utils import OPENRAG_VERSION
 import asyncio
 import atexit
@@ -10,11 +12,12 @@ import subprocess
 import tempfile
 from html.parser import HTMLParser
 
+
 # Configure structured logging early
 from connectors.langflow_connector_service import LangflowConnectorService
 from connectors.service import ConnectorService
 from services.flows_service import FlowsService
-from utils.embeddings import create_dynamic_index_body
+from utils.embeddings import create_index_body
 from utils.logging_config import configure_from_env, get_logger
 from utils.encryption import enforce_startup_prerequisites
 from utils.telemetry import TelemetryClient, Category, MessageId
@@ -102,7 +105,7 @@ from services.knowledge_filter_service import KnowledgeFilterService
 from services.langflow_file_service import LangflowFileService
 from services.models_service import ModelsService
 from services.monitor_service import MonitorService
-from services.search_service import SearchService
+from services.search_service import SearchService, register_search_service
 from services.task_service import TaskService
 from session_manager import SessionManager
 
@@ -224,26 +227,20 @@ async def init_index(opensearch_client=None, admin_username: str = None):
 
         # Initialize OpenSearch security configuration (roles and mapping)
         from utils.opensearch_utils import setup_opensearch_security
+
         await setup_opensearch_security(os_client, admin_username=admin_username)
 
         # Get the configured embedding model from user configuration
         config = get_openrag_config()
         embedding_model = config.knowledge.embedding_model
-        embedding_provider = config.knowledge.embedding_provider
-        embedding_provider_config = config.get_embedding_provider_config()
 
-        # Create dynamic index body based on the configured embedding model
-        # Pass provider and endpoint for dynamic dimension resolution (Ollama probing)
-        dynamic_index_body = await create_dynamic_index_body(
-            embedding_model,
-            provider=embedding_provider,
-            endpoint=getattr(embedding_provider_config, "endpoint", None),
-        )
+        # Create index body
+        index_body = await create_index_body()
 
         # Create documents index
         index_name = get_index_name()
         if not await os_client.indices.exists(index=index_name):
-            await os_client.indices.create(index=index_name, body=dynamic_index_body)
+            await os_client.indices.create(index=index_name, body=index_body)
             logger.info(
                 "Created OpenSearch index",
                 index_name=index_name,
@@ -327,9 +324,11 @@ async def init_index(opensearch_client=None, admin_username: str = None):
             ) from e
         raise e
 
+
 def generate_jwt_keys():
     """Generate RSA keys for JWT signing if they don't exist"""
     from config.paths import get_keys_path
+
     keys_dir = get_keys_path()
     private_key_path = os.path.join(keys_dir, "private_key.pem")
     public_key_path = os.path.join(keys_dir, "public_key.pem")
@@ -382,6 +381,7 @@ def generate_jwt_keys():
 def _get_documents_dir():
     """Get the documents directory path, handling both Docker and local environments."""
     from config.paths import get_documents_path
+
     path = get_documents_path()
     logger.debug(f"Using documents path: {path}")
     return path
@@ -394,6 +394,7 @@ def _should_use_url_default_docs_ingest() -> bool:
 
 async def ingest_openrag_docs_when_ready(
     document_service,
+    models_service,
     task_service,
     langflow_file_service,
     session_manager,
@@ -410,6 +411,7 @@ async def ingest_openrag_docs_when_ready(
             if DISABLE_INGEST_WITH_LANGFLOW:
                 task_id = await _ingest_default_documents_url(
                     document_service=document_service,
+                    models_service=models_service,
                     docs_url=DEFAULT_DOCS_URL,
                     crawl_depth=DEFAULT_DOCS_CRAWL_DEPTH,
                     jwt_token=jwt_token,
@@ -440,6 +442,7 @@ async def ingest_openrag_docs_when_ready(
 
 async def ingest_default_documents_when_ready(
     document_service,
+    models_service,
     task_service,
     langflow_file_service,
     session_manager,
@@ -455,17 +458,9 @@ async def ingest_default_documents_when_ready(
         await TelemetryClient.send_event(
             Category.DOCUMENT_INGESTION, MessageId.ORB_DOC_DEFAULT_START
         )
-        task_id = None
-        if _should_use_url_default_docs_ingest():
-            task_id = await ingest_openrag_docs_when_ready(
-                document_service,
-                task_service,
-                langflow_file_service,
-                session_manager,
-                jwt_token=jwt_token,
-            )
-        await ingest_openrag_docs_when_ready(
+        task_id = await ingest_openrag_docs_when_ready(
             document_service,
+            models_service,
             task_service,
             langflow_file_service,
             session_manager,
@@ -495,6 +490,7 @@ async def ingest_default_documents_when_ready(
         if DISABLE_INGEST_WITH_LANGFLOW:
             new_task_id = await _ingest_default_documents_openrag(
                 document_service,
+                models_service,
                 task_service,
                 file_paths,
                 existing_task_id=task_id,
@@ -660,6 +656,7 @@ async def _ingest_default_documents_url_langflow(
 
 async def _ingest_default_documents_url(
     document_service,
+    models_service,
     docs_url: str,
     crawl_depth: int,
     jwt_token=None,
@@ -681,12 +678,17 @@ async def _ingest_default_documents_url(
         from models.processors import DocumentFileProcessor
         from utils.hash_utils import hash_id
 
+        from session_manager import AnonymousUser
+
+        anonymous_user = AnonymousUser()
+
         processor = DocumentFileProcessor(
             document_service,
+            models_service=models_service,
             owner_user_id=None,
             jwt_token=jwt_token,
-            owner_name=None,
-            owner_email=None,
+            owner_name=anonymous_user.name,
+            owner_email=anonymous_user.email,
             is_sample_data=True,
             connector_type="openrag_docs",
         )
@@ -696,8 +698,8 @@ async def _ingest_default_documents_url(
             owner_user_id=None,
             original_filename="openrag-url-default.txt",
             jwt_token=jwt_token,
-            owner_name=None,
-            owner_email=None,
+            owner_name=anonymous_user.name,
+            owner_email=anonymous_user.email,
             file_size=os.path.getsize(temp_file_path),
             connector_type="openrag_docs",
             is_sample_data=True,
@@ -792,16 +794,6 @@ async def _delete_existing_default_docs(session_manager, connector_type: str):
                             ]
                         }
                     },
-                    # Legacy file-based default docs were ingested as local and
-                    # marked with is_sample_data=true.
-                    {
-                        "bool": {
-                            "must": [
-                                {"term": {"connector_type": "local"}},
-                                {"term": {"is_sample_data": "true"}},
-                            ]
-                        }
-                    },
                 ],
                 "minimum_should_match": 1,
             }
@@ -820,6 +812,7 @@ async def _delete_existing_default_docs(session_manager, connector_type: str):
 
 async def _reingest_default_docs_on_upgrade_if_needed(
     document_service,
+    models_service,
     task_service,
     langflow_file_service,
     session_manager,
@@ -848,6 +841,7 @@ async def _reingest_default_docs_on_upgrade_if_needed(
     await _delete_existing_default_docs(session_manager, connector_type="openrag_docs")
     await ingest_openrag_docs_when_ready(
         document_service,
+        models_service,
         task_service,
         langflow_file_service,
         session_manager,
@@ -917,6 +911,7 @@ async def _get_remote_docs_signature(docs_url: str):
 
 async def refresh_default_openrag_docs(
     document_service,
+    models_service,
     task_service,
     langflow_file_service,
     session_manager,
@@ -1008,6 +1003,7 @@ async def refresh_default_openrag_docs(
         )
         await ingest_openrag_docs_when_ready(
             document_service,
+            models_service,
             task_service,
             langflow_file_service,
             session_manager,
@@ -1052,7 +1048,9 @@ async def opensearch_health_ready(request):
     from config.settings import IBM_AUTH_ENABLED, OPENSEARCH_URL
 
     if IBM_AUTH_ENABLED:
-        logger.debug("[OpenSearch Security] OpenSearch auth mode enabled, health check per-request")
+        logger.debug(
+            "[OpenSearch Security] OpenSearch auth mode enabled, health check per-request"
+        )
         # In IBM auth mode we cannot rely on the global OpenSearch client
         # (auth is established per-request), so perform a lightweight,
         # unauthenticated connectivity check against the OpenSearch endpoint.
@@ -1082,7 +1080,9 @@ async def opensearch_health_ready(request):
                     status_code=503,
                 )
         except Exception as e:
-            logger.error("[OpenSearch Security] OpenSearch health check failed", error=str(e))
+            logger.error(
+                "[OpenSearch Security] OpenSearch health check failed", error=str(e)
+            )
             return JSONResponse(
                 {
                     "status": "not_ready",
@@ -1099,7 +1099,9 @@ async def opensearch_health_ready(request):
             status_code=200,
         )
     except Exception as e:
-        logger.error("[OpenSearch Security] OpenSearch health check failed", error=str(e))
+        logger.error(
+            "[OpenSearch Security] OpenSearch health check failed", error=str(e)
+        )
         return JSONResponse(
             {
                 "status": "not_ready",
@@ -1112,6 +1114,7 @@ async def opensearch_health_ready(request):
 
 async def _ingest_default_documents_openrag(
     document_service,
+    models_service,
     task_service,
     file_paths,
     connector_type: str = "openrag_docs",
@@ -1126,12 +1129,16 @@ async def _ingest_default_documents_openrag(
 
     from models.processors import DocumentFileProcessor
 
+    from session_manager import AnonymousUser
+    anonymous_user = AnonymousUser()
+
     processor = DocumentFileProcessor(
         document_service,
+        models_service=models_service,
         owner_user_id=None,
         jwt_token=jwt_token,
-        owner_name=None,
-        owner_email=None,
+        owner_name=anonymous_user.name,
+        owner_email=anonymous_user.email,
         is_sample_data=True,
         connector_type=connector_type,
     )
@@ -1221,6 +1228,19 @@ async def startup_tasks(services):
         Category.APPLICATION_STARTUP, MessageId.ORB_APP_START_INIT
     )
 
+    # Update model registry to allow further search calls to be instant
+    try:
+        models_service = services["models_service"]
+        await models_service.update_model_registry()
+    except Exception as e:
+        logger.error(
+            "Failed to update model registry at startup — "
+            "models may be missing until the next restart",
+            error=str(e),
+        )
+
+
+
     if IBM_AUTH_ENABLED:
         logger.info(
             "IBM auth mode: skipping startup OpenSearch checks. "
@@ -1234,12 +1254,13 @@ async def startup_tasks(services):
         # Setup OpenSearch security (roles and mappings) after connection is established
         try:
             from utils.opensearch_utils import setup_opensearch_security
+
             await setup_opensearch_security(clients.opensearch)
             logger.info("OpenSearch security configuration completed successfully")
         except Exception as e:
             logger.warning(
                 "Failed to setup OpenSearch security configuration - continuing anyway",
-                error=str(e)
+                error=str(e),
             )
 
         if DISABLE_INGEST_WITH_LANGFLOW:
@@ -1280,6 +1301,7 @@ async def startup_tasks(services):
     try:
         upgrade_reingested = await _reingest_default_docs_on_upgrade_if_needed(
             services["document_service"],
+            services["models_service"],
             services["task_service"],
             services["langflow_file_service"],
             services["session_manager"],
@@ -1291,6 +1313,7 @@ async def startup_tasks(services):
         try:
             await refresh_default_openrag_docs(
                 services["document_service"],
+                services["models_service"],
                 services["task_service"],
                 services["langflow_file_service"],
                 services["session_manager"],
@@ -1386,13 +1409,14 @@ async def initialize_services():
     session_manager = SessionManager(SESSION_SECRET)
 
     # Initialize services
-    document_service = DocumentService(session_manager=session_manager)
-    search_service = SearchService(session_manager)
-    task_service = TaskService(document_service, ingestion_timeout=INGESTION_TIMEOUT)
+    models_service = ModelsService()
+    document_service = DocumentService(session_manager=session_manager, models_service=models_service)
+    search_service = SearchService(session_manager, models_service)
+    register_search_service(search_service)
+    task_service = TaskService(document_service, models_service, ingestion_timeout=INGESTION_TIMEOUT)
     flows_service = FlowsService()
     chat_service = ChatService(flows_service=flows_service)
     knowledge_filter_service = KnowledgeFilterService(session_manager)
-    models_service = ModelsService()
     monitor_service = MonitorService(session_manager)
     langflow_file_service = LangflowFileService(flows_service=flows_service)
 
@@ -1407,6 +1431,8 @@ async def initialize_services():
         index_name=get_index_name(),
         task_service=task_service,
         session_manager=session_manager,
+        models_service=models_service,
+        document_service=document_service,
     )
 
     # Create connector router that chooses based on configuration
@@ -1469,11 +1495,116 @@ async def initialize_services():
     }
 
 
+async def _periodic_backup(services):
+    """Periodic backup task that runs every 5 minutes"""
+    while True:
+        try:
+            await asyncio.sleep(5 * 60)  # Wait 5 minutes
+
+            # Check if onboarding has been completed
+            config = get_openrag_config()
+            if not config.edited:
+                logger.debug("Onboarding not completed yet, skipping periodic backup")
+                continue
+
+            flows_service = services.get("flows_service")
+            if flows_service:
+                logger.info("Running periodic flow backup")
+                backup_results = await flows_service.backup_all_flows(only_if_changed=True)
+                if backup_results["backed_up"]:
+                    logger.info(
+                        "Periodic backup completed",
+                        backed_up=len(backup_results["backed_up"]),
+                        skipped=len(backup_results["skipped"]),
+                    )
+                else:
+                    logger.debug(
+                        "Periodic backup: no flows changed",
+                        skipped=len(backup_results["skipped"]),
+                    )
+        except asyncio.CancelledError:
+            logger.info("Periodic backup task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic backup task: {str(e)}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan handler for startup and shutdown tasks"""
+    # STARTUP
+
+    services = app.state.services
+
+    # 1. Start MCP lifespan (must happen first)
+    mcp_lifespan_ctx = getattr(app.state, "mcp_lifespan_ctx", None)
+    if mcp_lifespan_ctx:
+        await mcp_lifespan_ctx.__aenter__()
+        logger.info("FastMCP lifespan started")
+
+    # 2. Telemetry
+    await TelemetryClient.send_event(Category.APPLICATION_STARTUP, MessageId.ORB_APP_STARTED)
+
+    # 3. Startup tasks (background)
+    t1 = asyncio.create_task(startup_tasks(services))
+    app.state.background_tasks.add(t1)
+    t1.add_done_callback(app.state.background_tasks.discard)
+
+    # 4. Periodic tasks
+    services["task_service"].start_cleanup_scheduler()
+    backup_task = asyncio.create_task(_periodic_backup(services))
+    app.state.background_tasks.add(backup_task)
+    backup_task.add_done_callback(app.state.background_tasks.discard)
+
+    yield
+
+    # SHUTDOWN
+    logger.info("Application shutdown span initiated")
+
+    # 1. Telemetry shutdown event
+    await TelemetryClient.send_event(Category.APPLICATION_SHUTDOWN, MessageId.ORB_APP_SHUTDOWN)
+
+    # 2. Stop MCP lifespan
+    if mcp_lifespan_ctx:
+        await mcp_lifespan_ctx.__aexit__(None, None, None)
+        logger.info("FastMCP lifespan stopped")
+
+    # 3. Graceful OpenSearch shutdown
+    try:
+        from utils.opensearch_utils import graceful_opensearch_shutdown
+
+        await graceful_opensearch_shutdown(clients.opensearch)
+    except Exception as e:
+        logger.error("Error during graceful OpenSearch shutdown", error=str(e))
+
+    # 4. Subscriptions cleanup
+    await cleanup_subscriptions_proper(services)
+
+    # 5. Task service shutdown
+    await services["task_service"].shutdown()
+
+    # 6. Global clients cleanup
+    await clients.cleanup()
+
+    # 7. Telemetry client cleanup
+    from utils.telemetry.client import cleanup_telemetry_client
+
+    await cleanup_telemetry_client()
+
+    logger.info("Application shutdown span completed")
+
+
+
 async def create_app():
     """Create and configure the FastAPI application"""
     services = await initialize_services()
 
-    app = FastAPI(title="OpenRAG API", version=OPENRAG_VERSION, debug=True)
+    app = FastAPI(
+        title="OpenRAG API",
+        version=OPENRAG_VERSION,
+        debug=True,
+        lifespan=lifespan
+    )
     app.state.services = services  # Store services for cleanup
     app.state.background_tasks = set()
 
@@ -1984,104 +2115,11 @@ async def create_app():
     # FastMCP requires its own lifespan to be run so that the
     # StreamableHTTPSessionManager task group is initialized before requests arrive.
     # FastAPI does not automatically propagate lifespan to mounted sub-apps,
-    # so we wire it in manually via startup/shutdown handlers.
-    _mcp_lifespan_ctx = mcp_http_app.router.lifespan_context(mcp_http_app)
-
-    async def _start_mcp_lifespan():
-        await _mcp_lifespan_ctx.__aenter__()
-        logger.info("FastMCP lifespan started")
-
-    async def _stop_mcp_lifespan():
-        await _mcp_lifespan_ctx.__aexit__(None, None, None)
-        logger.info("FastMCP lifespan stopped")
-
-    app.add_event_handler("startup", _start_mcp_lifespan)
-    app.add_event_handler("shutdown", _stop_mcp_lifespan)
-
-    # Add startup event handler
-    @app.on_event("startup")
-    async def startup_event():
-        await TelemetryClient.send_event(
-            Category.APPLICATION_STARTUP, MessageId.ORB_APP_STARTED
-        )
-        # Start index initialization in background to avoid blocking OIDC endpoints
-        t1 = asyncio.create_task(startup_tasks(services))
-        app.state.background_tasks.add(t1)
-        t1.add_done_callback(app.state.background_tasks.discard)
-
-        # Start periodic task cleanup scheduler
-        services["task_service"].start_cleanup_scheduler()
-
-        # Start periodic flow backup task (every 5 minutes)
-        async def periodic_backup():
-            """Periodic backup task that runs every 15 minutes"""
-            while True:
-                try:
-                    await asyncio.sleep(5 * 60)  # Wait 5 minutes
-
-                    # Check if onboarding has been completed
-                    config = get_openrag_config()
-                    if not config.edited:
-                        logger.debug(
-                            "Onboarding not completed yet, skipping periodic backup"
-                        )
-                        continue
-
-                    flows_service = services.get("flows_service")
-                    if flows_service:
-                        logger.info("Running periodic flow backup")
-                        backup_results = await flows_service.backup_all_flows(
-                            only_if_changed=True
-                        )
-                        if backup_results["backed_up"]:
-                            logger.info(
-                                "Periodic backup completed",
-                                backed_up=len(backup_results["backed_up"]),
-                                skipped=len(backup_results["skipped"]),
-                            )
-                        else:
-                            logger.debug(
-                                "Periodic backup: no flows changed",
-                                skipped=len(backup_results["skipped"]),
-                            )
-                except asyncio.CancelledError:
-                    logger.info("Periodic backup task cancelled")
-                    break
-                except Exception as e:
-                    logger.error(f"Error in periodic backup task: {str(e)}")
-                    # Continue running even if one backup fails
-
-        backup_task = asyncio.create_task(periodic_backup())
-        app.state.background_tasks.add(backup_task)
-        backup_task.add_done_callback(app.state.background_tasks.discard)
-
-    # Add shutdown event handler
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        await TelemetryClient.send_event(
-            Category.APPLICATION_SHUTDOWN, MessageId.ORB_APP_SHUTDOWN
-        )
-        logger.info("Application shutdown initiated")
-
-        # Gracefully shutdown OpenSearch connection first
-        try:
-            from utils.opensearch_utils import graceful_opensearch_shutdown
-            await graceful_opensearch_shutdown(clients.opensearch)
-        except Exception as e:
-            logger.error("Error during graceful OpenSearch shutdown", error=str(e))
-
-        await cleanup_subscriptions_proper(services)
-        # Cleanup task service (cancels background tasks and process pool)
-        await services["task_service"].shutdown()
-        # Cleanup async clients (this will also close OpenSearch client if not already closed)
-        await clients.cleanup()
-        # Cleanup telemetry client
-        from utils.telemetry.client import cleanup_telemetry_client
-
-        await cleanup_telemetry_client()
-        logger.info("Application shutdown completed")
+    # so we wire it in manually via the main app lifespan.
+    app.state.mcp_lifespan_ctx = mcp_http_app.router.lifespan_context(mcp_http_app)
 
     return app
+
 
 
 def cleanup():
