@@ -760,8 +760,17 @@ async def _materialize_default_docs_url_as_text_file(
     return temp_file.name
 
 
-async def _delete_existing_default_docs(session_manager, connector_type: str):
-    """Delete previously ingested default OpenRAG docs before reingestion."""
+async def _delete_existing_default_docs(
+    session_manager, connector_type: str, jwt_token=None
+):
+    """Delete previously ingested default OpenRAG docs before reingestion.
+
+    Default docs are always owned by the anonymous user — the delete query
+    filters on that owner regardless of who triggered the refresh. The
+    optional ``jwt_token`` is used only for the OpenSearch auth header
+    (e.g. the caller's IBM Lakehouse Basic credentials when the managed
+    cluster won't accept the anonymous Bearer JWT).
+    """
     from session_manager import AnonymousUser
 
     if session_manager is None:
@@ -771,10 +780,11 @@ async def _delete_existing_default_docs(session_manager, connector_type: str):
         return
 
     anonymous_user = AnonymousUser()
-    effective_jwt = None
-    if session_manager:
+    effective_jwt = jwt_token
+
+    if not effective_jwt:
         session_manager.get_user_opensearch_client(
-            anonymous_user.user_id, effective_jwt
+            anonymous_user.user_id, None
         )
         if hasattr(session_manager, "_anonymous_jwt"):
             effective_jwt = session_manager._anonymous_jwt
@@ -1002,7 +1012,9 @@ async def refresh_default_openrag_docs(
             new_signature=signature,
         )
         await _delete_existing_default_docs(
-            session_manager, connector_type="openrag_docs"
+            session_manager,
+            connector_type="openrag_docs",
+            jwt_token=jwt_token,
         )
         await ingest_openrag_docs_when_ready(
             document_service,
