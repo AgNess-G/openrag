@@ -16,6 +16,7 @@ from config.settings import (
     LANGFLOW_INGEST_FLOW_ID,
     LANGFLOW_PUBLIC_URL,
     LOCALHOST_URL,
+    OPENRAG_INGEST_VIA_CHAT,
     clients,
     get_openrag_config,
     config_manager,
@@ -173,6 +174,7 @@ class SettingsResponse(BaseModel):
     langflow_edit_url: Optional[str] = None
     langflow_ingest_edit_url: Optional[str] = None
     ingestion_defaults: Optional[IngestionDefaultsConfig] = None
+    ingest_via_chat: bool = False
 
 
 class OnboardingResponse(BaseModel):
@@ -376,6 +378,7 @@ async def get_settings(
             langflow_edit_url=langflow_edit_url,
             langflow_ingest_edit_url=langflow_ingest_edit_url,
             ingestion_defaults=ingestion_defaults_obj,
+            ingest_via_chat=OPENRAG_INGEST_VIA_CHAT,
         )
 
     except Exception as e:
@@ -598,7 +601,9 @@ async def update_settings(
                 logger.error(f"Failed to update docling settings in flow: {str(e)}")
 
         if body.picture_descriptions is not None:
-            current_config.knowledge.picture_descriptions = body.picture_descriptions
+            from config.settings import IBM_AUTH_ENABLED
+            effective_picture_descriptions = False if IBM_AUTH_ENABLED else body.picture_descriptions
+            current_config.knowledge.picture_descriptions = effective_picture_descriptions
             config_updated = True
             await TelemetryClient.send_event(
                 Category.SETTINGS_OPERATIONS,
@@ -1967,6 +1972,17 @@ async def refresh_openrag_docs(
 
         ingestion_jwt = (
             user.jwt_token if IBM_AUTH_ENABLED and user and user.jwt_token else None
+        )
+        logger.debug(
+            "refresh_openrag_docs jwt source",
+            ibm_auth=IBM_AUTH_ENABLED,
+            has_user=bool(user),
+            has_token=bool(ingestion_jwt),
+            scheme=(
+                ingestion_jwt.split(" ", 1)[0]
+                if isinstance(ingestion_jwt, str) and " " in ingestion_jwt
+                else None
+            ),
         )
 
         refreshed = await refresh_default_openrag_docs(
