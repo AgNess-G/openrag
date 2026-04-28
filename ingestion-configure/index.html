@@ -11,7 +11,7 @@
 <script>!function(){function e(){if(void 0!==window.truste&&window.truste.cma){var e=window.truste.cma.callApi("getConsent",window.location.href)||{},n=1===e[2],t=1===e[3];gtag("consent","update",{ad_storage:n?"granted":"denied",ad_user_data:n?"granted":"denied",ad_personalization:n?"granted":"denied",analytics_storage:t?"granted":"denied"})}}window.addEventListener&&(window.addEventListener("cm_data_subject_consent_changed",e),window.addEventListener("cm_consent_preferences_set",e)),"complete"===document.readyState?e():window.addEventListener("load",e)}()</script>
 <script>window._ibmAnalytics={settings:{name:"DataStax",tealiumProfileName:"ibm-subsidiary"},trustarc:{privacyPolicyLink:"https://ibm.com/privacy"}},window.digitalData={page:{pageInfo:{ibm:{siteId:"IBM_DataStax"}},category:{primaryCategory:"PC230"}}}</script>
 <script src="//1.www.s81c.com/common/stats/ibm-common.js" async="true"></script><link rel="stylesheet" href="/assets/css/styles.dd48e280.css">
-<script src="/assets/js/runtime~main.9cad6a8b.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.07c678aa.js" defer="defer"></script>
 <script src="/assets/js/main.09bf4d0a.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -86,14 +86,24 @@ This is because the agent cannot access the model to generate a query embedding 
 <p>You can edit the following settings on the OpenRAG <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings2 lucide-settings-2" aria-hidden="true"><path d="M14 17H5"></path><path d="M19 7h-9"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg> <strong>Settings</strong> page in the <strong>Knowledge Ingest</strong> section:</p>
 <ul>
 <li class="">
-<p><strong>Chunk size</strong>: Set the number of characters for each text chunk when breaking down a file.
-Larger chunks yield more context per chunk, but can include irrelevant information. Smaller chunks yield more precise semantic search, but can lack context.
-The default value is 1000 characters, which is usually a good balance between context and precision.</p>
+<p><strong>Chunk size</strong>: Set the average number of characters for each text chunk when breaking down a file.</p>
+<p>Larger chunks yield more context per chunk, but can include irrelevant information.
+Smaller chunks yield more precise semantic search, but can lack context.</p>
+<p>The default value is 1000 characters, which is usually a good balance between context and precision.</p>
+<div class="theme-admonition theme-admonition-warning admonition_xJq3 alert alert--warning"><div class="admonitionHeading_Gvgb"><span class="admonitionIcon_Rf37"><svg viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8.893 1.5c-.183-.31-.52-.5-.887-.5s-.703.19-.886.5L.138 13.499a.98.98 0 0 0 0 1.001c.193.31.53.501.886.501h13.964c.367 0 .704-.19.877-.5a1.03 1.03 0 0 0 .01-1.002L8.893 1.5zm.133 11.497H6.987v-2.003h2.039v2.003zm0-3.004H6.987V5.987h2.039v4.006z"></path></svg></span>warning</div><div class="admonitionContent_BuS1"><p>The <strong>Chunk size</strong> must be less than the maximum token length supported by your embedding model.
+To determine this value, see the documentation for your embedding model or provider.</p><p>Because <strong>Chunk size</strong> is an average, actual chunks can be larger or smaller than the specified value.
+To account for variations in chunking and ensure that no chunks exceed the model&#x27;s limits, <strong>Chunk size</strong> must <em>not</em> be equal to the model&#x27;s maximum token length.</p><p>If ingestion fails with errors like <code>ContextLengthExceeded</code> and <code>reduce the length of the input</code>, this indicates that some chunks exceed the model&#x27;s maximum token length.
+Decrease the <strong>Chunk size</strong>, and then retry ingestion.
+Repeat this process until you find a value that works consistently for your documents and embedding model.</p></div></div>
 </li>
 <li class="">
-<p><strong>Chunk overlap</strong>: Set the number of characters to overlap over chunk boundaries.
-Use larger overlap values for documents where context is most important. Use smaller overlap values for simpler documents or when optimization is most important.
-The default value is 200 characters, which represents an overlap of 20 percent with the default <strong>Chunk size</strong> of 1000. This is suitable for general use. For faster processing, decrease the overlap to approximately 10 percent. For more complex documents where you need to preserve context across chunks, increase it to approximately 40 percent.</p>
+<p><strong>Chunk overlap</strong>: Set the number of characters to overlap over chunk boundaries.</p>
+<p>Use larger overlap values for documents where context is most important.
+Use smaller overlap values for simpler documents or when optimization is most important.</p>
+<p>The default value is 200 characters, which represents an overlap of 20 percent with the default <strong>Chunk size</strong> of 1000.
+This is suitable for general use.
+For faster processing, decrease the overlap to approximately 10 percent.
+For more complex documents where you need to preserve context across chunks, increase it to approximately 40 percent.</p>
 </li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="configure-table-parsing">Configure table parsing<a href="#configure-table-parsing" class="hash-link" aria-label="Direct link to Configure table parsing" title="Direct link to Configure table parsing" translate="no">​</a></h2>
