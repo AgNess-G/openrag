@@ -46,6 +46,14 @@ RUN if ! getent group 1000 >/dev/null; then \
     && chown -R root:0 /app \
     && chmod -R g+rwX /app
 
+# Pre-create writable directories that langflow needs at runtime
+# These must be writable by the application user (UID 1000 or arbitrary OpenShift UID)
+RUN mkdir -p /opt/app-root/src/.mem0 \
+    && mkdir -p /opt/app-root/src/.cache \
+    && mkdir -p /opt/app-root/src/.gunicorn \
+    && chown -R root:0 /opt/app-root/src/.mem0 /opt/app-root/src/.cache /opt/app-root/src/.gunicorn \
+    && chmod -R g+rwX /opt/app-root/src/.mem0 /opt/app-root/src/.cache /opt/app-root/src/.gunicorn
+
 # NOTE: Container runs as root initially so entrypoint can fix permissions
 # The entrypoint script drops to UID 1000 before executing the main process
 

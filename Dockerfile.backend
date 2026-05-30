@@ -41,7 +41,8 @@ WORKDIR /app
 # Dependency layer: reuse as long as lockfile and pyproject don't change
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv,uid=0,gid=0 \
-    uv sync
+    uv sync \
+    && pip install --no-cache-dir python-dotenv
 
 # Application (invalidates after deps only when src/flows change)
 COPY src/ ./src/
