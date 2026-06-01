@@ -4,17 +4,20 @@
 # Stage 1: Official langflow image (source)
 FROM docker.io/langflowai/langflow:1.9.5 AS langflow-source
 
-# Stage 2: UBI9 minimal runtime (smaller image)
+# Stage 2: UBI9 minimal runtime with required libraries
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
 # Switch to root to install system packages
 USER 0
 
-# Install minimal system dependencies needed for langflow runtime
-# The Python installation is copied from the official image, so we only need basic libs
+# Install minimal system dependencies needed for Python runtime
+# Python 3.12 requires: glibc, libm (math), libpthread, libdl, libutil, librt
 RUN microdnf install -y \
     ca-certificates \
     shadow-utils \
+    glibc \
+    glibc-common \
+    libgcc \
     && microdnf clean all
 
 # Copy the entire langflow installation from official image
