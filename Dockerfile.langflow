@@ -2,7 +2,7 @@
 # Multi-stage build: Copy langflow from official image to UBI9 base
 
 # Stage 1: Official langflow image (source)
-FROM docker.io/langflowai/langflow:1.9.0 AS langflow-source
+FROM docker.io/langflowai/langflow:1.9.5 AS langflow-source
 
 # Stage 2: UBI9 minimal runtime (smaller image)
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
