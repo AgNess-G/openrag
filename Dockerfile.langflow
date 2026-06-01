@@ -1,19 +1,71 @@
 # syntax=docker/dockerfile:1.4
-FROM langflowai/langflow:1.9.0
+# UBI 9 Python 3.11 base image for enterprise compliance
+FROM registry.access.redhat.com/ubi9/python-311:latest
 
-# Install uv and pre-create the Langflow data directory.
-# The base image already runs as uid=1000 and owns /app, so no root or chown needed.
-RUN pip install uv \
-    && pip uninstall -y litellm \
-    && mkdir -p /app/langflow-data
+# Switch to root to install system packages
+USER 0
 
+# Install system dependencies
+RUN dnf install -y --allowerasing \
+    git \
+    gcc \
+    gcc-c++ \
+    make \
+    ca-certificates \
+    && dnf clean all
+
+# Install pysqlite3-binary first to provide SQLite >= 3.35.0 (UBI9 has 3.34.1)
+# Then create sitecustomize.py to override sqlite3 module globally
+# This is required by chromadb which is a dependency of langflow
+RUN pip install --no-cache-dir pysqlite3-binary \
+    && python -c "import site, pathlib; p=pathlib.Path(site.getsitepackages()[0])/'sitecustomize.py'; p.write_text('import sys\\nimport pysqlite3\\nsys.modules[\"sqlite3\"]=pysqlite3\\n')"
+
+# Install Langflow and dependencies
+# Note: Keep litellm (unlike the original openrag Dockerfile which removes it)
+# The official langflowai/langflow:1.9.0 image includes litellm 1.83.0
+RUN pip install --no-cache-dir \
+    langflow==1.9.0 \
+    uv
+
+# Set environment variables to match official langflow image
+ENV LANGFLOW_HOST=0.0.0.0 \
+    LANGFLOW_PORT=7860
+
+# Create application directory and langflow data directory
+WORKDIR /app
+RUN mkdir -p /app/langflow-data \
+    && mkdir -p /app/data
+
+# Copy flows
 COPY flows/ /app/flows/
 
-# Copy the entrypoint before switching to root so the COPY runs as uid=1000
-# (which owns /app), then switch to root so the entrypoint can correct
-# bind-mount permissions at runtime before dropping back to uid=1000.
+# Copy the entrypoint script
 COPY --chmod=755 scripts/langflow-entrypoint.py /usr/local/bin/langflow-entrypoint
-USER root
+
+# Pre-create writable directories that langflow needs at runtime
+# These must be writable by the application user (UID 1000 or arbitrary OpenShift UID)
+# Official langflow uses HOME=/app/data, so cache/config dirs will be under there
+RUN mkdir -p /app/data/.cache \
+    && mkdir -p /app/data/.local \
+    && mkdir -p /app/data/.config \
+    && mkdir -p /opt/app-root/src/.mem0 \
+    && mkdir -p /opt/app-root/src/.cache \
+    && mkdir -p /opt/app-root/src/.gunicorn
+
+# Set proper ownership for the app directory with OpenShift compatibility
+# Official langflow image uses uid=1000(user) gid=0(root) with HOME=/app/data
+# Use root group (GID 0) with group-write permissions for OpenShift arbitrary UIDs
+RUN if ! getent group 1000 >/dev/null; then \
+        groupadd --gid 1000 langflow; \
+    fi \
+    && if ! getent passwd 1000 >/dev/null; then \
+        useradd --uid 1000 --gid 0 --home-dir /app/data langflow; \
+    fi \
+    && chown -R 1000:0 /app /opt/app-root/src/.mem0 /opt/app-root/src/.cache /opt/app-root/src/.gunicorn \
+    && chmod -R g+rwX /app /opt/app-root/src/.mem0 /opt/app-root/src/.cache /opt/app-root/src/.gunicorn
+
+# NOTE: Container runs as root initially so entrypoint can fix permissions
+# The entrypoint script drops to UID 1000 before executing the main process
 
 EXPOSE 7860
 
